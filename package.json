@@ -1,0 +1,48 @@
+{
+  "name": "lexflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SaaS de consulta e acompanhamento de processos judiciais nos tribunais brasileiros",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "bin": {
+    "lexflow": "./dist/main/cli.js"
+  },
+  "main": "./dist/main/http/index.js",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/main/http/index.ts",
+    "cli": "tsx --env-file-if-exists=.env src/main/cli.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main/http/index.js",
+    "start:local": "node --env-file-if-exists=.env dist/main/http/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{ts,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,json,md}\"",
+    "check": "npm run typecheck && npm run lint && npm run test"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.1.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "fastify": "^5.12.1",
+    "fastify-plugin": "^5.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^2.1.8",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vitest": "^2.1.8"
+  }
+}

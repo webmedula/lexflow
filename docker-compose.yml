@@ -1,0 +1,40 @@
+# Compose para validar a imagem LOCALMENTE antes de subir no Easypanel.
+# O Easypanel não usa este arquivo — ele constrói a partir do Dockerfile.
+#
+#   docker compose up --build
+#   curl -H "x-api-key: chave-local-de-desenvolvimento" \
+#        http://localhost:3000/v1/processos/1234567-47.2023.8.26.0100
+#
+# Se funcionar aqui, funciona lá: é a mesma imagem.
+
+services:
+  api:
+    build: .
+    ports:
+      - '3000:3000'
+    environment:
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: '3000'
+      LEXFLOW_PROVIDER_CHAIN: mock-crawler-tjsp,datajud
+      LEXFLOW_API_KEYS: chave-local-de-desenvolvimento
+      # Deixe vazio para rodar só com o crawler mock; preencha para exercitar
+      # o DataJud de verdade.
+      DATAJUD_API_KEY: '${DATAJUD_API_KEY:-}'
+      MOCK_CRAWLER_LATENCY_MS: '120'
+      MOCK_CRAWLER_FAILURE_RATE: '0'
+      CACHE_TTL_SECONDS: '900'
+      RATE_LIMIT_MAX: '60'
+      LOG_LEVEL: debug
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

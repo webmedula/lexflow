@@ -1,0 +1,268 @@
+# LexFlow
+
+SaaS de consulta e acompanhamento de processos judiciais nos tribunais
+brasileiros. Este repositório contém o **núcleo do MVP**: domínio, orquestrador
+de busca híbrida, adapters de fonte de dados, uma API HTTP e um CLI.
+
+> Regras de código, convenções e guia de extensão em **[CLAUDE.md](./CLAUDE.md)**.
+> Deploy no Easypanel em **[DEPLOY.md](./DEPLOY.md)**.
+
+---
+
+## Por que "híbrido"
+
+Nenhuma fonte sozinha atende um advogado:
+
+- A **API Pública do DataJud (CNJ)** é gratuita e cobre ~91 tribunais, mas só tem
+  metadados: **não indexa partes nem advogados** — logo, busca por OAB é
+  impossível — e devolve o rótulo do movimento na tabela do CNJ, não o inteiro
+  teor do despacho.
+- Um **crawler próprio** do tribunal traz partes, advogados e a íntegra das
+  decisões, mas cobre um tribunal por vez e depende de o site estar no ar.
+
+O LexFlow põe as duas atrás da mesma interface (`ProcessoProvider`) e as encadeia
+com fallback automático. Se o crawler cai, o DataJud responde; a consulta
+continua funcionando, com menos detalhe — e o campo `procedencia` diz de onde
+veio cada resposta.
+
+---
+
+## Requisitos
+
+- Node.js **20.12 ou superior** (usa `fetch` nativo e `--env-file-if-exists`)
+- npm 10+
+
+---
+
+## Instalação
+
+```bash
+npm install
+cp .env.example .env
+```
+
+O `.env` já vem funcional: a cadeia padrão é `mock-crawler-tjsp,datajud`, e sem
+`DATAJUD_API_KEY` o DataJud é simplesmente omitido da cadeia com um aviso. Ou
+seja, **dá para rodar tudo sem credencial nenhuma.**
+
+### Ligando o DataJud (opcional)
+
+1. Pegue a Chave Pública em <https://datajud-wiki.cnj.jus.br/api-publica/acesso/>
+2. Cole em `DATAJUD_API_KEY` no `.env` (só a chave; o prefixo `APIKey` é
+   adicionado pelo adapter)
+
+---
+
+## API HTTP
+
+```bash
+npm run build && npm run start:local
+# ou, em desenvolvimento, com reload:
+npm run dev
+```
+
+Exige `LEXFLOW_API_KEYS` no `.env` — o serviço **se recusa a subir sem chave**
+(a menos que você declare `LEXFLOW_AUTH_DISABLED=true`). Gere uma com
+`openssl rand -hex 32`.
+
+| Método | Rota | Auth |
+|---|---|---|
+| GET | `/health` — processo vivo, sem tocar em fonte externa | não |
+| GET | `/ready` — consegue atender? lista o estado das fontes | não |
+| GET | `/v1/processos/:numero` | sim |
+| GET | `/v1/advogados/:uf/:oab/processos` | sim |
+
+```bash
+curl -H "x-api-key: SUA_CHAVE" \
+  http://localhost:3000/v1/processos/1234567-47.2023.8.26.0100
+```
+
+`Authorization: Bearer <chave>` também funciona. Toda resposta de processo traz
+`x-lexflow-fonte` e `x-lexflow-cache`, para você saber de onde veio o dado e se
+foi servido da memória.
+
+Os códigos de status separam **culpa do cliente** (400/404), **falha rio acima**
+(502/503) e **bug nosso** (500) — a tabela completa está no
+[DEPLOY.md](./DEPLOY.md#códigos-de-status). Tribunal fora do ar nunca vira 500,
+para não afogar o alarme em ruído que não é seu.
+
+---
+
+## Uso pelo CLI
+
+O CLI continua valendo como ferramenta de diagnóstico — mesmos casos de uso, sem
+servidor no meio.
+
+```bash
+# consulta por número CNJ (com ou sem máscara)
+npm run cli -- processo 1234567-47.2023.8.26.0100
+npm run cli -- processo 12345674720238260100 --json
+
+# carteira do advogado
+npm run cli -- oab 234567 SP
+
+# estado das fontes
+npm run cli -- saude
+```
+
+Números disponíveis na massa de teste do crawler mock:
+
+| Número | Situação |
+|---|---|
+| `1234567-47.2023.8.26.0100` | processo completo, com partes e inteiro teor |
+| `0007652-12.2022.8.26.0224` | execução, penhora via SISBAJUD |
+| `1000234-92.2024.8.26.0011` | juizado especial, audiência designada |
+| `5551234-79.2021.8.26.0053` | **segredo de justiça** |
+| `0000832-35.2018.4.01.3202` | TRF1 — fora do crawler, exige DataJud |
+
+OABs com carteira: `234567/SP`, `198432/SP`, `311204/SP`, `150900/SP`.
+
+**Convenção de saída:** dados em stdout, log em stderr. Então
+`npm run cli -- processo <n> --json > processo.json` produz JSON puro.
+
+---
+
+## Verificando os comportamentos que importam
+
+### Fallback automático
+
+Force o crawler a falhar em 100% das chamadas. Com `DATAJUD_API_KEY`
+configurada, a resposta vem do DataJud:
+
+```bash
+MOCK_CRAWLER_FAILURE_RATE=1 npm run cli -- processo 1234567-47.2023.8.26.0100
+```
+
+Repare no log em stderr: `fonte falhou, acionando fallback`. Sem chave do
+DataJud, a cadeia se esgota e o erro é `TODAS_AS_FONTES_FALHARAM` — com o
+histórico de cada tentativa.
+
+### "Não encontrado" ≠ "sistema fora do ar"
+
+```bash
+npm run cli -- processo 0000001-84.2020.8.26.0001   # → PROCESSO_NAO_ENCONTRADO
+```
+
+O número é válido e o crawler respondeu — só não tem esse processo. Erro
+diferente, mensagem diferente, código de saída diferente. Confundir os dois
+faria o produto dizer ao advogado que o processo dele não existe sempre que um
+tribunal saísse do ar.
+
+### Validação do número CNJ antes de gastar requisição
+
+```bash
+npm run cli -- processo 1234567-48.2023.8.26.0100   # DV trocado de propósito
+# → NUMERO_CNJ_INVALIDO: dígito verificador 48 não confere (esperado 47)
+```
+
+Nenhuma fonte é consultada. O dígito verificador (ISO 7064 MOD 97-10) pega o erro
+de digitação mais comum antes de custar uma requisição.
+
+### Cache
+
+Rode a mesma consulta duas vezes na mesma sessão e observe que o campo
+`Fonte` ganha o sufixo `(cache)`. O cache embrulha o orquestrador inteiro, então
+um acerto não gasta nem cota do DataJud nem uma ida ao tribunal.
+
+---
+
+## Deploy
+
+Docker multi-stage pronto: Node 22, imagem final sem TypeScript nem Vitest,
+usuário não-root, `HEALTHCHECK` e SIGTERM tratado (redeploy não derruba
+requisição em voo).
+
+```bash
+docker compose up --build   # valida local a MESMA imagem que vai para o VPS
+```
+
+O passo a passo no Easypanel — App por Dockerfile, porta alvo, variáveis,
+domínio com HTTPS, webhook de deploy e o que fazer quando der 502 — está em
+**[DEPLOY.md](./DEPLOY.md)**.
+
+---
+
+## Testes
+
+```bash
+npm test          # 124 testes
+npm run test:cov  # com cobertura
+npm run check     # typecheck + lint + testes — rode antes de commitar
+```
+
+A suíte **não toca a rede** e **não depende de tempo real**: o `HttpClient` é
+dublado, e `Clock` e a fonte de aleatoriedade são injetáveis. Roda offline, em
+menos de 3 segundos.
+
+O que está coberto:
+
+- **Domínio** — dígito verificador CNJ (validado contra um número real publicado
+  pelo CNJ), normalização de OAB, imutabilidade das entidades
+- **Orquestrador** — fallback, cadeia esgotada, "não encontrado" vs. "fora do
+  ar", pular fonte que não cobre o tribunal, agregação e dedupe na busca por OAB,
+  resultado parcial quando uma fonte falha
+- **DataJudAdapter** — montagem da URL por tribunal, header `APIKey`, mapeamento
+  do payload, 401/429/5xx, payload fora do contrato, campo novo do CNJ não quebra
+- **Cache** — TTL, LRU, reidratação de `Date`, marcação de procedência
+- **API HTTP** — autenticação, rate limit, cada código de status, health vs.
+  ready (via `inject()`, sem abrir porta)
+- **Fluxo completo** — cadeia real montada, com e sem falha do primário
+
+---
+
+## Estrutura
+
+```
+src/
+├── domain/          entidades, portas, casos de uso, erros  (sem I/O)
+├── application/     ProcessoSearchService — orquestração e fallback
+├── infrastructure/  DataJud, crawler mock, cache, HTTP, rate limit, config
+└── main/            composition root + dois adaptadores de entrada:
+    ├── cli.ts       CLI
+    └── http/        API Fastify
+tests/               espelha src/, mais http/, integration/ e helpers/
+```
+
+CLI e API são adaptadores de **entrada** sobre os mesmos casos de uso — nenhuma
+regra é duplicada entre eles.
+
+A dependência aponta sempre para dentro: o domínio não sabe que DataJud existe.
+
+---
+
+## Configuração
+
+Todas as variáveis estão documentadas em [`.env.example`](./.env.example). As que
+mais mudam comportamento:
+
+| Variável | Padrão | Efeito |
+|---|---|---|
+| `LEXFLOW_API_KEYS` | vazio | chaves de `x-api-key`, separadas por vírgula. **Sem ela o serviço não sobe** |
+| `HTTP_PORT` / `HTTP_HOST` | `3000` / `0.0.0.0` | em contêiner, host tem que ser `0.0.0.0` |
+| `LEXFLOW_PROVIDER_CHAIN` | `mock-crawler-tjsp,datajud` | ordem da cadeia: o primeiro é primário, os demais são fallback |
+| `DATAJUD_API_KEY` | vazio | sem ela, o DataJud sai da cadeia |
+| `DATAJUD_RATE_LIMIT_PER_MINUTE` | `60` | autolimite; a chave do CNJ é compartilhada |
+| `MOCK_CRAWLER_FAILURE_RATE` | `0` | de 0 a 1 — use `1` para exercitar o fallback |
+| `CACHE_TTL_SECONDS` | `900` | TTL da consulta por número |
+| `LOG_LEVEL` | `info` | `debug` mostra a decisão de cada fonte |
+
+Trocar a fonte primária em produção é mudar uma variável de ambiente — não
+redeploy de código.
+
+---
+
+## Fora do escopo deste MVP
+
+Persistência em banco, multi-tenant (hoje a chave de API autentica, mas não
+separa clientes), crawler real, monitoramento com notificação de novas
+movimentações e fila de jobs. O cache é em memória: serve a uma instância e
+evapora no redeploy. O desenho já acomoda cada um desses passos; veja "Como
+estender" em [CLAUDE.md](./CLAUDE.md).
+
+---
+
+## Referências
+
+- [API Pública do DataJud — CNJ](https://www.cnj.jus.br/sistemas/datajud/api-publica/)
+- [Datajud Wiki — acesso e endpoints](https://datajud-wiki.cnj.jus.br/api-publica/)
+- Resolução CNJ nº 65/2008 — numeração única de processos
