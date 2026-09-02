@@ -61,9 +61,18 @@ npm run build && npm run start:local
 npm run dev
 ```
 
-Exige `LEXFLOW_API_KEYS` no `.env` — o serviço **se recusa a subir sem chave**
-(a menos que você declare `LEXFLOW_AUTH_DISABLED=true`). Gere uma com
-`openssl rand -hex 32`.
+Exige `LEXFLOW_API_KEYS` no `.env` — o serviço **se recusa a subir sem chave**,
+ou com chave de menos de 24 caracteres (a menos que você declare
+`LEXFLOW_AUTH_DISABLED=true`). Gere uma com:
+
+```bash
+npm run chave                  # uma chave, com o identificador que sai no log
+npm run chave -- 3 --env       # três, já no formato da variável
+```
+
+Funciona em Windows sem depender de `openssl`. Os detalhes — quantas chaves
+criar, onde guardar, como rotacionar sem downtime — estão no
+[DEPLOY.md](./DEPLOY.md#1-gere-as-chaves-de-api).
 
 | Método | Rota | Auth |
 |---|---|---|
@@ -185,7 +194,7 @@ domínio com HTTPS, webhook de deploy e o que fazer quando der 502 — está em
 ## Testes
 
 ```bash
-npm test          # 124 testes
+npm test          # 135 testes
 npm run test:cov  # com cobertura
 npm run check     # typecheck + lint + testes — rode antes de commitar
 ```
@@ -206,6 +215,8 @@ O que está coberto:
 - **Cache** — TTL, LRU, reidratação de `Date`, marcação de procedência
 - **API HTTP** — autenticação, rate limit, cada código de status, health vs.
   ready (via `inject()`, sem abrir porta)
+- **Chaves de API** — recusa de chave fraca, repetida ou configuração ambígua;
+  identificador de log estável e não reversível
 - **Fluxo completo** — cadeia real montada, com e sem falha do primário
 
 ---

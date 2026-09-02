@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import type { Config } from '../../infrastructure/config/env.js';
 import type { Aplicacao } from '../factories/makeProcessoSearchService.js';
+import { validarChavesDeApi } from './chaves.js';
 import { mapearErro } from './erros.js';
 import autenticacao from './plugins/autenticacao.js';
 import { ROTA_HEALTH, ROTA_READY, rotasDeSaude } from './rotas/saude.js';
@@ -17,6 +18,10 @@ import { rotasDeProcesso } from './rotas/processos.js';
  * abaixo, é a única função que chama `listen`.
  */
 export function construirServidor(app: Aplicacao, config: Config): FastifyInstance {
+  // Antes de qualquer coisa: configuração de autenticação inválida derruba a
+  // montagem, não vira um serviço aberto por acidente.
+  validarChavesDeApi(config.http.chavesDeApi, config.http.autenticacaoDesativada);
+
   const servidor = Fastify({
     // O log sai pelo nosso `Logger` (uma linha JSON por evento) para que
     // aplicação e HTTP tenham o mesmo formato nos logs do Easypanel.

@@ -19,21 +19,129 @@ Sem a chave do DataJud o serviço sobe igual — só roda com o crawler mock, o 
 
 ---
 
-## 1. Gere as chaves de API antes de tudo
+## 1. Gere as chaves de API
 
-O serviço **se recusa a subir sem `LEXFLOW_API_KEYS`**. Isso é proposital: a API
-do DataJud usa uma Chave Pública compartilhada do CNJ, e um endpoint aberto na
-internet transforma seu VPS em proxy gratuito para a cota de todo mundo — o
-bloqueio cai sobre a chave, não sobre quem abusou.
+O serviço **se recusa a subir sem `LEXFLOW_API_KEYS`**, e também recusa chave com
+menos de 24 caracteres. Isso é proposital: a API do DataJud usa uma Chave Pública
+compartilhada do CNJ, e um endpoint aberto na internet transforma seu VPS em
+proxy gratuito para a cota de todo mundo — o bloqueio cai sobre a chave, não
+sobre quem abusou.
 
-Gere uma chave por consumidor (você, o n8n, um cliente), para poder revogar uma
-sem derrubar as outras:
+### O que essa chave é (e o que não é)
+
+Não é algo emitido por ninguém, nem tem relação com a chave do CNJ. É **um
+segredo aleatório que você inventa**, e o LexFlow compara com o que chega no
+header `x-api-key`. Quem tem a string entra; quem não tem, não. Só isso.
+
+O que importa é que seja **aleatória de verdade** e **longa o bastante**. O
+padrão do projeto é 32 bytes (256 bits) em hexadecimal — 64 caracteres. Não
+existe força bruta viável contra isso.
+
+Duas coisas que parecem chave e não são: senha que você inventou de cabeça
+(previsível) e `Math.random()` (não é criptográfico — algumas saídas revelam o
+gerador). Use sempre um gerador criptográfico do sistema.
+
+### Como gerar
+
+**Pelo próprio projeto (funciona em Windows, Linux e Mac):**
+
+```bash
+npm run chave
+```
+
+```
+  chave 1
+    valor .......... 5f0eb8d08f4889fdb46ece84fc4187bd4260e010702897a731e9b11a4632888a
+    identificador .. 3ca36306
+```
+
+O **identificador** é o hash curto que aparece nos logs. Anote-o ao lado do nome
+do consumidor ("3ca36306 = n8n") — assim, meses depois, você lê uma linha de log
+e sabe de qual integração veio a requisição, sem nunca ter anotado a chave em
+lugar nenhum além do gerenciador de senhas.
+
+Variações:
+
+```bash
+npm run chave -- --rotulo n8n     # com nome, para não se perder
+npm run chave -- 3                # três chaves de uma vez
+npm run chave -- 3 --env          # já no formato LEXFLOW_API_KEYS=a,b,c
+```
+
+**Sem o projeto em mãos, só com o Node instalado:**
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+**PowerShell puro (Windows, sem Node):**
+
+```powershell
+$b = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($b)
+-join ($b | ForEach-Object { $_.ToString('x2') })
+```
+
+**Git Bash, WSL, Linux ou Mac:**
 
 ```bash
 openssl rand -hex 32
 ```
 
-Guarde. Elas não aparecem em lugar nenhum depois.
+**Direto no VPS, via SSH** — útil quando você já está lá configurando:
+
+```bash
+openssl rand -hex 32
+```
+
+### Quantas chaves criar
+
+Uma **por consumidor**, não uma para tudo. Separe pelo menos:
+
+| Consumidor | Para quê |
+|---|---|
+| `seu-uso` | testes manuais, `curl`, Postman |
+| `n8n` | seus fluxos de automação |
+| `<cliente>` | cada integração externa, se houver |
+
+O motivo é revogação: se a chave do n8n vazar num log ou num print, você tira
+**só ela** da variável e redeploya. Com chave única compartilhada, revogar uma
+significa derrubar todo mundo ao mesmo tempo.
+
+No `LEXFLOW_API_KEYS` elas vão separadas por vírgula:
+
+```env
+LEXFLOW_API_KEYS=5f0eb8d0...888a,03a5babf...6ec2,5f3ae83a...e38d3
+```
+
+Espaços em volta das vírgulas são tolerados. Chaves repetidas são recusadas no
+arranque — repetir anula o motivo de ter várias.
+
+### Onde guardar
+
+- **Gerenciador de senhas** (Bitwarden, 1Password, KeePass) — é a cópia oficial.
+  O script não salva nada em disco; fechou o terminal, a chave se foi.
+- **Easypanel → aba Environment** — é onde o serviço lê. Trate como segredo:
+  não imprima em log de build, não cole em issue, não mande por WhatsApp.
+- **Nunca no Git.** O `.gitignore` já barra o `.env`, mas confira antes do
+  primeiro push. Chave que entrou no histórico do Git continua lá mesmo depois
+  de você apagar o arquivo num commit seguinte — nesse caso, gere outra.
+
+### Rotação, sem derrubar ninguém
+
+Troca periódica (ou vazamento) sem janela de indisponibilidade:
+
+1. Gere a chave nova: `npm run chave -- --rotulo n8n-nova`
+2. No Easypanel, **acrescente** a nova à lista, mantendo a antiga:
+   `LEXFLOW_API_KEYS=<antiga>,<nova>`
+3. Redeploy. Agora as duas funcionam.
+4. Atualize o consumidor (n8n, script, cliente) para usar a nova.
+5. Confirme nos logs que o identificador antigo parou de aparecer.
+6. Remova a antiga da lista e redeploye de novo.
+
+Se a chave **vazou**, pule a gentileza: tire a comprometida na hora e redeploye.
+Alguns minutos de erro no consumidor legítimo custam menos que uma chave viva na
+mão de terceiro.
 
 ---
 
@@ -233,9 +341,17 @@ o mock sempre responde, então 503 aqui normalmente é a cadeia mal escrita —
 confira se não há espaço ou nome errado na variável.
 
 **401 mesmo com a chave certa**
-Espaço invisível no fim da variável no painel, ou você está mandando a chave em
-`Authorization` sem o prefixo `Bearer `. Ambos os formatos funcionam:
-`x-api-key: <chave>` ou `Authorization: Bearer <chave>`.
+Espaços em volta das vírgulas são tolerados, então não é isso. As causas reais:
+a chave foi truncada no copiar-e-colar (confira o tamanho — deve ter 64
+caracteres), ou você está mandando em `Authorization` sem o prefixo `Bearer `.
+Ambos os formatos valem: `x-api-key: <chave>` ou `Authorization: Bearer <chave>`.
+Para saber qual chave o servidor aceitou, compare o campo `chave` do log com o
+identificador que o `npm run chave` imprimiu.
+
+**Contêiner recusa subir com "Configuração de autenticação recusada"**
+A mensagem diz exatamente o quê: chave ausente, chave com menos de 24
+caracteres, chave repetida, ou `LEXFLOW_AUTH_DISABLED=true` junto com
+`LEXFLOW_API_KEYS` preenchida (ambíguo — escolha um dos dois).
 
 **502 nas consultas depois de configurar o DataJud**
 Log com `chave pública rejeitada (HTTP 401)` = a chave do CNJ está errada ou foi
