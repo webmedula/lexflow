@@ -14,6 +14,7 @@
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/main/http/index.ts",
     "cli": "tsx --env-file-if-exists=.env src/main/cli.ts",
+    "chave": "node scripts/gerar-chave.mjs",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main/http/index.js",
     "start:local": "node --env-file-if-exists=.env dist/main/http/index.js",

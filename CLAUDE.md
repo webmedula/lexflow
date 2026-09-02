@@ -200,6 +200,9 @@ npm run dev              # API com reload
 npm run build && npm run start:local   # API a partir do build
 docker compose up --build              # a MESMA imagem que vai para o VPS
 
+npm run chave            # gera chave de API + o identificador que sai no log
+npm run chave -- 3 --env # três chaves no formato da variável de ambiente
+
 npm run cli -- processo 1234567-47.2023.8.26.0100
 npm run cli -- processo 12345674720238260100 --json
 npm run cli -- oab 234567 SP
@@ -299,9 +302,15 @@ Não são detalhes — moldam o código.
   público transforma o VPS em proxy gratuito para a cota alheia. Por isso
   `main/http/index.ts` **recusa subir** sem `LEXFLOW_API_KEYS`, a menos que
   `LEXFLOW_AUTH_DISABLED=true` seja declarado. Não remova essa guarda.
-- **Chave nunca vai para o log nem para a resposta.** O log registra só um
-  prefixo de 4 caracteres; o handler de erro devolve mensagem genérica em 500,
-  porque a mensagem original pode conter URL interna ou trecho de payload.
+- **Chave nunca vai para o log nem para a resposta.** O log registra o
+  `identificarChave()` — 8 hex do SHA-256, não reversível e imune a prefixo
+  comum. Nunca troque por um prefixo da chave: vaza segredo e colapsa todas as
+  chaves que compartilhem convenção de nome. O handler de erro devolve mensagem
+  genérica em 500 porque a original pode conter URL interna ou trecho de payload.
+- **Configuração de autenticação é validada no arranque** (`main/http/chaves.ts`):
+  sem chave, chave com menos de `TAMANHO_MINIMO_CHAVE`, chave repetida, ou
+  `LEXFLOW_AUTH_DISABLED` junto com chaves preenchidas — todos derrubam a
+  montagem. Chave fraca é pior do que nenhuma: passa sensação de proteção.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache
@@ -314,7 +323,7 @@ Não são detalhes — moldam o código.
 **Pronto:** domínio, portas, casos de uso, `DataJudAdapter`,
 `MockCrawlerAdapter`, `ProcessoSearchService` com fallback, cache com TTL/LRU,
 rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API e rate
-limit, Dockerfile multi-stage, CI, 124 testes.
+limit, Dockerfile multi-stage, CI, 135 testes.
 
 **Não implementado (decisão consciente do MVP):** persistência em banco,
 multi-tenant (a chave autentica, não separa clientes), crawler real,

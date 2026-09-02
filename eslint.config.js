@@ -3,7 +3,9 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**'] },
+  // scripts/ são utilitários .mjs de linha de comando: escrevem no console por
+  // definição e não passam pelo pipeline de tipos do projeto.
+  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'scripts/**'] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {

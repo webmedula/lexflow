@@ -1,10 +1,14 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
+import { identificarChave } from '../chaves.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    /** Identificador curto da chave usada — vai para log e rate limit, nunca a chave inteira. */
+    /**
+     * Hash curto da chave usada — vai para log e rate limit.
+     * A chave em si NUNCA sai do processo.
+     */
     identidadeDaChave?: string;
   }
 }
@@ -58,7 +62,7 @@ const autenticacaoPlugin: FastifyPluginAsync<OpcoesAutenticacao> = async (
       });
     }
 
-    requisicao.identidadeDaChave = identificar(aceita);
+    requisicao.identidadeDaChave = identificarChave(aceita);
   });
 };
 
@@ -82,11 +86,6 @@ function comparaSegura(esperada: string, informada: string): boolean {
   // que não é segredo útil.
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
-}
-
-/** Prefixo curto para correlacionar logs sem nunca registrar a chave inteira. */
-function identificar(chave: string): string {
-  return `${chave.slice(0, 4)}…`;
 }
 
 export default fp(autenticacaoPlugin, { name: 'autenticacao' });

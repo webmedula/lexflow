@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes
+        run: npm test
+
+      # Construir a imagem no CI pega o erro de Dockerfile ANTES do deploy.
+      # Descobrir que o build quebrou pelo log do Easypanel é caro: o serviço
+      # fica fora enquanto você investiga.
+      - name: Build da imagem Docker
+        run: docker build -t lexflow:ci .
