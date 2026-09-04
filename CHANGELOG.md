@@ -9,6 +9,56 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.5.0] — 2026-09-04
+
+**Primeira versão validada contra uma resposta real da API do CNJ.** Até aqui,
+todo o adapter do DataJud tinha sido escrito e testado contra um fixture que eu
+inventei a partir da documentação. A primeira captura real derrubou duas
+suposições no primeiro minuto.
+
+### Corrigido
+
+- **`dataAjuizamento` não é ISO.** Vem como `"20150826000000"`
+  (`yyyyMMddHHmmss`), enquanto `movimentos[].dataHora` no MESMO documento vem em
+  ISO 8601. O mapper fazia `new Date()` nos dois: o compacto virava
+  `Invalid Date`, que virava `undefined`, e o processo era entregue "com
+  sucesso" **sem data de distribuição**. Nenhum dos 161 testes pegou, porque
+  todos validavam a minha suposição contra ela mesma.
+- **Timeout curto demais fazia toda consulta fria falhar.** O Elasticsearch
+  público do CNJ reportou `took: 20514` — 20,5 segundos — numa busca por número
+  em índice frio. O teto era 8s. O erro saía como "timeout ao contatar a API do
+  CNJ", que parece problema de rede e mandou a investigação para o lado errado.
+  Consultas: 60s e 2 tentativas. Health check: 15s (era 5s) e 1 tentativa.
+
+### Alterado
+
+- **Data em formato desconhecido agora falha alto** (`RespostaInvalidaError`,
+  nomeando campo e valor) em vez de virar `undefined`. Num produto onde a data
+  decide prazo, entregar campo vazio é pior que recusar a resposta — o
+  orquestrador ainda pode tentar outra fonte, mas ninguém reage a um campo que
+  sumiu em silêncio. Campo AUSENTE continua sendo ausência, não erro.
+- `tests/fixtures/datajud-tjgo-real.json` substitui o fixture inventado.
+  Captura real do TJGO, valores intocados, lista de movimentos reduzida
+  mantendo um exemplar de cada forma. Daqui em diante, o comportamento do CNJ se
+  testa contra o que ele devolve.
+
+### Confirmado pelo dado real
+
+- Zero partes, zero advogados, zero inteiro teor. A busca por OAB não sai do
+  DataJud — é o que sustenta a existência do crawler próprio no desenho.
+- O processo do TJGO usado na captura roda em **eproc**
+  (`"sistema": {"nome": "Eproc"}`), não Projudi.
+
+### Em aberto
+
+60 segundos é tempo demais para um usuário esperando numa tela. Este release
+torna a consulta possível, não confortável. A saída é buscar em segundo plano e
+servir do armazenamento, com o usuário fora do caminho crítico da fonte — e é
+essa lentidão medida, não uma preferência de arquitetura, que passa a justificar
+um banco.
+
+---
+
 ## [0.4.2] — 2026-09-03
 
 Foco: o health check do DataJud dava timeout contra a API real.

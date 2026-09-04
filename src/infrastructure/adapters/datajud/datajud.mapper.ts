@@ -29,7 +29,7 @@ export function mapearProcesso(
     .map((a) => a.nome)
     .filter((nome): nome is string => typeof nome === 'string' && nome.length > 0);
 
-  const dataDistribuicao = parseData(origem.dataAjuizamento);
+  const dataDistribuicao = parseData(origem.dataAjuizamento, 'dataAjuizamento');
 
   return new Processo({
     numero,
@@ -52,7 +52,10 @@ export function mapearProcesso(
 }
 
 function mapearMovimento(origem: MovimentoDataJud): Movimentacao | null {
-  const data = parseData(origem.dataHora);
+  // Movimento sem data ou sem título é descartado — mas movimento com data em
+  // formato ESTRANHO faz `parseData` lançar, de propósito: sumir com uma
+  // movimentação em silêncio é como se perde um prazo.
+  const data = parseData(origem.dataHora, 'movimentos[].dataHora');
   if (!data) return null;
 
   const titulo = origem.nome?.trim();
@@ -76,8 +79,53 @@ function mapearMovimento(origem: MovimentoDataJud): Movimentacao | null {
   };
 }
 
-function parseData(valor: string | undefined): Date | undefined {
-  if (!valor) return undefined;
-  const data = new Date(valor);
-  return Number.isNaN(data.getTime()) ? undefined : data;
+/** `yyyyMMddHHmmss` — 14 dígitos, sem separador nenhum. */
+const COMPACTO = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/;
+
+/**
+ * O DataJud usa DOIS formatos de data no MESMO documento:
+ *
+ *   dataAjuizamento         "20150826000000"            ← yyyyMMddHHmmss
+ *   movimentos[].dataHora   "2015-08-26T00:00:00.000Z"  ← ISO 8601
+ *
+ * Descobri isso ao rodar este mapper contra uma resposta real. A versão
+ * anterior fazia `new Date(valor)` para os dois: o compacto virava
+ * `Invalid Date`, o `Invalid Date` virava `undefined`, e o processo era
+ * mapeado "com sucesso" — sem data de distribuição, sem ninguém notar.
+ *
+ * @throws {RespostaInvalidaError} quando há valor e ele não casa com nenhum
+ * formato conhecido. Falhar alto é DELIBERADO: num produto onde a data decide
+ * prazo, entregar o campo vazio é pior do que recusar a resposta — o
+ * orquestrador ainda pode tentar outra fonte, mas ninguém consegue reagir a um
+ * campo que sumiu em silêncio.
+ */
+function parseData(valor: string | undefined, campo: string): Date | undefined {
+  if (valor === undefined || valor === '') return undefined;
+
+  const compacto = COMPACTO.exec(valor);
+  if (compacto) {
+    const [, ano, mes, dia, hora, minuto, segundo] = compacto;
+    // Sem timezone declarado no formato compacto. O CNJ publica em horário de
+    // Brasília; tratamos como UTC para não inventar deslocamento — e a
+    // diferença não altera a data em nenhum uso atual.
+    const data = new Date(
+      Date.UTC(
+        Number(ano),
+        Number(mes) - 1,
+        Number(dia),
+        Number(hora),
+        Number(minuto),
+        Number(segundo),
+      ),
+    );
+    if (!Number.isNaN(data.getTime())) return data;
+  } else {
+    const data = new Date(valor);
+    if (!Number.isNaN(data.getTime())) return data;
+  }
+
+  throw new RespostaInvalidaError(
+    NOME_PROVIDER,
+    `campo "${campo}" veio em formato de data desconhecido: "${valor}"`,
+  );
 }

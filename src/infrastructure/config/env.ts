@@ -25,7 +25,8 @@ const schema = z.object({
     .string()
     .url()
     .default('https://api-publica.datajud.cnj.jus.br'),
-  DATAJUD_TIMEOUT_MS: inteiroPositivo(8000),
+  // 60s: consulta fria no CNJ chega a 20s (medido). Ver DataJudAdapter.
+  DATAJUD_TIMEOUT_MS: inteiroPositivo(60_000),
   DATAJUD_RATE_LIMIT_PER_MINUTE: inteiroPositivo(60),
 
   MOCK_CRAWLER_LATENCY_MS: z.coerce.number().int().min(0).default(120),

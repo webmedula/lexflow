@@ -43,8 +43,38 @@ const CONSULTA_DE_VERIFICACAO = {
   query: { match: { numeroProcesso: '00000000000000000000' } },
 };
 
-/** Health check responde rápido ou não responde. 5s é o teto. */
-const TIMEOUT_VERIFICACAO_MS = 5000;
+/**
+ * Teto do health check. 15s e não 5s: uma consulta FRIA no índice do CNJ pode
+ * levar mais de 20s (medido: `took: 20514` numa busca real por número), e um
+ * health check que reprova a fonte só porque ela é lenta mente sobre o estado
+ * dela. Ainda assim é menor que o das consultas — health check que demora um
+ * minuto não serve para nada.
+ */
+const TIMEOUT_VERIFICACAO_MS = 15_000;
+
+/**
+ * Timeout padrão das CONSULTAS.
+ *
+ * 60s parece absurdo para uma API HTTP, e é — mas é a realidade medida: o
+ * Elasticsearch público do CNJ reportou 20,5 segundos para responder uma busca
+ * por número de processo em índice frio. Consultas seguintes ao mesmo documento
+ * voltam rápido (o ES cacheia).
+ *
+ * O timeout de 8s da versão anterior fazia TODA consulta fria falhar, e o erro
+ * saía como "timeout ao contatar a API do CNJ" — que parece problema de rede e
+ * mandou a investigação para o lado errado por horas.
+ *
+ * Isto é um remendo consciente: 60 segundos é tempo demais para deixar um
+ * usuário esperando numa tela. A solução real é buscar em segundo plano e
+ * servir do banco, com o usuário nunca no caminho crítico da fonte.
+ */
+const TIMEOUT_CONSULTA_PADRAO_MS = 60_000;
+
+/**
+ * Tentativas por consulta. Duas, não três: com 60s de teto, três tentativas
+ * mais backoff seguram uma requisição por mais de três minutos.
+ */
+const TENTATIVAS_CONSULTA = 2;
 
 export interface OpcoesDataJudAdapter {
   /** Chave Pública divulgada pelo DPJ/CNJ (sem o prefixo "APIKey"). */
@@ -107,7 +137,10 @@ export class DataJudAdapter implements ProcessoProvider {
     this.logger = (opcoes.logger ?? loggerSilencioso).child({ provider: this.nome });
     this.http =
       opcoes.httpClient ??
-      new HttpClient({ timeoutMs: opcoes.timeoutMs ?? 8000, tentativas: 3 });
+      new HttpClient({
+        timeoutMs: opcoes.timeoutMs ?? TIMEOUT_CONSULTA_PADRAO_MS,
+        tentativas: TENTATIVAS_CONSULTA,
+      });
     this.rateLimiter =
       opcoes.rateLimiter ??
       new TokenBucketRateLimiter({

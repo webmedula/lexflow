@@ -235,6 +235,14 @@ npm run build            # compila para dist/
   `MockCrawlerAdapter` já é o dublê da camada de crawler.
 - **Nenhum teste depende de tempo real.** `Clock` e a função aleatória são
   injetáveis — use `ClockFalso` e `aleatorio: () => 0.1` em vez de `sleep`.
+- **Comportamento de fonte externa se testa contra CAPTURA REAL**, nunca contra
+  fixture inventado. `tests/fixtures/datajud-tjgo-real.json` é a resposta que o
+  CNJ devolveu de fato; ao mexer no adapter ou no mapper do DataJud, o teste que
+  vale é `datajud-payload-real.spec.ts`. O motivo está gravado: 161 testes verdes
+  não pegaram que `dataAjuizamento` vem em `yyyyMMddHHmmss` e não em ISO, porque
+  eu havia escrito o fixture, o parser e a asserção — um circuito fechado que não
+  tocava a realidade. Ao capturar payload novo, salve como fixture e não edite os
+  valores.
 - Fixtures usam números CNJ com **dígito verificador válido**. Um DV inválido na
   massa faz a suíte passar sem nunca exercitar `NumeroCNJ`, e o bug só aparece
   contra o tribunal de verdade. Helper para gerar: veja o fim de
@@ -347,7 +355,7 @@ Toda entrega que muda comportamento: bump no `package.json` **e** entrada no
 **Pronto:** domínio, portas, casos de uso, `DataJudAdapter`,
 `MockCrawlerAdapter`, `ProcessoSearchService` com fallback, cache com TTL/LRU,
 rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API e rate
-limit, Dockerfile multi-stage, CI, 161 testes.
+limit, Dockerfile multi-stage, CI, 172 testes.
 
 **Não implementado (decisão consciente do MVP):** persistência em banco,
 multi-tenant (a chave autentica, não separa clientes), crawler real,

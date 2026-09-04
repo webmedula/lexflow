@@ -1,6 +1,6 @@
 # LexFlow
 
-**v0.4.2** — histórico em [CHANGELOG.md](./CHANGELOG.md).
+**v0.5.0** — histórico em [CHANGELOG.md](./CHANGELOG.md).
 Para saber qual versão está rodando: `GET /health` devolve o campo `versao`.
 
 SaaS de consulta e acompanhamento de processos judiciais nos tribunais
@@ -197,7 +197,7 @@ domínio com HTTPS, webhook de deploy e o que fazer quando der 502 — está em
 ## Testes
 
 ```bash
-npm test          # 161 testes
+npm test          # 172 testes
 npm run test:cov  # com cobertura
 npm run check     # typecheck + lint + testes — rode antes de commitar
 ```

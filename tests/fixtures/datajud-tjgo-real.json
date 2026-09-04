@@ -1,0 +1,137 @@
+{
+  "_comentario": [
+    "CAPTURA REAL da API Pública do DataJud (CNJ), endpoint api_publica_tjgo.",
+    "Processo 0311517-22.2015.8.09.0051, obtido em set/2026.",
+    "",
+    "A lista de movimentos foi REDUZIDA (o original tem ~200) mantendo um exemplar",
+    "de cada forma que aparece: com complementosTabelados, sem complementos, e com",
+    "orgaoJulgador próprio. Nenhum valor foi editado.",
+    "",
+    "Este arquivo substituiu um fixture que eu havia INVENTADO a partir da",
+    "documentação. O inventado assumia dataAjuizamento em ISO; o real usa",
+    "yyyyMMddHHmmss. O bug passou por 161 testes verdes porque os testes validavam",
+    "a minha imaginação contra ela mesma."
+  ],
+  "took": 20514,
+  "timed_out": false,
+  "hits": {
+    "total": { "value": 1, "relation": "eq" },
+    "max_score": 13.444107,
+    "hits": [
+      {
+        "_index": "api_publica_tjgo",
+        "_id": "TJGO_G1_03115172220158090051",
+        "_score": 13.444107,
+        "_source": {
+          "id": "TJGO_G1_03115172220158090051",
+          "tribunal": "TJGO",
+          "grau": "G1",
+          "numeroProcesso": "03115172220158090051",
+          "dataAjuizamento": "20150826000000",
+          "nivelSigilo": 0,
+          "orgaoJulgador": {
+            "codigo": 89697,
+            "nome": "Gabinete da Central de Cumprimento de Sentença Cível - Juiz 2",
+            "codigoMunicipioIBGE": 5208707
+          },
+          "classe": { "codigo": 156, "nome": "Cumprimento de sentença" },
+          "sistema": { "codigo": 2, "nome": "Eproc" },
+          "formato": { "codigo": 1, "nome": "Eletrônico" },
+          "dataHoraUltimaAtualizacao": "2026-08-12T17:17:16.129000Z",
+          "@timestamp": "2026-08-12T17:17:16.129000Z",
+          "movimentos": [
+            {
+              "codigo": 26,
+              "dataHora": "2015-08-26T00:00:00.000Z",
+              "nome": "Distribuição",
+              "complementosTabelados": [
+                {
+                  "codigo": 2,
+                  "descricao": "tipo_de_distribuicao_redistribuicao",
+                  "valor": 2,
+                  "nome": "sorteio"
+                }
+              ],
+              "orgaoJulgador": {
+                "codigo": "89697",
+                "nome": "Gabinete da Central de Cumprimento de Sentença Cível - Juiz 2"
+              }
+            },
+            {
+              "codigo": 14732,
+              "dataHora": "2016-09-01T08:24:18.000Z",
+              "nome": "Conversão de Autos Físicos em Eletrônicos",
+              "orgaoJulgador": {
+                "codigo": "89697",
+                "nome": "Gabinete da Central de Cumprimento de Sentença Cível - Juiz 2"
+              }
+            },
+            {
+              "codigo": 219,
+              "dataHora": "2017-09-29T16:34:28.000Z",
+              "nome": "Procedência",
+              "orgaoJulgador": {
+                "codigo": "89697",
+                "nome": "Gabinete da Central de Cumprimento de Sentença Cível - Juiz 2"
+              }
+            },
+            {
+              "codigo": 848,
+              "dataHora": "2017-11-10T14:52:49.000Z",
+              "nome": "Trânsito em julgado",
+              "orgaoJulgador": {
+                "codigo": "89697",
+                "nome": "Gabinete da Central de Cumprimento de Sentença Cível - Juiz 2"
+              }
+            },
+            {
+              "codigo": 51,
+              "dataHora": "2023-11-06T17:31:52.000Z",
+              "nome": "Conclusão",
+              "complementosTabelados": [
+                {
+                  "codigo": 3,
+                  "descricao": "tipo_de_conclusao",
+                  "valor": 6,
+                  "nome": "para decisão"
+                }
+              ],
+              "orgaoJulgador": {
+                "codigo": "89697",
+                "nome": "Gabinete da Central de Cumprimento de Sentença Cível - Juiz 2"
+              }
+            },
+            {
+              "codigo": 12548,
+              "dataHora": "2025-09-10T17:13:30.000Z",
+              "nome": "Expedição de alvará de levantamento",
+              "orgaoJulgador": {
+                "codigo": "89658",
+                "nome": "Central de Cumprimento de Sentença Cível"
+              }
+            },
+            {
+              "codigo": 1051,
+              "dataHora": "2026-05-07T09:38:50.000Z",
+              "nome": "Decurso de Prazo",
+              "orgaoJulgador": {
+                "codigo": "89658",
+                "nome": "Central de Cumprimento de Sentença Cível"
+              }
+            },
+            {
+              "codigo": 12266,
+              "dataHora": "2026-07-15T15:20:55.000Z",
+              "nome": "Confirmada",
+              "orgaoJulgador": {
+                "codigo": "89658",
+                "nome": "Central de Cumprimento de Sentença Cível"
+              }
+            }
+          ],
+          "assuntos": [{ "codigo": 9607, "nome": "Contratos Bancários" }]
+        }
+      }
+    ]
+  }
+}

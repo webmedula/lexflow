@@ -114,9 +114,11 @@ describe('DataJudAdapter.diagnosticar', () => {
     expect(JSON.stringify(http.chamadas[0]?.corpo)).not.toContain('match_all');
   });
 
-  it('falha rápido: tentativa única e prazo curto', async () => {
-    // Herdar 3 tentativas × 8s fazia o /ready demorar mais de 25s para dizer
-    // que a fonte está fora.
+  it('usa tentativa única e prazo próprio, menor que o das consultas', async () => {
+    // Tentativa única porque health check que insiste não é health check.
+    // 15s e não 5s porque o índice frio do CNJ leva mais de 20s: reprovar a
+    // fonte por lentidão seria mentir sobre o estado dela. Ainda assim menor
+    // que os 60s das consultas — /ready precisa responder.
     const http = new HttpFalso(() => resposta(200));
     const adapter = new DataJudAdapter({
       apiKey: 'k',
@@ -126,7 +128,7 @@ describe('DataJudAdapter.diagnosticar', () => {
 
     await adapter.diagnosticar();
 
-    expect(http.chamadas[0]?.opcoes).toEqual({ timeoutMs: 5000, tentativas: 1 });
+    expect(http.chamadas[0]?.opcoes).toEqual({ timeoutMs: 15_000, tentativas: 1 });
   });
 
   it('nunca lança, mesmo com a rede quebrada', async () => {
