@@ -9,6 +9,42 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.6.0] — 2026-09-04
+
+**O sistema passou a ter tela.**
+
+### Adicionado
+
+- **Console web em `/`**, servido pela própria API. Abrir o domínio no navegador
+  agora abre o sistema: campo para a chave, consulta por número CNJ ou por OAB,
+  e o processo renderizado com partes e movimentações.
+
+  Motivo: até aqui o LexFlow era só API. Digitar a URL no navegador devolvia
+  `{"erro":"NAO_AUTENTICADO"}`, porque navegador não manda header customizado —
+  e do lado de quem usa, isso é indistinguível de "não funciona". Servindo da
+  mesma origem, a página manda o `x-api-key` sozinha: sem CORS, sem PowerShell,
+  sem curl.
+
+- A tela mostra **cronômetro e aviso durante a espera**, porque a consulta fria
+  ao CNJ leva até um minuto — sem isso, a página pareceria travada.
+- Cada código de erro vira explicação em português, incluindo o 501 de busca por
+  OAB (que o DataJud não faz) e o 502 de fonte externa lenta ou fora.
+- A ausência de partes é dita na tela em vez de aparecer como espaço vazio: a
+  base do CNJ não publica partes nem advogados.
+- 8 testes novos (total: 180), incluindo que a raiz abre sem chave, que as rotas
+  de dados **continuam** protegidas, e que a página não carrega nada de fora.
+
+### Notas
+
+O console é uma ferramenta de operação para conferir o serviço, não o produto
+final: a chave de API fica no navegador de quem opera. O produto terá contas de
+usuário, e a chave nunca chegará ao navegador do advogado.
+
+Sem framework, sem build, sem recurso externo — a página é uma string que o
+servidor devolve. Nada para compilar e nada que quebre em deploy.
+
+---
+
 ## [0.5.0] — 2026-09-04
 
 **Primeira versão validada contra uma resposta real da API do CNJ.** Até aqui,

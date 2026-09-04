@@ -9,6 +9,7 @@ import { validarChavesDeApi } from './chaves.js';
 import { mapearErro } from './erros.js';
 import autenticacao from './plugins/autenticacao.js';
 import { ROTA_HEALTH, ROTA_READY, rotasDeSaude } from './rotas/saude.js';
+import { ROTA_CONSOLE, rotasDeInterface } from './rotas/interface.js';
 import { rotasDeProcesso } from './rotas/processos.js';
 
 /**
@@ -47,16 +48,21 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
     keyGenerator: (requisicao) => requisicao.identidadeDaChave ?? requisicao.ip,
     // Health checks não gastam cota: eles rodam a cada poucos segundos.
     allowList: (requisicao) =>
-      requisicao.url === ROTA_HEALTH || requisicao.url === ROTA_READY,
+      requisicao.url === ROTA_HEALTH ||
+      requisicao.url === ROTA_READY ||
+      requisicao.url === ROTA_CONSOLE,
   });
 
   void servidor.register(autenticacao, {
     chaves: config.http.chavesDeApi,
     desativada: config.http.autenticacaoDesativada,
-    rotasPublicas: [ROTA_HEALTH, ROTA_READY],
+    // O console entra aqui porque é HTML sem dado nenhum. Se ele exigisse
+    // chave, o navegador cairia no mesmo 401 que a página existe para resolver.
+    rotasPublicas: [ROTA_HEALTH, ROTA_READY, ROTA_CONSOLE],
   });
 
   void servidor.register(rotasDeSaude(app));
+  void servidor.register(rotasDeInterface());
   void servidor.register(rotasDeProcesso(app));
 
   servidor.setNotFoundHandler((requisicao, resposta) => {

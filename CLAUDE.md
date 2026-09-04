@@ -85,7 +85,8 @@ src/
         ├── servidor.ts          # montagem + listen + shutdown gracioso
         ├── erros.ts             # DomainError → status HTTP
         ├── plugins/             # autenticação por chave de API
-        └── rotas/               # processos, saúde
+        ├── ui/                  # console web (HTML como string, sem build)
+        └── rotas/               # processos, saúde, interface
 tests/                           # espelha src/, + http/, integration/, helpers/
 ```
 
@@ -355,7 +356,7 @@ Toda entrega que muda comportamento: bump no `package.json` **e** entrada no
 **Pronto:** domínio, portas, casos de uso, `DataJudAdapter`,
 `MockCrawlerAdapter`, `ProcessoSearchService` com fallback, cache com TTL/LRU,
 rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API e rate
-limit, Dockerfile multi-stage, CI, 172 testes.
+limit, Dockerfile multi-stage, CI, 180 testes.
 
 **Não implementado (decisão consciente do MVP):** persistência em banco,
 multi-tenant (a chave autentica, não separa clientes), crawler real,
