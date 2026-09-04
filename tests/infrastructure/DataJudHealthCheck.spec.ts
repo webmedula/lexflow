@@ -4,10 +4,19 @@ import { HttpClient, HttpTimeoutError } from '../../src/infrastructure/http/Http
 import type { RespostaHttp } from '../../src/infrastructure/http/HttpClient.js';
 
 class HttpFalso extends HttpClient {
+  readonly chamadas: Array<{ corpo: unknown; opcoes: unknown }> = [];
+
   constructor(private readonly responder: () => RespostaHttp) {
     super();
   }
-  override async postJson(): Promise<RespostaHttp> {
+
+  override async postJson(
+    _url: string,
+    corpo: unknown,
+    _headers?: Record<string, string>,
+    opcoes?: unknown,
+  ): Promise<RespostaHttp> {
+    this.chamadas.push({ corpo, opcoes });
     return this.responder();
   }
 }
@@ -84,6 +93,40 @@ describe('DataJudAdapter.diagnosticar', () => {
     await expect(adapterQueRecebe(() => resposta(200)).healthCheck()).resolves.toBe(true);
     await expect(adapterQueRecebe(() => resposta(401)).healthCheck()).resolves.toBe(false);
     await expect(adapterQueRecebe(() => resposta(400)).healthCheck()).resolves.toBe(true);
+  });
+
+  it('usa uma consulta que casa com zero documentos, não match_all', async () => {
+    // match_all sobre o índice do TJSP é a consulta mais cara possível e foi o
+    // que causou timeout contra a API pública sob carga.
+    const http = new HttpFalso(() => resposta(200));
+    const adapter = new DataJudAdapter({
+      apiKey: 'k',
+      httpClient: http,
+      rateLimiter: { adquirir: async () => {}, tentarAdquirir: () => true },
+    });
+
+    await adapter.diagnosticar();
+
+    expect(http.chamadas[0]?.corpo).toEqual({
+      size: 0,
+      query: { match: { numeroProcesso: '00000000000000000000' } },
+    });
+    expect(JSON.stringify(http.chamadas[0]?.corpo)).not.toContain('match_all');
+  });
+
+  it('falha rápido: tentativa única e prazo curto', async () => {
+    // Herdar 3 tentativas × 8s fazia o /ready demorar mais de 25s para dizer
+    // que a fonte está fora.
+    const http = new HttpFalso(() => resposta(200));
+    const adapter = new DataJudAdapter({
+      apiKey: 'k',
+      httpClient: http,
+      rateLimiter: { adquirir: async () => {}, tentarAdquirir: () => true },
+    });
+
+    await adapter.diagnosticar();
+
+    expect(http.chamadas[0]?.opcoes).toEqual({ timeoutMs: 5000, tentativas: 1 });
   });
 
   it('nunca lança, mesmo com a rede quebrada', async () => {

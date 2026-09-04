@@ -24,6 +24,28 @@ import { TRIBUNAIS_SUPORTADOS, ehTribunalSuportado, urlDeBusca } from './tribuna
 
 export const NOME_DATAJUD = 'datajud';
 
+/**
+ * Consulta usada só para verificar a fonte. Ela casa com ZERO documentos de
+ * propósito: um número CNJ de vinte zeros não existe em tribunal nenhum.
+ *
+ * A versão anterior usava `match_all` sobre o índice do TJSP — o maior tribunal
+ * do país. Mesmo com `size: 0`, isso pede ao Elasticsearch que percorra e conte
+ * o índice inteiro: a consulta mais cara possível, disparada a cada chamada de
+ * `/ready`. Contra uma API pública compartilhada e sob carga, o resultado era
+ * timeout — e o LexFlow concluía "fonte fora do ar" quando ela estava no ar,
+ * só ocupada respondendo a uma pergunta que ninguém precisava fazer.
+ *
+ * Um health check tem uma pergunta só: "consigo falar com essa fonte e ela me
+ * aceita?". Zero resultados respondem isso tão bem quanto um milhão.
+ */
+const CONSULTA_DE_VERIFICACAO = {
+  size: 0,
+  query: { match: { numeroProcesso: '00000000000000000000' } },
+};
+
+/** Health check responde rápido ou não responde. 5s é o teto. */
+const TIMEOUT_VERIFICACAO_MS = 5000;
+
 export interface OpcoesDataJudAdapter {
   /** Chave Pública divulgada pelo DPJ/CNJ (sem o prefixo "APIKey"). */
   readonly apiKey: string;
@@ -197,8 +219,13 @@ export class DataJudAdapter implements ProcessoProvider {
     try {
       resposta = await this.http.postJson(
         url,
-        { size: 0, query: { match_all: {} } },
+        CONSULTA_DE_VERIFICACAO,
         { Authorization: `APIKey ${this.apiKey}` },
+        // Tentativa ÚNICA e prazo curto. Herdar a política das consultas de
+        // usuário (3 tentativas × 8s + backoff) fazia o /ready levar mais de 25
+        // segundos só para dizer que a fonte está fora — tempo suficiente para
+        // o orquestrador de contêiner concluir que o SERVIÇO é que morreu.
+        { timeoutMs: TIMEOUT_VERIFICACAO_MS, tentativas: 1 },
       );
     } catch (erro) {
       return {

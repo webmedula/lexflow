@@ -21,6 +21,18 @@ export interface RespostaHttp {
   readonly corpo: string;
 }
 
+/**
+ * Ajustes por requisição, sobrepondo os padrões do cliente.
+ *
+ * Existe porque nem toda chamada merece a mesma política. Uma consulta de
+ * usuário compensa esperar e retentar; um health check, não — ele precisa
+ * responder rápido, mesmo que a resposta seja "não sei".
+ */
+export interface OpcoesRequisicao {
+  readonly timeoutMs?: number;
+  readonly tentativas?: number;
+}
+
 export class HttpTimeoutError extends Error {
   constructor(readonly url: string, readonly timeoutMs: number) {
     super(`Timeout de ${timeoutMs}ms ao chamar ${url}`);
@@ -52,17 +64,22 @@ export class HttpClient {
     url: string,
     corpo: unknown,
     headers: Record<string, string> = {},
+    opcoes?: OpcoesRequisicao,
   ): Promise<RespostaHttp> {
-    return this.executar(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json',
-        ...this.headersPadrao,
-        ...headers,
+    return this.executar(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json',
+          ...this.headersPadrao,
+          ...headers,
+        },
+        body: JSON.stringify(corpo),
       },
-      body: JSON.stringify(corpo),
-    });
+      opcoes,
+    );
   }
 
   async get(
@@ -75,18 +92,24 @@ export class HttpClient {
     });
   }
 
-  private async executar(url: string, init: RequestInit): Promise<RespostaHttp> {
+  private async executar(
+    url: string,
+    init: RequestInit,
+    opcoes?: OpcoesRequisicao,
+  ): Promise<RespostaHttp> {
+    const timeoutMs = opcoes?.timeoutMs ?? this.timeoutMs;
+    const tentativas = Math.max(1, opcoes?.tentativas ?? this.tentativas);
     let ultimoErro: unknown;
 
-    for (let tentativa = 1; tentativa <= this.tentativas; tentativa++) {
+    for (let tentativa = 1; tentativa <= tentativas; tentativa++) {
       try {
-        const resposta = await this.umaTentativa(url, init);
+        const resposta = await this.umaTentativa(url, init, timeoutMs);
 
         // 5xx e 429 são transitórios: vale retentar. 4xx (exceto 429) é erro
         // nosso — retentar só queima cota.
         if (resposta.status >= 500 || resposta.status === 429) {
           ultimoErro = new Error(`HTTP ${resposta.status}`);
-          if (tentativa < this.tentativas) {
+          if (tentativa < tentativas) {
             await this.esperar(tentativa);
             continue;
           }
@@ -94,7 +117,7 @@ export class HttpClient {
         return resposta;
       } catch (erro) {
         ultimoErro = erro;
-        if (tentativa < this.tentativas) {
+        if (tentativa < tentativas) {
           await this.esperar(tentativa);
           continue;
         }
@@ -105,9 +128,13 @@ export class HttpClient {
     throw new HttpRedeError(url, ultimoErro);
   }
 
-  private async umaTentativa(url: string, init: RequestInit): Promise<RespostaHttp> {
+  private async umaTentativa(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number,
+  ): Promise<RespostaHttp> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const resposta = await fetch(url, { ...init, signal: controller.signal });
       return {
@@ -117,7 +144,7 @@ export class HttpClient {
       };
     } catch (erro) {
       if (erro instanceof Error && erro.name === 'AbortError') {
-        throw new HttpTimeoutError(url, this.timeoutMs);
+        throw new HttpTimeoutError(url, timeoutMs);
       }
       throw erro;
     } finally {

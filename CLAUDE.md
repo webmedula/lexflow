@@ -347,7 +347,7 @@ Toda entrega que muda comportamento: bump no `package.json` **e** entrada no
 **Pronto:** domínio, portas, casos de uso, `DataJudAdapter`,
 `MockCrawlerAdapter`, `ProcessoSearchService` com fallback, cache com TTL/LRU,
 rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API e rate
-limit, Dockerfile multi-stage, CI, 154 testes.
+limit, Dockerfile multi-stage, CI, 161 testes.
 
 **Não implementado (decisão consciente do MVP):** persistência em banco,
 multi-tenant (a chave autentica, não separa clientes), crawler real,

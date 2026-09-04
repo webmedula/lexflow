@@ -9,6 +9,35 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.4.2] — 2026-09-03
+
+Foco: o health check do DataJud dava timeout contra a API real.
+
+### Corrigido
+
+- **A consulta de verificação era `match_all` no índice do TJSP** — o maior
+  tribunal do país. Mesmo com `size: 0`, isso faz o Elasticsearch percorrer e
+  contar o índice inteiro: a query mais cara possível, disparada a cada
+  `/ready`. Contra a API pública compartilhada e sob carga, dava timeout, e o
+  LexFlow concluía "fonte fora do ar" com a fonte no ar. Agora a consulta casa
+  com zero documentos (um número CNJ de vinte zeros), que responde a mesma
+  pergunta — "consigo falar com a fonte e ela me aceita?" — de graça.
+- **O health check herdava a política de retry das consultas de usuário**
+  (3 tentativas × 8s + backoff): o `/ready` podia levar mais de 25 segundos só
+  para dizer que a fonte estava fora — tempo suficiente para um orquestrador de
+  contêiner concluir que o serviço inteiro morreu. Agora é tentativa única com
+  teto de 5s.
+
+### Adicionado
+
+- `OpcoesRequisicao` no `HttpClient`: `timeoutMs` e `tentativas` por chamada,
+  sobrepondo o padrão do cliente. Nem toda requisição merece a mesma política —
+  consulta de usuário compensa esperar e insistir, health check não.
+- 7 testes novos, incluindo a política de retry do `HttpClient` contra `fetch`
+  dublado (total: 161).
+
+---
+
 ## [0.4.1] — 2026-09-03
 
 Foco: impedir que texto de exemplo vire credencial.
