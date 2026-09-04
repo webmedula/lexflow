@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { VERSAO } from '../../../infrastructure/config/versao.js';
 import type { Aplicacao } from '../../factories/makeProcessoSearchService.js';
 
 export const ROTA_HEALTH = '/health';
@@ -22,8 +23,11 @@ export const ROTA_READY = '/ready';
  */
 export function rotasDeSaude(app: Aplicacao): FastifyPluginAsync {
   return async (servidor) => {
+    // A versão sai aqui para que dê para conferir, de fora, se o deploy pegou —
+    // sem isso você fica adivinhando se o contêiner rodando é o do último push.
     servidor.get(ROTA_HEALTH, async () => ({
       status: 'ok',
+      versao: VERSAO,
       uptimeSegundos: Math.round(process.uptime()),
     }));
 

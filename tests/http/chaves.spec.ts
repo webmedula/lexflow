@@ -33,6 +33,14 @@ describe('validarChavesDeApi', () => {
     expect(erro?.message).not.toContain(fraca);
   });
 
+  it('recusa o texto de exemplo, mesmo sendo longo o bastante', () => {
+    // 35 caracteres: passaria na checagem de tamanho e viraria a chave de
+    // produção do serviço.
+    expect(() =>
+      validarChavesDeApi(['COLE_AQUI_A_CHAVE_GERADA_NO_PASSO_1'], false),
+    ).toThrow(/texto de exemplo/);
+  });
+
   it('recusa chaves repetidas — revogar uma derrubaria as outras', () => {
     expect(() => validarChavesDeApi([CHAVE_FORTE, CHAVE_FORTE], false)).toThrow(
       /repetidas/,

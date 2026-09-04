@@ -188,6 +188,24 @@ describe('composition root', () => {
     ]);
   });
 
+  it('deixa o DataJud fora da cadeia quando a chave é o texto de exemplo', async () => {
+    // Reproduz o incidente: o bloco do DEPLOY.md colado sem substituir o valor.
+    const app = montarAplicacao(
+      carregarConfig({
+        LEXFLOW_PROVIDER_CHAIN: 'mock-crawler-tjsp,datajud',
+        DATAJUD_API_KEY: 'COLE_AQUI_A_CHAVE_DO_CNJ_OU_DEIXE_VAZIO',
+        MOCK_CRAWLER_LATENCY_MS: '0',
+        LOG_LEVEL: 'silent',
+      } as NodeJS.ProcessEnv),
+    );
+
+    // A fonte não entra na cadeia — e portanto não aparece reprovada no /ready
+    // como se fosse um problema de disponibilidade.
+    await expect(app.orquestrador.diagnostico()).resolves.toEqual([
+      { provider: 'mock-crawler-tjsp', saudavel: true },
+    ]);
+  });
+
   it('recusa a montagem quando a cadeia não produz nenhum provider utilizável', () => {
     expect(() =>
       montarAplicacao(

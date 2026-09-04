@@ -11,6 +11,7 @@ import type { Clock } from '../../../domain/ports/Clock.js';
 import { clockDoSistema } from '../../../domain/ports/Clock.js';
 import type {
   CapacidadesProvider,
+  DiagnosticoProvider,
   ProcessoProvider,
 } from '../../../domain/ports/ProcessoProvider.js';
 import type { ProcessoFixture } from './fixtures/tjsp.fixtures.js';
@@ -120,6 +121,13 @@ export class MockCrawlerAdapter implements ProcessoProvider {
   async healthCheck(): Promise<boolean> {
     await this.dormir(Math.min(this.latenciaMs, 30));
     return this.saudavel;
+  }
+
+  async diagnosticar(): Promise<DiagnosticoProvider> {
+    const saudavel = await this.healthCheck();
+    return saudavel
+      ? { saudavel: true }
+      : { saudavel: false, motivo: 'crawler marcado como indisponível na configuração' };
   }
 
   private async simularIda(): Promise<void> {

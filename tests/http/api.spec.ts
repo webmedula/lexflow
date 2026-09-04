@@ -263,6 +263,15 @@ describe('API — saúde e rate limit', () => {
     await servidor.close();
   });
 
+  it('/health informa a versão do serviço', async () => {
+    // É como se confere, de fora, se o deploy realmente pegou.
+    const servidor = montar();
+    const r = await servidor.inject({ method: 'GET', url: '/health' });
+
+    expect(r.json().versao).toMatch(/^\d+\.\d+\.\d+$/);
+    await servidor.close();
+  });
+
   it('/ready lista o estado de cada fonte', async () => {
     const servidor = montar();
     const r = await servidor.inject({ method: 'GET', url: '/ready' });

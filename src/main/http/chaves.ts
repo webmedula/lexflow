@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { pareceValorDeExemplo } from '../../infrastructure/config/placeholder.js';
 
 /**
  * Comprimento mínimo aceito para uma chave de API.
@@ -46,6 +47,16 @@ export function validarChavesDeApi(
       'LEXFLOW_API_KEYS não definida. Gere uma chave com `npm run chave` e ' +
         'configure-a, ou declare LEXFLOW_AUTH_DISABLED=true se o serviço só ' +
         'será acessível pela rede interna (sem domínio público).',
+    );
+  }
+
+  // Antes do tamanho: um placeholder longo o bastante passaria na checagem de
+  // comprimento e viraria a "chave de produção" do serviço.
+  const exemplos = chaves.filter((c) => pareceValorDeExemplo(c));
+  if (exemplos.length > 0) {
+    throw new ConfiguracaoDeChavesInvalidaError(
+      `LEXFLOW_API_KEYS ainda contém o texto de exemplo (${exemplos.join(', ')}). ` +
+        'Gere uma chave real com `npm run chave` e substitua.',
     );
   }
 

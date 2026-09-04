@@ -1,5 +1,8 @@
 # LexFlow
 
+**v0.4.1** — histórico em [CHANGELOG.md](./CHANGELOG.md).
+Para saber qual versão está rodando: `GET /health` devolve o campo `versao`.
+
 SaaS de consulta e acompanhamento de processos judiciais nos tribunais
 brasileiros. Este repositório contém o **núcleo do MVP**: domínio, orquestrador
 de busca híbrida, adapters de fonte de dados, uma API HTTP e um CLI.
@@ -194,7 +197,7 @@ domínio com HTTPS, webhook de deploy e o que fazer quando der 502 — está em
 ## Testes
 
 ```bash
-npm test          # 135 testes
+npm test          # 154 testes
 npm run test:cov  # com cobertura
 npm run check     # typecheck + lint + testes — rode antes de commitar
 ```

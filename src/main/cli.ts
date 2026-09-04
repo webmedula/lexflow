@@ -94,8 +94,9 @@ async function main(): Promise<number> {
 
     case 'saude': {
       const diagnostico = await app.orquestrador.diagnostico();
-      for (const { provider, saudavel } of diagnostico) {
+      for (const { provider, saudavel, motivo } of diagnostico) {
         console.log(`${saudavel ? 'OK  ' : 'FORA'}  ${provider}`);
+        if (motivo) console.log(`        ${motivo}`);
       }
       return diagnostico.some((d) => d.saudavel) ? 0 : 2;
     }

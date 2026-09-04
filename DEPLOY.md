@@ -147,6 +147,11 @@ mão de terceiro.
 
 ## 2. Suba o código para o GitHub
 
+> **Já subiu uma versão antes?** Pule para
+> [Atualizando de uma versão anterior](#atualizando-de-uma-versão-anterior),
+> no fim deste documento — tem uma armadilha do upload pelo navegador que
+> precisa ser checada.
+
 ```bash
 cd lexflow
 git init
@@ -192,20 +197,24 @@ você fica na mão da heurística de detecção — e ela muda entre versões.
 
 ### Aba Environment
 
-Cole isto, substituindo os valores marcados:
+Cole isto **como está** e depois preencha só a linha do `LEXFLOW_API_KEYS` com a
+chave do passo 1:
 
 ```env
 NODE_ENV=production
 HTTP_HOST=0.0.0.0
 HTTP_PORT=3000
 
-LEXFLOW_API_KEYS=COLE_AQUI_A_CHAVE_GERADA_NO_PASSO_1
+# ↓ cole aqui a chave gerada no passo 1 (npm run chave)
+LEXFLOW_API_KEYS=
 RATE_LIMIT_MAX=60
 RATE_LIMIT_WINDOW_MS=60000
 HTTP_TRUST_PROXY=true
 
 LEXFLOW_PROVIDER_CHAIN=mock-crawler-tjsp,datajud
-DATAJUD_API_KEY=COLE_AQUI_A_CHAVE_DO_CNJ_OU_DEIXE_VAZIO
+# Deixe vazia até ter a Chave Pública do CNJ. Vazia = o DataJud sai da cadeia
+# e o serviço roda só com o crawler, sem erro.
+DATAJUD_API_KEY=
 DATAJUD_RATE_LIMIT_PER_MINUTE=60
 
 CACHE_ENABLED=true
@@ -213,6 +222,12 @@ CACHE_TTL_SECONDS=900
 
 LOG_LEVEL=info
 ```
+
+> **Não escreva um texto de exemplo no lugar de um valor que você ainda não tem.**
+> Uma variável com `COLE_AQUI_...` dentro não está vazia: o serviço a aceita como
+> credencial e só falha depois, na primeira chamada — longe da causa. A partir da
+> v0.4.1 o LexFlow detecta esses textos e avisa, mas o hábito certo é deixar a
+> linha vazia mesmo.
 
 ### Aba Domains
 
@@ -335,6 +350,14 @@ formato (número onde se esperava número, URL onde se esperava URL).
 `HTTP_HOST` está como `127.0.0.1`. Dentro do contêiner isso significa "só eu
 mesmo": o proxy não alcança. Tem que ser `0.0.0.0`.
 
+**Uma fonte aparece no `/ready` com `saudavel: false`**
+A partir da v0.4.0 vem o campo `motivo` junto, dizendo o que é. Se o motivo
+mencionar **texto de exemplo**, a variável ficou com o placeholder da
+documentação em vez do valor real — apague o conteúdo dela (ou cole a chave de
+verdade) e redeploye. Uma fonte com credencial de exemplo aparece na lista como
+se estivesse com problema de disponibilidade, quando na verdade nunca foi
+configurada.
+
 **`/ready` devolve 503**
 Nenhuma fonte respondeu. Com `LEXFLOW_PROVIDER_CHAIN=mock-crawler-tjsp,datajud`
 o mock sempre responde, então 503 aqui normalmente é a cadeia mal escrita —
@@ -362,6 +385,93 @@ rotacionada; pegue a atual na wiki do DataJud. Log com
 Não deveria acontecer: o tini repassa o SIGTERM e o Fastify fecha esperando as
 respostas em voo. Se acontecer, confira se o `ENTRYPOINT` do Dockerfile foi
 alterado.
+
+---
+
+## Atualizando de uma versão anterior
+
+### Antes de tudo: confira se os arquivos ocultos estão no repositório
+
+Se você subiu o código pelo **"Add file → Upload files" do GitHub no navegador**,
+provavelmente faltam arquivos. O Explorer do Windows esconde tudo que começa com
+ponto, então o que você arrastou não incluiu:
+
+| Arquivo | O que acontece sem ele |
+|---|---|
+| `.gitignore` | **o mais grave** — nada impede o `.env` (com sua chave) e o `node_modules/` de irem para o repositório no próximo commit |
+| `.dockerignore` | build mais lento; o contexto inteiro vai para o daemon |
+| `.env.example` | some a referência de quais variáveis existem |
+| `.github/workflows/ci.yml` | não há CI: erro só aparece no deploy |
+
+Como conferir: no GitHub, digite <kbd>t</kbd> na página do repositório e busque
+por `gitignore`. Ou abra
+`https://github.com/SEU-USUARIO/lexflow/blob/main/.gitignore` direto — 404
+significa que não está lá.
+
+**Se faltar o `.gitignore`, resolva isso antes de qualquer outra coisa.** Sem
+ele, um `git add .` distraído publica sua chave de API num repositório — e chave
+que entrou no histórico do Git continua lá mesmo depois de apagada num commit
+seguinte. Nesse caso, a saída é gerar outra.
+
+### O jeito que resolve de vez: usar Git
+
+O upload pelo navegador não apaga arquivos removidos, não versiona direito e
+esconde dotfiles. Vale os cinco minutos de instalar o Git.
+
+1. Instale: <https://git-scm.com/download/win> (aceite os padrões)
+2. Descompacte o zip novo **por cima** da sua pasta do projeto, substituindo os
+   arquivos. Seu `.env` local não está no zip, então ele sobrevive.
+3. No PowerShell, dentro da pasta:
+
+```powershell
+git init
+git remote add origin https://github.com/SEU-USUARIO/lexflow.git
+git fetch origin
+git checkout -b main
+git add -A
+git commit -m "Atualiza para a v0.3.0"
+git push -u origin main --force
+```
+
+O `--force` aqui é intencional e seguro: o histórico atual é um único commit de
+upload, e você está substituindo por um commit completo — com os dotfiles, que é
+o ponto. Da segunda vez em diante, `git push` normal.
+
+Confira o resultado: a raiz do repositório deve mostrar `.gitignore`,
+`.dockerignore`, `.env.example` e a pasta `.github/`.
+
+Nos próximos ciclos, o fluxo vira:
+
+```powershell
+git add -A
+git commit -m "o que mudou"
+git push
+```
+
+E, com o webhook do passo 5 configurado, o Easypanel redeploya sozinho.
+
+### Se preferir continuar pelo navegador
+
+Dá para fazer, mas precisa de um passo extra para os dotfiles:
+
+1. No Explorer: aba **Exibir → Mostrar → Itens ocultos**
+2. Arraste os arquivos **e** as pastas, incluindo `.github/`
+3. Crie os arquivos que teimarem em não subir pelo próprio GitHub:
+   **Add file → Create new file**, digite `.gitignore` no nome e cole o conteúdo
+
+Ainda assim, arquivos que deixaram de existir no projeto continuarão no
+repositório — o upload só adiciona e sobrescreve. Por isso o Git é melhor.
+
+### Confirme que o deploy pegou a versão nova
+
+```bash
+curl https://lexflow.webmedula.com.br/health
+# {"status":"ok","versao":"0.3.0","uptimeSegundos":12}
+```
+
+Se o campo `versao` continuar mostrando a anterior, o Easypanel não pegou o
+commit novo: verifique o branch configurado na aba Source e rode um Deploy
+manual.
 
 ---
 

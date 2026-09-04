@@ -3,6 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import type { Config } from '../../infrastructure/config/env.js';
+import { VERSAO } from '../../infrastructure/config/versao.js';
 import type { Aplicacao } from '../factories/makeProcessoSearchService.js';
 import { validarChavesDeApi } from './chaves.js';
 import { mapearErro } from './erros.js';
@@ -135,6 +136,7 @@ export async function iniciar(app: Aplicacao, config: Config): Promise<FastifyIn
   await servidor.listen({ host: config.http.host, port: config.http.porta });
 
   app.logger.info('LexFlow no ar', {
+    versao: VERSAO,
     host: config.http.host,
     porta: config.http.porta,
     fontes: config.cadeiaDeProviders,

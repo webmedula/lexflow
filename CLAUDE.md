@@ -115,6 +115,7 @@ interface ProcessoProvider {
   buscarPorNumero(numeroProcesso: string): Promise<Processo>;
   buscarPorOab(oab: string, uf: string): Promise<Processo[]>;
   healthCheck(): Promise<boolean>;
+  diagnosticar?(): Promise<DiagnosticoProvider>;  // opcional
 }
 ```
 
@@ -127,7 +128,12 @@ interface ProcessoProvider {
 3. Lance **somente** erros de `domain/errors` (tabela abaixo). `throw new Error()`
    cru é bug.
 4. `healthCheck()` **nunca lança** — fonte fora do ar devolve `false`.
-5. Devolva `Processo`, nunca o payload da fonte.
+5. Implemente `diagnosticar()` se a fonte tem mais de um jeito de falhar. Devolver
+   só `false` obriga quem opera a adivinhar entre chave errada, rede e tribunal
+   fora do ar. E cuidado com a classificação: **4xx que não é de autenticação
+   significa que a fonte respondeu e a chave passou** — reprovar por isso tira da
+   cadeia uma fonte que estava funcionando.
+6. Devolva `Processo`, nunca o payload da fonte.
 
 ### Erros e o que cada um provoca no orquestrador
 
@@ -307,6 +313,12 @@ Não são detalhes — moldam o código.
   comum. Nunca troque por um prefixo da chave: vaza segredo e colapsa todas as
   chaves que compartilhem convenção de nome. O handler de erro devolve mensagem
   genérica em 500 porque a original pode conter URL interna ou trecho de payload.
+- **Nunca escreva placeholder no lugar de um valor.** Em bloco de configuração
+  pronto para copiar, a linha vai vazia e a instrução vai em comentário. Um
+  `COLE_AQUI_...` não é vazio: passa por toda checagem de presença e vira
+  credencial de mentira, que só falha lá na frente. `pareceValorDeExemplo()`
+  (em `infrastructure/config/placeholder.ts`) é a rede de segurança, não a
+  desculpa para voltar a usar placeholder.
 - **Configuração de autenticação é validada no arranque** (`main/http/chaves.ts`):
   sem chave, chave com menos de `TAMANHO_MINIMO_CHAVE`, chave repetida, ou
   `LEXFLOW_AUTH_DISABLED` junto com chaves preenchidas — todos derrubam a
@@ -318,12 +330,24 @@ Não são detalhes — moldam o código.
 
 ---
 
-## 9. Estado atual e próximos passos
+## 9. Versionamento
+
+A versão vive **só** no `package.json` — `src/infrastructure/config/versao.ts` a
+lê em tempo de execução, e ela sai no log de arranque e em `GET /health`. Nunca
+duplique o número numa constante: no dia em que divergir, será exatamente quando
+você estiver olhando um log tentando descobrir se o deploy pegou.
+
+Toda entrega que muda comportamento: bump no `package.json` **e** entrada no
+`CHANGELOG.md`, na mesma PR.
+
+---
+
+## 10. Estado atual e próximos passos
 
 **Pronto:** domínio, portas, casos de uso, `DataJudAdapter`,
 `MockCrawlerAdapter`, `ProcessoSearchService` com fallback, cache com TTL/LRU,
 rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API e rate
-limit, Dockerfile multi-stage, CI, 135 testes.
+limit, Dockerfile multi-stage, CI, 154 testes.
 
 **Não implementado (decisão consciente do MVP):** persistência em banco,
 multi-tenant (a chave autentica, não separa clientes), crawler real,

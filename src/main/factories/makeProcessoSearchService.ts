@@ -14,6 +14,7 @@ import {
 import { CachedProcessoProvider } from '../../infrastructure/cache/CachedProcessoProvider.js';
 import { InMemoryCache } from '../../infrastructure/cache/InMemoryCache.js';
 import type { Config } from '../../infrastructure/config/env.js';
+import { pareceValorDeExemplo } from '../../infrastructure/config/placeholder.js';
 import { ConsoleLogger } from '../../infrastructure/logging/ConsoleLogger.js';
 
 export interface Aplicacao {
@@ -104,6 +105,21 @@ function construirProviders(config: Config, logger: Logger): ProcessoProvider[] 
         break;
 
       case NOME_DATAJUD:
+        // Placeholder é tratado como AUSENTE, não como chave ruim. Do contrário
+        // o adapter entra na cadeia com uma credencial de mentira e o problema
+        // só aparece como 401 lá na consulta — longe da causa real, que é uma
+        // variável nunca preenchida.
+        if (pareceValorDeExemplo(config.dataJud.apiKey)) {
+          logger.warn(
+            'DataJud fora da cadeia: DATAJUD_API_KEY ainda contém o texto de exemplo',
+            {
+              valor: config.dataJud.apiKey,
+              acao: 'Apague o conteúdo da variável, ou cole a chave real.',
+              ajuda: 'https://datajud-wiki.cnj.jus.br/api-publica/acesso/',
+            },
+          );
+          break;
+        }
         if (!config.dataJud.apiKey) {
           logger.warn('DataJud fora da cadeia: DATAJUD_API_KEY não definida', {
             ajuda: 'https://datajud-wiki.cnj.jus.br/api-publica/acesso/',

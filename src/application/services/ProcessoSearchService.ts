@@ -10,6 +10,7 @@ import type { Logger } from '../../domain/ports/Logger.js';
 import { loggerSilencioso } from '../../infrastructure/logging/ConsoleLogger.js';
 import type {
   CapacidadesProvider,
+  DiagnosticoProvider,
   ProcessoProvider,
 } from '../../domain/ports/ProcessoProvider.js';
 
@@ -225,13 +226,23 @@ export class ProcessoSearchService implements ProcessoProvider {
     return resultados.some(Boolean);
   }
 
-  /** Diagnóstico por fonte, para o endpoint de readiness e para o CLI. */
-  async diagnostico(): Promise<Array<{ provider: string; saudavel: boolean }>> {
+  /**
+   * Diagnóstico por fonte, para o endpoint de readiness e para o CLI.
+   * Traz o MOTIVO quando a fonte o expõe — sem isso, "saudavel: false" é um
+   * beco sem saída para quem está tentando descobrir o que configurar.
+   */
+  async diagnostico(): Promise<
+    Array<{ provider: string; saudavel: boolean; motivo?: string }>
+  > {
     return Promise.all(
-      this.providers.map(async (p) => ({
-        provider: p.nome,
-        saudavel: await this.estaSaudavel(p),
-      })),
+      this.providers.map(async (p) => {
+        const resultado = await this.diagnosticarProvider(p);
+        return {
+          provider: p.nome,
+          saudavel: resultado.saudavel,
+          ...(resultado.motivo !== undefined ? { motivo: resultado.motivo } : {}),
+        };
+      }),
     );
   }
 
@@ -243,10 +254,23 @@ export class ProcessoSearchService implements ProcessoProvider {
   }
 
   private async estaSaudavel(provider: ProcessoProvider): Promise<boolean> {
+    return (await this.diagnosticarProvider(provider)).saudavel;
+  }
+
+  /**
+   * Usa `diagnosticar()` quando a fonte oferece; cai para `healthCheck()` quando
+   * não. O contrato diz que nenhum dos dois lança — mas o try/catch fica, porque
+   * "não deveria lançar" e "não lança" são coisas diferentes, e um adapter mal
+   * comportado não pode derrubar o diagnóstico da cadeia inteira.
+   */
+  private async diagnosticarProvider(
+    provider: ProcessoProvider,
+  ): Promise<DiagnosticoProvider> {
     try {
-      return await provider.healthCheck();
-    } catch {
-      return false;
+      if (provider.diagnosticar) return await provider.diagnosticar();
+      return { saudavel: await provider.healthCheck() };
+    } catch (erro) {
+      return { saudavel: false, motivo: `health check falhou: ${descrever(erro)}` };
     }
   }
 }

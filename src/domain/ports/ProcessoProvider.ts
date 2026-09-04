@@ -35,6 +35,19 @@ export interface CapacidadesProvider {
  * Lançar `Error` cru é bug: o orquestrador trata como indisponibilidade e o
  * diagnóstico se perde.
  */
+/**
+ * Resultado de um health check com a razão junto.
+ *
+ * `saudavel: false` sem motivo é um beco sem saída em produção: você olha o
+ * `/ready`, vê a fonte reprovada e não sabe se é chave errada, tribunal fora do
+ * ar ou rede. O motivo transforma isso em algo acionável.
+ */
+export interface DiagnosticoProvider {
+  readonly saudavel: boolean;
+  /** Explicação legível — some quando está tudo bem e não há o que dizer. */
+  readonly motivo?: string;
+}
+
 export interface ProcessoProvider {
   /** Identificador estável, usado em log, cache e procedência. Ex.: "datajud". */
   readonly nome: string;
@@ -64,4 +77,14 @@ export interface ProcessoProvider {
    * mortas e pelo endpoint de readiness.
    */
   healthCheck(): Promise<boolean>;
+
+  /**
+   * Health check com motivo. OPCIONAL: adapters simples podem implementar só o
+   * `healthCheck`, e quem chama cai de volta nele. Opcional em vez de
+   * obrigatório para não quebrar todo adapter existente por causa de um campo
+   * de diagnóstico — a porta cresce sem forçar migração.
+   *
+   * Como `healthCheck`, NUNCA lança.
+   */
+  diagnosticar?(): Promise<DiagnosticoProvider>;
 }

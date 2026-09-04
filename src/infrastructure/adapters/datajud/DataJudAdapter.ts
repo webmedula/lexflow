@@ -12,6 +12,7 @@ import type { Logger } from '../../../domain/ports/Logger.js';
 import { loggerSilencioso } from '../../logging/ConsoleLogger.js';
 import type {
   CapacidadesProvider,
+  DiagnosticoProvider,
   ProcessoProvider,
 } from '../../../domain/ports/ProcessoProvider.js';
 import { HttpClient, HttpTimeoutError } from '../../http/HttpClient.js';
@@ -172,17 +173,75 @@ export class DataJudAdapter implements ProcessoProvider {
   }
 
   async healthCheck(): Promise<boolean> {
+    return (await this.diagnosticar()).saudavel;
+  }
+
+  /**
+   * Verifica se a fonte está utilizável e diz POR QUE quando não está.
+   *
+   * A classificação abaixo corrige um erro sutil da versão anterior, que
+   * reprovava a fonte em qualquer resposta que não fosse 2xx:
+   *
+   *   4xx que NÃO é de autenticação significa que a requisição chegou, a chave
+   *   foi aceita e o servidor entendeu o suficiente para reclamar da consulta
+   *   de verificação. Do ponto de vista de "esta fonte consegue me atender?",
+   *   isso é SAUDÁVEL — o que não serve é a query do health check, não a fonte.
+   *
+   * Tratar isso como "fonte morta" tirava o DataJud da cadeia inteira por causa
+   * de uma consulta de teste recusada, exatamente quando ele estava disponível.
+   */
+  async diagnosticar(): Promise<DiagnosticoProvider> {
+    const url = urlDeBusca(this.baseUrl, 'TJSP');
+
+    let resposta;
     try {
-      const url = urlDeBusca(this.baseUrl, 'TJSP');
-      const resposta = await this.http.postJson(
+      resposta = await this.http.postJson(
         url,
         { size: 0, query: { match_all: {} } },
         { Authorization: `APIKey ${this.apiKey}` },
       );
-      return resposta.ok;
-    } catch {
-      return false;
+    } catch (erro) {
+      return {
+        saudavel: false,
+        motivo:
+          erro instanceof HttpTimeoutError
+            ? 'timeout ao contatar a API do CNJ'
+            : 'falha de rede ao contatar a API do CNJ',
+      };
     }
+
+    if (resposta.ok) return { saudavel: true };
+
+    if (resposta.status === 401 || resposta.status === 403) {
+      return {
+        saudavel: false,
+        motivo:
+          `chave pública rejeitada (HTTP ${resposta.status}). Confira DATAJUD_API_KEY — ` +
+          'a chave vigente fica em https://datajud-wiki.cnj.jus.br/api-publica/acesso/',
+      };
+    }
+
+    if (resposta.status === 429) {
+      return {
+        saudavel: false,
+        motivo:
+          'limite de requisições excedido (HTTP 429). Reduza DATAJUD_RATE_LIMIT_PER_MINUTE.',
+      };
+    }
+
+    if (resposta.status >= 500) {
+      return {
+        saudavel: false,
+        motivo: `API do CNJ fora do ar (HTTP ${resposta.status})`,
+      };
+    }
+
+    return {
+      saudavel: true,
+      motivo:
+        `alcançável e autenticada, mas a consulta de verificação foi recusada ` +
+        `(HTTP ${resposta.status}). As buscas por número devem funcionar normalmente.`,
+    };
   }
 
   private interpretar(corpo: string): ReturnType<typeof respostaDataJudSchema.parse> {
