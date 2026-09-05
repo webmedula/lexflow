@@ -18,6 +18,30 @@ export interface Movimentacao {
   readonly codigoTpu?: number;
   /** Complementos do movimento na TPU — ex.: ["tipo_de_documento: petição"]. */
   readonly complementos?: readonly string[];
+  /**
+   * Identificador do andamento NA FONTE, quando ela expõe um.
+   *
+   * Existe por causa da detecção de novidades. Sem ele, dois andamentos são
+   * "o mesmo" quando coincidem data e título — o que basta para o DataJud, que
+   * dá hora cheia, mas quebra no DJEN, que dá só a data: duas decisões
+   * publicadas no mesmo dia no mesmo processo viravam uma só, e a segunda
+   * nunca era avisada ao advogado.
+   *
+   * Prefixado pela fonte (`djen:717509066`) para que identificadores de fontes
+   * diferentes não colidam.
+   */
+  readonly idExterno?: string;
+  /** Link para o documento na origem, quando a fonte expõe. */
+  readonly url?: string;
+  /**
+   * Qual fonte trouxe este andamento. Preenchido na FUSÃO de fontes.
+   *
+   * Numa linha do tempo montada de duas bases, "de onde veio esta linha" deixa
+   * de ser curiosidade e vira informação de prazo: o DataJud dá hora cheia e o
+   * DJEN dá só o dia, então dois andamentos vizinhos podem ter precisões
+   * diferentes — e o advogado precisa saber qual está olhando.
+   */
+  readonly fonte?: string;
 }
 
 /** Ordena do andamento mais recente para o mais antigo. */

@@ -37,6 +37,7 @@ const CAPACIDADES_PADRAO: CapacidadesProvider = {
   buscarPorOab: true,
   retornaPartes: true,
   retornaConteudoMovimentacoes: true,
+  retornaLinhaDoTempoCompleta: true,
   tribunais: ['*'],
 };
 

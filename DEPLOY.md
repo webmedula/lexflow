@@ -211,11 +211,14 @@ RATE_LIMIT_MAX=60
 RATE_LIMIT_WINDOW_MS=60000
 HTTP_TRUST_PROXY=true
 
-LEXFLOW_PROVIDER_CHAIN=mock-crawler-tjsp,datajud
+LEXFLOW_PROVIDER_CHAIN=datajud,djen
 # Deixe vazia até ter a Chave Pública do CNJ. Vazia = o DataJud sai da cadeia
-# e o serviço roda só com o crawler, sem erro.
+# e o serviço roda só com o DJEN, sem erro — e o DJEN não precisa de chave.
 DATAJUD_API_KEY=
 DATAJUD_RATE_LIMIT_PER_MINUTE=60
+# DJEN: nenhuma credencial. É o diário oficial, aberto por desenho.
+DJEN_RATE_LIMIT_PER_MINUTE=60
+DJEN_MAX_COMUNICACOES_POR_OAB=500
 
 CACHE_ENABLED=true
 CACHE_TTL_SECONDS=900
@@ -386,9 +389,21 @@ se estivesse com problema de disponibilidade, quando na verdade nunca foi
 configurada.
 
 **`/ready` devolve 503**
-Nenhuma fonte respondeu. Com `LEXFLOW_PROVIDER_CHAIN=mock-crawler-tjsp,datajud`
-o mock sempre responde, então 503 aqui normalmente é a cadeia mal escrita —
-confira se não há espaço ou nome errado na variável.
+Nenhuma fonte respondeu. Com `LEXFLOW_PROVIDER_CHAIN=datajud,djen` o DJEN
+responde em menos de 1s e sem chave, então 503 aqui normalmente é a cadeia mal
+escrita — confira se não há espaço ou nome errado na variável — ou o VPS sem
+saída para `comunicaapi.pje.jus.br`.
+
+**`PROVIDER_INDISPONIVEL: HTTP 403` no DJEN ou no DataJud**
+403 vindo de host que não é o CNJ é rede, não credencial. O contêiner precisa de
+saída HTTPS para `comunicaapi.pje.jus.br` (DJEN) e `api-publica.datajud.cnj.jus.br`
+(DataJud). Em VPS com allowlist de egresso, libere os dois.
+
+**A busca por OAB não devolve nada**
+Confira se `djen` está em `LEXFLOW_PROVIDER_CHAIN`: é a única fonte do projeto
+que faz essa busca. Se estiver e ainda vier vazio, é o limite da fonte, não um
+defeito — o DJEN só conhece processos que tiveram publicação no diário, e o
+histórico dele começa por volta de 2023.
 
 **401 mesmo com a chave certa**
 Espaços em volta das vírgulas são tolerados, então não é isso. As causas reais:

@@ -114,6 +114,8 @@ export class DataJudAdapter implements ProcessoProvider {
     buscarPorOab: false,
     retornaPartes: false,
     retornaConteudoMovimentacoes: false,
+    // A base indexa TODOS os movimentos da TPU, inclusive os internos.
+    retornaLinhaDoTempoCompleta: true,
     tribunais: TRIBUNAIS_SUPORTADOS,
   };
 

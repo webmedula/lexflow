@@ -177,4 +177,21 @@ describe('console do SaaS', () => {
     expect(r.body).not.toMatch(/<script[^>]+src=/i);
     expect(r.body).not.toMatch(/<link[^>]+href="https?:/i);
   });
+
+  it('oferece acompanhar em lote o resultado da busca por OAB', async () => {
+    // É o fluxo que fecha o produto: digitar a própria inscrição uma vez e sair
+    // com a carteira inteira sob vigilância.
+    const r = await s.inject({ method: 'GET', url: '/' });
+    expect(r.body).toContain('bt-lote');
+    expect(r.body).toContain('Acompanhar todos');
+  });
+
+  it('não afirma mais que busca por OAB exige crawler', async () => {
+    // A tela dizia isso quando era verdade. Passou a ser mentira quando o DJEN
+    // entrou, e mensagem desatualizada manda o usuário procurar defeito onde
+    // não há.
+    const r = await s.inject({ method: 'GET', url: '/' });
+    expect(r.body).not.toContain('Consulta por OAB exige crawler');
+    expect(r.body).not.toContain('dependem do crawler do tribunal');
+  });
 });

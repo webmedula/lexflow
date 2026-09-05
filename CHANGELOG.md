@@ -9,6 +9,105 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.9.0] — 2026-09-05
+
+**A busca por OAB passa a existir — e o processo passa a vir inteiro.**
+
+Até aqui o LexFlow enxergava metade de cada processo: o DataJud entrega
+metadados e a linha do tempo codificada, mas não indexa parte nem advogado, e
+por isso `buscarPorOab` só sabia lançar `OperacaoNaoSuportadaError`. Esta versão
+fecha o buraco com uma segunda fonte oficial.
+
+### Como cheguei aqui — e por que NÃO tem crawler
+
+O plano era escrever um crawler do tribunal. Investiguei antes de codar, e a
+investigação matou o plano duas vezes:
+
+1. **O TJGO não usa eproc.** O campo `sistema` do DataJud diz `Eproc`, mas
+   nenhum host de eproc do TJGO existe (`eproc.tjgo.jus.br`, `eproc1`, `eproc2`
+   — todos sem DNS). O sistema real é o **Projudi**. Um adapter escrito a partir
+   daquele campo teria sido escrito contra um sistema que o tribunal não usa.
+2. **A consulta pública do Projudi é protegida por Cloudflare Turnstile.** O
+   formulário carrega `challenges.cloudflare.com/turnstile/v0/api.js` em modo
+   `render=explicit` e o botão Buscar nasce `disabled`, só habilitando com token
+   válido. Não é rate limit: é desafio anti-bot em toda consulta. E o formulário
+   **não tem campo de OAB** — mesmo vencido o desafio, a funcionalidade
+   pretendida não estava lá.
+
+Contornar CAPTCHA está fora de cogitação: é o tribunal dizendo que não quer
+robô, e dependeria de serviço pago de resolução, com custo por consulta e
+quebra a cada ajuste da Cloudflare.
+
+A saída foi outra fonte oficial.
+
+### Adicionado
+
+- **`DjenAdapter`** — Diário de Justiça Eletrônico Nacional, via Comunica API do
+  CNJ (`comunicaapi.pje.jus.br`). Sem chave, sem CAPTCHA, cobertura nacional.
+  Traz o que faltava:
+  - **busca por OAB de verdade** (`numeroOab` + `ufOab`), a funcionalidade que
+    faz um advogado assinar;
+  - **partes**, com polo;
+  - **advogados**, com número e UF da inscrição;
+  - **inteiro teor** do ato publicado, não só o rótulo.
+- **Enriquecimento entre fontes** no `ProcessoSearchService`. Achar o processo
+  deixou de encerrar a busca: as fontes seguintes que sabem algo que a vencedora
+  não sabe são consultadas e os resultados são fundidos. É o que torna a
+  arquitetura híbrida de fato híbrida, e não só uma cadeia de fallback.
+- **`fundirProcessos`** (`domain/entities/fusaoProcessos.ts`) — regra de
+  precedência entre fontes: a preferida vence em campo escalar, a complementar
+  só preenche buraco, e as linhas do tempo se unem sem duplicar.
+- **Capacidade `retornaLinhaDoTempoCompleta`** na porta `ProcessoProvider`.
+  Sem ela o orquestrador via um resultado do DJEN com partes e teor, concluía
+  que não faltava nada, e nunca perguntava ao DataJud — um processo com 361
+  andamentos apareceria com 8.
+- **`Movimentacao.idExterno`, `.url` e `.fonte`.** O `idExterno` conserta um bug
+  latente na detecção de novidades: a chave era `data|titulo`, e o DJEN informa
+  só o dia, então duas decisões publicadas no mesmo dia no mesmo processo
+  viravam uma só e a segunda nunca era avisada.
+- **Acompanhar em lote** na tela: o resultado da busca por OAB ganhou o botão
+  *Acompanhar todos*. Digitar a própria inscrição uma vez e sair com a carteira
+  inteira sob vigilância é o fluxo que fecha o produto.
+- `tests/fixtures/djen-comunica-real.json` — captura real, com as armadilhas
+  anotadas no cabeçalho.
+- Suíte de integração `hibrido-datajud-djen.spec.ts`, que roda a cadeia contra
+  as duas capturas reais e falha se o enriquecimento parar de acontecer.
+
+### Corrigido
+
+- **Enriquecimento não reabre fonte já descartada.** Uma fonte que acabou de dar
+  timeout, que não cobre o tribunal ou que reprovou no health check não é
+  consultada de novo na etapa de complemento.
+- **O tribunal considerado no complemento é o do número CONSULTADO**, não o do
+  processo devolvido — senão uma fonte que responde errado passa a decidir quem
+  mais é chamado.
+- `HttpClient.get` passou a aceitar `OpcoesRequisicao` (timeout e tentativas por
+  chamada), como o `postJson` já aceitava.
+- Duas mensagens da interface afirmavam que busca por OAB e inteiro teor
+  "dependem do crawler do tribunal". Virou mentira quando o DJEN entrou, e
+  mensagem desatualizada manda o usuário procurar defeito onde não há.
+
+### Alterado
+
+- **`LEXFLOW_PROVIDER_CHAIN` mudou de `mock-crawler-tjsp,datajud` para
+  `datajud,djen`.** O mock saiu do padrão: em produção ele inventaria processo.
+  Sem `DATAJUD_API_KEY` a cadeia degrada sozinha para só o DJEN — que não exige
+  chave, então o serviço sobe e funciona sem nenhuma configuração de fonte.
+
+### Limites honestos desta fonte
+
+- O DJEN só conhece o que foi **publicado no diário**. Juntada, conclusão e
+  expediente de cartório não aparecem — para isso o DataJud continua na cadeia.
+- Histórico curto: consulta a 2020 devolve zero. O DJEN concentra as publicações
+  nacionais a partir de 2023/2024.
+- `destinatarios` e `destinatarioadvogados` vêm como listas irmãs, sem ligação
+  entre si. Com um destinatário — o caso comum — a associação é inequívoca; com
+  vários, os advogados são atribuídos a todas as partes daquela comunicação.
+- O DJEN não informa se a parte é pessoa física ou jurídica. Fica
+  `DESCONHECIDO`; adivinhar por sufixo erra com espólio e condomínio.
+
+---
+
 ## [0.8.0] — 2026-09-05
 
 **O LexFlow deixa de ser consulta avulsa e vira produto de acompanhamento.**

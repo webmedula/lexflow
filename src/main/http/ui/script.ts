@@ -56,7 +56,7 @@ function explicar(e){
     400:'O formato do número CNJ ou da OAB não confere.',
     404:'Consultamos as fontes e nenhuma tem esse processo.',
     429:'Muitas consultas seguidas. Aguarde um instante.',
-    501:'Nenhuma fonte configurada faz essa busca. Consulta por OAB exige crawler de tribunal — o DataJud não indexa advogados.',
+    501:'Nenhuma fonte configurada faz essa busca. Verifique LEXFLOW_PROVIDER_CHAIN — a busca por OAB vem do DJEN.',
     502:'As fontes externas falharam. Em geral é o CNJ lento ou fora do ar.',
     503:'Fonte temporariamente indisponível.'};
   return m[e.status]||e.message||'Erro inesperado.';
@@ -297,7 +297,10 @@ function executarBusca(){
     if(porOab){
       var l=b.processos||[];
       if(!l.length){$('res').innerHTML=vazio('🔍','Nenhum processo','Essa OAB não retornou processos nas fontes configuradas.');return}
-      var h='<div class="titulo-secao"><h2>'+l.length+' processo(s)</h2></div>';
+      var h='<div class="titulo-secao"><h2>'+l.length+' processo(s)</h2>'+
+        '<button class="bt bt2" id="bt-lote">Acompanhar todos</button></div>'+
+        '<div class="nota" style="margin:-4px 0 12px">Vieram das publicações do '+
+        'diário oficial. Processo sem publicação recente não aparece aqui.</div>';
       l.forEach(function(p){
         var um=(p.movimentacoes&&p.movimentacoes[0])||null;
         h+='<button class="item" data-num="'+esc(p.numero)+'"><div class="lin1">'+
@@ -306,6 +309,7 @@ function executarBusca(){
           (um?'<div class="lin3">'+esc(um.titulo)+' · '+dt(um.data)+'</div>':'')+'</button>';
       });
       $('res').innerHTML=h;
+      ligarAcompanharLote(l.map(function(p){return p.numero}));
       $('res').querySelectorAll('[data-num]').forEach(function(el){
         el.addEventListener('click',function(){
           $('modo').value='numero';$('modo').dispatchEvent(new Event('change'));
@@ -317,6 +321,37 @@ function executarBusca(){
   }).catch(function(e){
     espera(false);$('bt-buscar').disabled=false;$('bt-buscar').textContent='Consultar';
     $('res').innerHTML=erroBloco(e);
+  });
+}
+
+/**
+ * Acompanhar em lote o resultado de uma busca por OAB.
+ *
+ * É o fluxo que fecha o produto: o advogado digita a própria inscrição uma vez
+ * e sai com a carteira inteira sob vigilância, em vez de recadastrar processo
+ * por processo.
+ *
+ * Sequencial de propósito. Disparar 80 POSTs de uma vez faria o servidor abrir
+ * 80 consultas às fontes ao mesmo tempo, estourar o rate limit e derrubar a
+ * própria varredura. Devagar e mostrando o progresso é melhor do que rápido e
+ * pela metade.
+ */
+function ligarAcompanharLote(numeros){
+  var bt=$('bt-lote'); if(!bt)return;
+  bt.addEventListener('click',function(){
+    bt.disabled=true;
+    var ok=0,falhou=0,i=0;
+    function passo(){
+      if(i>=numeros.length){
+        bt.innerHTML=ok+' acompanhado(s)'+(falhou?' · '+falhou+' falhou(ram)':'');
+        carregarFacetas();return;
+      }
+      bt.innerHTML='<span class="gira"></span>'+(i+1)+'/'+numeros.length;
+      api('/v1/acompanhamentos',{method:'POST',body:{numero:numeros[i]}})
+        .then(function(){ok++}).catch(function(){falhou++})
+        .then(function(){i++;passo()});
+    }
+    passo();
   });
 }
 
@@ -425,9 +460,9 @@ function processoHtml(p,acomp,op){
           return esc(a.nome)+(a.oab?' — OAB '+esc(a.oab)+'/'+esc(a.ufOab||''):'')}).join(' · ')+'</div>';
       h+='</div>'});
   }else{
-    h+='<div style="color:var(--tinta2)">Esta fonte não informa partes nem advogados. '+
-      'A base pública do CNJ publica só metadados — partes, advogados e o inteiro teor '+
-      'dos despachos dependem do crawler do tribunal.</div>';
+    h+='<div style="color:var(--tinta2)">Nenhuma parte informada. O DataJud publica só '+
+      'metadados, e o DJEN só conhece quem foi intimado em alguma publicação — um '+
+      'processo sem publicação recente no diário aparece sem partes.</div>';
   }
   h+='</div>';
 

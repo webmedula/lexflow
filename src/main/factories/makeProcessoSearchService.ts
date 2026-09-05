@@ -11,6 +11,7 @@ import {
   DataJudAdapter,
   NOME_DATAJUD,
 } from '../../infrastructure/adapters/datajud/DataJudAdapter.js';
+import { DjenAdapter, NOME_DJEN } from '../../infrastructure/adapters/djen/DjenAdapter.js';
 import {
   MockCrawlerAdapter,
   NOME_MOCK_CRAWLER,
@@ -58,7 +59,7 @@ export function montarAplicacao(config: Config): Aplicacao {
   if (providers.length === 0) {
     throw new Error(
       `Nenhum provider utilizável em LEXFLOW_PROVIDER_CHAIN="${config.cadeiaDeProviders.join(',')}". ` +
-        `Valores aceitos: ${NOME_MOCK_CRAWLER}, ${NOME_DATAJUD}.`,
+        `Valores aceitos: ${NOME_MOCK_CRAWLER}, ${NOME_DATAJUD}, ${NOME_DJEN}.`,
     );
   }
 
@@ -167,6 +168,20 @@ function construirProviders(config: Config, logger: Logger): ProcessoProvider[] 
             baseUrl: config.dataJud.baseUrl,
             timeoutMs: config.dataJud.timeoutMs,
             limitePorMinuto: config.dataJud.limitePorMinuto,
+            logger,
+          }),
+        );
+        break;
+
+      case NOME_DJEN:
+        // Sem chave, sem configuração obrigatória: é o diário oficial, aberto
+        // por desenho. Nunca sai da cadeia por falta de credencial.
+        providers.push(
+          new DjenAdapter({
+            baseUrl: config.djen.baseUrl,
+            timeoutMs: config.djen.timeoutMs,
+            limitePorMinuto: config.djen.limitePorMinuto,
+            maxComunicacoesPorOab: config.djen.maxComunicacoesPorOab,
             logger,
           }),
         );

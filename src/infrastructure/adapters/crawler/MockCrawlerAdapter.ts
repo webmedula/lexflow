@@ -59,6 +59,7 @@ export class MockCrawlerAdapter implements ProcessoProvider {
     buscarPorOab: true,
     retornaPartes: true,
     retornaConteudoMovimentacoes: true,
+    retornaLinhaDoTempoCompleta: true,
     tribunais: ['TJSP'],
   };
 

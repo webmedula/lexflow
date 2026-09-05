@@ -16,6 +16,17 @@ export interface CapacidadesProvider {
   readonly retornaPartes: boolean;
   /** A fonte devolve o inteiro teor dos despachos, não só o título. */
   readonly retornaConteudoMovimentacoes: boolean;
+  /**
+   * A fonte devolve a linha do tempo COMPLETA do processo, não um recorte.
+   *
+   * A distinção existe por causa do DJEN: ele traz o inteiro teor, o que faz
+   * dele a melhor fonte de conteúdo, mas só conhece o que foi PUBLICADO no
+   * diário — juntada, conclusão e expediente de cartório não aparecem. Sem esta
+   * capacidade, o orquestrador via um resultado com partes e teor, concluía que
+   * não faltava nada e nunca perguntava ao DataJud, que tinha os outros 300
+   * andamentos. Um processo aparentava ter 8 movimentações em vez de 361.
+   */
+  readonly retornaLinhaDoTempoCompleta: boolean;
   /** Siglas de tribunal atendidas; `'*'` para "qualquer um". */
   readonly tribunais: readonly string[];
 }

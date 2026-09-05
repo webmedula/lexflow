@@ -1,4 +1,5 @@
 import type { Processo } from '../../domain/entities/Processo.js';
+import { fundirProcessos } from '../../domain/entities/fusaoProcessos.js';
 import { NumeroCNJ } from '../../domain/entities/NumeroCNJ.js';
 import {
   DomainError,
@@ -37,6 +38,20 @@ export interface OpcoesProcessoSearchService {
    * compensa quando o provider primário é lento para falhar. Padrão: false.
    */
   readonly verificarSaude?: boolean;
+  /**
+   * Depois de achar o processo, consulta as fontes SEGUINTES que sabem algo que
+   * a vencedora não sabe, e funde os resultados. Padrão: true.
+   *
+   * É o que transforma a cadeia de fallback numa busca de fato híbrida. Sem
+   * isso, quem responde primeiro define o teto do que o usuário vê: o DataJud
+   * devolve a linha do tempo completa e nenhuma parte, e o advogado nunca fica
+   * sabendo que o nome do adversário e o inteiro teor do despacho estavam
+   * disponíveis na fonte seguinte.
+   *
+   * Custa uma requisição a mais por consulta — e só nas fontes que agregam algo
+   * que falta, nunca em todas.
+   */
+  readonly enriquecer?: boolean;
 }
 
 interface Tentativa {
@@ -76,6 +91,7 @@ export class ProcessoSearchService implements ProcessoProvider {
   private readonly logger: Logger;
   private readonly estrategiaOab: EstrategiaOab;
   private readonly verificarSaude: boolean;
+  private readonly enriquecer: boolean;
 
   constructor(opcoes: OpcoesProcessoSearchService) {
     if (opcoes.providers.length === 0) {
@@ -85,6 +101,66 @@ export class ProcessoSearchService implements ProcessoProvider {
     this.logger = (opcoes.logger ?? loggerSilencioso).child({ provider: this.nome });
     this.estrategiaOab = opcoes.estrategiaOab ?? 'AGREGAR';
     this.verificarSaude = opcoes.verificarSaude ?? false;
+    this.enriquecer = opcoes.enriquecer ?? true;
+  }
+
+  /**
+   * Completa o processo com o que as fontes seguintes sabem e a vencedora não.
+   *
+   * Só consulta quem AGREGA: uma fonte que não traz partes nem inteiro teor,
+   * quando já temos os dois, é uma requisição jogada fora. E falha de
+   * enriquecimento nunca derruba a consulta — o usuário já tem um resultado
+   * válido na mão; perder o extra é degradação, não erro.
+   */
+  private async complementar(
+    processo: Processo,
+    sigla: string | null,
+    vencedora: ProcessoProvider,
+    jaDescartadas: ReadonlySet<ProcessoProvider>,
+  ): Promise<Processo> {
+    let atual = processo;
+    // Linha do tempo é o único "buraco" que não dá para enxergar olhando o
+    // resultado: 8 movimentações podem ser o processo inteiro ou um recorte, e
+    // só a fonte sabe qual. Por isso aqui a resposta vem da capacidade
+    // declarada, não do dado.
+    let temLinhaCompleta = vencedora.capacidades.retornaLinhaDoTempoCompleta;
+
+    for (const provider of this.providers) {
+      if (jaDescartadas.has(provider)) continue;
+      if (!provider.capacidades.buscarPorNumero) continue;
+      // A sigla é a do número CONSULTADO, não a do processo devolvido: são a
+      // mesma coisa quando tudo está certo, e quando não estão é a consulta que
+      // manda — senão uma fonte que devolveu o processo errado passaria a
+      // decidir quem mais é chamado.
+      if (!this.atendeTribunal(provider, sigla)) continue;
+      if (this.verificarSaude && !(await this.estaSaudavel(provider))) continue;
+
+      const traPartes = provider.capacidades.retornaPartes && atual.partes.length === 0;
+      const traTeor =
+        provider.capacidades.retornaConteudoMovimentacoes &&
+        !atual.movimentacoes.some((m) => m.conteudo);
+      const traLinha =
+        provider.capacidades.retornaLinhaDoTempoCompleta && !temLinhaCompleta;
+      if (!traPartes && !traTeor && !traLinha) continue;
+
+      try {
+        const extra = await provider.buscarPorNumero(atual.numero.digitos);
+        atual = fundirProcessos(atual, extra);
+        if (traLinha) temLinhaCompleta = true;
+        this.logger.info('processo enriquecido por fonte complementar', {
+          fonte: provider.nome,
+          partes: atual.partes.length,
+          movimentacoes: atual.movimentacoes.length,
+        });
+      } catch (erro) {
+        this.logger.debug('fonte complementar não acrescentou nada', {
+          fonte: provider.nome,
+          erro: descrever(erro),
+        });
+      }
+    }
+
+    return atual;
   }
 
   /** União das capacidades da cadeia — o que o conjunto consegue fazer. */
@@ -100,6 +176,9 @@ export class ProcessoSearchService implements ProcessoProvider {
       retornaConteudoMovimentacoes: this.providers.some(
         (p) => p.capacidades.retornaConteudoMovimentacoes,
       ),
+      retornaLinhaDoTempoCompleta: this.providers.some(
+        (p) => p.capacidades.retornaLinhaDoTempoCompleta,
+      ),
       tribunais: tribunais.has('*') ? ['*'] : [...tribunais],
     };
   }
@@ -112,9 +191,18 @@ export class ProcessoSearchService implements ProcessoProvider {
     const tentativas: Tentativa[] = [];
     let algumaFonteRespondeuSemAchar = false;
 
+    /**
+     * Fontes que já foram descartadas NESTA consulta — porque falharam, porque
+     * não cobrem o tribunal ou porque reprovaram no health check. O
+     * enriquecimento não pode reabri-las: perguntar de novo a quem acabou de dar
+     * timeout dobra o tempo da resposta para não acrescentar nada.
+     */
+    const jaDescartadas = new Set<ProcessoProvider>();
+
     for (const provider of this.providers) {
       if (!provider.capacidades.buscarPorNumero) continue;
       if (!this.atendeTribunal(provider, sigla)) {
+        jaDescartadas.add(provider);
         this.logger.debug('fonte ignorada: não cobre o tribunal', {
           fonte: provider.nome,
           tribunal: sigla,
@@ -122,6 +210,7 @@ export class ProcessoSearchService implements ProcessoProvider {
         continue;
       }
       if (this.verificarSaude && !(await this.estaSaudavel(provider))) {
+        jaDescartadas.add(provider);
         tentativas.push({ provider: provider.nome, erro: 'healthCheck negativo' });
         continue;
       }
@@ -133,8 +222,12 @@ export class ProcessoSearchService implements ProcessoProvider {
           numero: numero.formatado,
           tentativasAnteriores: tentativas.length,
         });
-        return processo;
+        jaDescartadas.add(provider);
+        return this.enriquecer
+          ? await this.complementar(processo, sigla, provider, jaDescartadas)
+          : processo;
       } catch (erro) {
+        jaDescartadas.add(provider);
         if (erro instanceof OperacaoNaoSuportadaError) {
           this.logger.debug('fonte não suporta a operação', { fonte: provider.nome });
           continue;

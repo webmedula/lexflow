@@ -47,9 +47,16 @@ export interface Novidade {
   readonly vistaEm?: Date;
 }
 
-/** Identidade de uma movimentação para fins de comparação entre sincronizações. */
+/**
+ * Identidade de uma movimentação para fins de comparação entre sincronizações.
+ *
+ * `idExterno` entra no fim, e não no lugar dos outros dois, por
+ * retrocompatibilidade: fonte que não expõe identificador (o DataJud) produz
+ * exatamente a mesma chave de antes, e nenhum acompanhamento já gravado passa a
+ * ver o histórico inteiro como novidade no primeiro deploy desta versão.
+ */
 export function chaveDaMovimentacao(m: Movimentacao): string {
-  return `${m.data.toISOString()}|${m.titulo}`;
+  return `${m.data.toISOString()}|${m.titulo}|${m.idExterno ?? ''}`;
 }
 
 /**

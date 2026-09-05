@@ -15,14 +15,23 @@ fonte que respondeu.
 
 **A tese do produto é a busca HÍBRIDA.** Nenhuma fonte isolada resolve:
 
-| Fonte | Custo | Cobertura | Partes/advogados | Inteiro teor | Busca por OAB |
-|---|---|---|---|---|---|
-| API Pública DataJud (CNJ) | grátis | ~91 tribunais | ❌ não indexa | ❌ só rótulo TPU | ❌ impossível |
-| Crawler próprio (e-SAJ, PJe, Projudi) | infra + manutenção | 1 tribunal por crawler | ✅ | ✅ | ✅ |
-| Agregadores pagos | R$ por consulta | ampla | ✅ | ✅ | ✅ |
+| Fonte | Custo | Cobertura | Partes/advogados | Inteiro teor | Busca por OAB | Linha do tempo |
+|---|---|---|---|---|---|---|
+| API Pública DataJud (CNJ) | grátis | ~91 tribunais | ❌ não indexa | ❌ só rótulo TPU | ❌ impossível | ✅ completa |
+| DJEN / Comunica API (CNJ) | grátis, sem chave | nacional | ✅ | ✅ | ✅ | ⚠️ só o publicado |
+| Crawler próprio (e-SAJ, PJe, Projudi) | infra + manutenção | 1 tribunal por crawler | ✅ | ✅ | ✅ | ✅ |
+| Agregadores pagos | R$ por consulta | ampla | ✅ | ✅ | ✅ | ✅ |
 
-O sistema combina fontes atrás de uma única interface e faz fallback automático.
-Toda decisão de arquitetura abaixo existe para servir a isso.
+O sistema combina fontes atrás de uma única interface, faz fallback automático
+e — desde a v0.9.0 — **complementa**: achar o processo não encerra a busca, as
+fontes seguintes preenchem o que a vencedora não soube. Toda decisão de
+arquitetura abaixo existe para servir a isso.
+
+**Regra de ouro das fontes, aprendida do jeito caro:** o DataJud e o DJEN se
+completam e nenhum substitui o outro. O DataJud tem a linha do tempo inteira e
+nenhuma parte; o DJEN tem partes, advogados e inteiro teor, mas só do que foi
+publicado no diário. Deixar o DJEN sozinho responder faz um processo de 361
+andamentos aparecer com 8.
 
 ---
 
@@ -71,6 +80,7 @@ src/
 ├── infrastructure/
 │   ├── adapters/
 │   │   ├── datajud/             # adapter + mapper + schemas + aliases
+│   │   ├── djen/                # adapter + mapper + limpeza de HTML
 │   │   └── crawler/             # MockCrawlerAdapter + fixtures
 │   ├── cache/                   # InMemoryCache, CachedProcessoProvider
 │   ├── config/                  # env.ts (validação de configuração)
@@ -267,6 +277,16 @@ npm run build            # compila para dist/
    `domain/entities/NumeroCNJ.ts`.
 3. Teste com um número real daquele tribunal.
 
+### Adicionar uma fonte nova
+
+1. `infrastructure/adapters/<fonte>/` com adapter + mapper + schemas Zod.
+2. **Capture uma resposta REAL antes de escrever o mapper** e salve em
+   `tests/fixtures/`. Sem isso você testa o seu palpite contra ele mesmo.
+3. Declare `capacidades` honestas, inclusive `retornaLinhaDoTempoCompleta` —
+   é ela que decide se o orquestrador continua perguntando às outras fontes.
+4. Registre no `switch` de `main/factories/makeProcessoSearchService.ts`, no
+   schema de `infrastructure/config/env.ts` e no `.env.example`.
+
 ### Criar um crawler de verdade
 
 1. `infrastructure/adapters/crawler/<Tribunal>CrawlerAdapter.ts`, implementando
@@ -310,6 +330,17 @@ Não são detalhes — moldam o código.
 - **Crawler é um convidado no servidor alheio.** Respeite intervalo entre
   requisições, horário de menor movimento e `robots.txt`. Sem paralelismo
   agressivo contra tribunal.
+- **CAPTCHA é um "não" do tribunal. Não se contorna.** A consulta pública do
+  Projudi/TJGO exige token do Cloudflare Turnstile a cada busca (script em modo
+  `render=explicit`, botão Buscar `disabled` até o token chegar). Vencer isso
+  exigiria serviço pago de resolução — custo por consulta, quebra a cada ajuste
+  da Cloudflare, e posição indefensável se o tribunal reclamar. Quando uma fonte
+  se fecha assim, a resposta é **procurar outra fonte oficial**, não um jeitinho.
+  Foi assim que o DJEN entrou no projeto.
+- **O campo `sistema` do DataJud não é confiável.** Ele diz `Eproc` para
+  processos do TJGO, que roda **Projudi** — não existe host de eproc no TJGO.
+  Antes de escrever adapter para um sistema, confirme que o sistema existe
+  naquele tribunal (DNS e página de verdade), não pelo metadado.
 - **Segredo de justiça:** `processo.segredoJustica === true` significa que
   partes e movimentações podem estar suprimidas na origem. Não tente
   complementar por outra fonte, e nunca exiba para quem não é parte.
@@ -355,14 +386,17 @@ Toda entrega que muda comportamento: bump no `package.json` **e** entrada no
 
 ## 10. Estado atual e próximos passos
 
-**Pronto:** domínio, portas, casos de uso, `DataJudAdapter`,
-`MockCrawlerAdapter`, `ProcessoSearchService` com fallback, cache com TTL/LRU,
-rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API e rate
-limit, Dockerfile multi-stage, CI, 218 testes.
+**Pronto:** domínio, portas, casos de uso, `DataJudAdapter`, `DjenAdapter`
+(busca por OAB, partes, advogados, inteiro teor), `MockCrawlerAdapter`,
+`ProcessoSearchService` com fallback **e enriquecimento entre fontes**,
+`fundirProcessos`, acompanhamento com SQLite e varredura agendada, cache com
+TTL/LRU, rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API
+e rate limit, console web com busca por OAB e acompanhar em lote, Dockerfile
+multi-stage, CI, 247 testes.
 
-**Não implementado (decisão consciente do MVP):** persistência em banco,
-multi-tenant (a chave autentica, não separa clientes), crawler real,
-monitoramento de movimentações com notificação, fila de jobs. O cache é em
-memória — uma instância, e evapora no redeploy.
+**Não implementado (decisão consciente do MVP):** contas de usuário com login e
+cobrança (hoje a chave de API é o usuário e o workspace), crawler real,
+notificação por e-mail/push das novidades, fila de jobs. O cache é em memória —
+uma instância, e evapora no redeploy.
 
 Ao implementar qualquer um deles, **atualize este arquivo na mesma PR.**

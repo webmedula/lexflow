@@ -18,7 +18,16 @@ function inteiroPositivo(padrao: number): z.ZodDefault<z.ZodNumber> {
 }
 
 const schema = z.object({
-  LEXFLOW_PROVIDER_CHAIN: z.string().default('mock-crawler-tjsp,datajud'),
+  /**
+   * Ordem das fontes. O DataJud vem primeiro porque só ele tem a linha do tempo
+   * COMPLETA e a data de distribuição; o DJEN entra logo atrás e completa com
+   * partes, advogados e inteiro teor. O mock não está no padrão: em produção ele
+   * inventaria processo.
+   *
+   * Sem DATAJUD_API_KEY a cadeia degrada sozinha para só o DJEN — que não exige
+   * chave nenhuma. É de propósito: o sistema sobe e funciona sem configuração.
+   */
+  LEXFLOW_PROVIDER_CHAIN: z.string().default('datajud,djen'),
 
   DATAJUD_API_KEY: z.string().default(''),
   DATAJUD_BASE_URL: z
@@ -28,6 +37,13 @@ const schema = z.object({
   // 60s: consulta fria no CNJ chega a 20s (medido). Ver DataJudAdapter.
   DATAJUD_TIMEOUT_MS: inteiroPositivo(60_000),
   DATAJUD_RATE_LIMIT_PER_MINUTE: inteiroPositivo(60),
+
+  DJEN_BASE_URL: z.string().url().default('https://comunicaapi.pje.jus.br'),
+  // 20s: latência medida foi de 185ms a 993ms. Ver DjenAdapter.
+  DJEN_TIMEOUT_MS: inteiroPositivo(20_000),
+  DJEN_RATE_LIMIT_PER_MINUTE: inteiroPositivo(60),
+  // Teto de publicações lidas numa busca por OAB. 500 cobre meses de atividade.
+  DJEN_MAX_COMUNICACOES_POR_OAB: inteiroPositivo(500),
 
   MOCK_CRAWLER_LATENCY_MS: z.coerce.number().int().min(0).default(120),
   MOCK_CRAWLER_FAILURE_RATE: z.coerce.number().min(0).max(1).default(0),
@@ -71,6 +87,12 @@ const schema = z.object({
 
 export interface Config {
   readonly cadeiaDeProviders: readonly string[];
+  readonly djen: {
+    readonly baseUrl: string;
+    readonly timeoutMs: number;
+    readonly limitePorMinuto: number;
+    readonly maxComunicacoesPorOab: number;
+  };
   readonly dataJud: {
     readonly apiKey: string;
     readonly baseUrl: string;
@@ -120,6 +142,12 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
     cadeiaDeProviders: env.LEXFLOW_PROVIDER_CHAIN.split(',')
       .map((s) => s.trim())
       .filter((s) => s.length > 0),
+    djen: {
+      baseUrl: env.DJEN_BASE_URL,
+      timeoutMs: env.DJEN_TIMEOUT_MS,
+      limitePorMinuto: env.DJEN_RATE_LIMIT_PER_MINUTE,
+      maxComunicacoesPorOab: env.DJEN_MAX_COMUNICACOES_POR_OAB,
+    },
     dataJud: {
       apiKey: env.DATAJUD_API_KEY,
       baseUrl: env.DATAJUD_BASE_URL,

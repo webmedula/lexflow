@@ -85,11 +85,16 @@ export class HttpClient {
   async get(
     url: string,
     headers: Record<string, string> = {},
+    opcoes?: OpcoesRequisicao,
   ): Promise<RespostaHttp> {
-    return this.executar(url, {
-      method: 'GET',
-      headers: { accept: 'application/json', ...this.headersPadrao, ...headers },
-    });
+    return this.executar(
+      url,
+      {
+        method: 'GET',
+        headers: { accept: 'application/json', ...this.headersPadrao, ...headers },
+      },
+      opcoes,
+    );
   }
 
   private async executar(

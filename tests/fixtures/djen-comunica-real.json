@@ -1,0 +1,67 @@
+{
+  "_captura": {
+    "origem": "https://comunicaapi.pje.jus.br/api/v1/comunicacao?numeroOab=47383&ufOab=GO&pagina=1&itensPorPagina=1",
+    "capturadoEm": "2026-09-05",
+    "latenciaObservadaMs": [185, 231, 993],
+    "observacoes": [
+      "Captura REAL do DJEN (Comunica API / CNJ). Não invente campos aqui.",
+      "O campo 'texto' foi truncado em 600 caracteres para o fixture; o original tinha 1152. Nenhum outro campo foi alterado.",
+      "'texto' vem com entidades HTML (&Aacute;, &nbsp;, &ordm;) e \\n literais — o mapper PRECISA decodificar.",
+      "'numero_processo' vem SEM máscara (20 dígitos); 'numeroprocessocommascara' vem formatado.",
+      "'data_disponibilizacao' é ISO (YYYY-MM-DD); 'datadisponibilizacao' é BR (DD/MM/YYYY). Dois campos, mesma data.",
+      "Sem chave de API, sem CAPTCHA. count=1871 para esta OAB.",
+      "O filtro numeroOab NÃO se restringe ao ufOab do tribunal: OAB 999999/GO devolveu processo 8.26 (TJSP)."
+    ]
+  },
+  "status": "success",
+  "message": "Sucesso",
+  "count": 1871,
+  "items": [
+    {
+      "id": 717509066,
+      "data_disponibilizacao": "2026-09-04",
+      "siglaTribunal": "TJGO",
+      "tipoComunicacao": "Intimação",
+      "nomeOrgao": "Itapuranga - 1ª Vara Cível",
+      "idOrgao": 62008,
+      "texto": "PODER JUDICI&Aacute;RIO\n\nTribunal de Justi&ccedil;a do Estado de Goi&aacute;s\n\nComarca de ITAPURANGA\n\nItapuranga - 1&ordf; Vara C&iacute;vel\n\nRUA 45, ESQUINA COM RUA 5, 150, , VILA BARRINHA, ITAPURANGA/GO, CEP&nbsp;74000000\n\n\n\n\t\n\t\t\n\t\t\tATO ORDINAT&Oacute;RIO\n\t\t\n\t\n\n\n\n\nProcesso n&ordm;: 5578470-05.2026.8.09.0085\n\n\n&nbsp;\n\n\nNos termos do &sect; 4&ordm; do art. 203 C&oacute;digo de Processo Civil e atento ao&nbsp; C&oacute;digo de Normas e Procedimentos do Foro Judicial da insigne Corregedoria-Geral da Justi&ccedil;a, pratico o seguinte ato ordinat&oacute;rio:\n\n\n&nbsp;INTIMEM-SE as partes para, no ",
+      "numero_processo": "55784700520268090085",
+      "meio": "D",
+      "link": "https://projudi.tjgo.jus.br/p?c=109787665432563873183438906",
+      "tipoDocumento": "Ato ordinatório",
+      "nomeClasse": "PROCEDIMENTO COMUM CíVEL",
+      "codigoClasse": "7",
+      "numeroComunicacao": 1,
+      "ativo": true,
+      "hash": "r2nqe4VJb6alfahzTn1dWdRKk7AgOM",
+      "status": "P",
+      "motivo_cancelamento": null,
+      "data_cancelamento": null,
+      "datadisponibilizacao": "04/09/2026",
+      "meiocompleto": "Diário de Justiça Eletrônico Nacional",
+      "numeroprocessocommascara": "5578470-05.2026.8.09.0085",
+      "destinatarios": [
+        {
+          "nome": "MARIA DE FATIMA LEITE",
+          "comunicacao_id": 717509066,
+          "polo": "A"
+        }
+      ],
+      "destinatarioadvogados": [
+        {
+          "id": 1339824841,
+          "comunicacao_id": 717509066,
+          "advogado_id": 479415,
+          "created_at": "2026-09-03T00:00:02",
+          "updated_at": "2026-09-03T00:00:02",
+          "advogado": {
+            "id": 479415,
+            "nome": "GUILHERME FREITAS DE OLIVEIRA",
+            "numero_oab": "47383",
+            "uf_oab": "GO"
+          }
+        }
+      ]
+    }
+  ]
+}
