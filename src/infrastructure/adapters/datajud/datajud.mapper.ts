@@ -82,6 +82,9 @@ function mapearMovimento(origem: MovimentoDataJud): Movimentacao | null {
 /** `yyyyMMddHHmmss` — 14 dígitos, sem separador nenhum. */
 const COMPACTO = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/;
 
+/** Horário oficial de Brasília, que é como o CNJ carimba o formato compacto. */
+const FUSO_BRASILIA = '-03:00';
+
 /**
  * O DataJud usa DOIS formatos de data no MESMO documento:
  *
@@ -105,18 +108,16 @@ function parseData(valor: string | undefined, campo: string): Date | undefined {
   const compacto = COMPACTO.exec(valor);
   if (compacto) {
     const [, ano, mes, dia, hora, minuto, segundo] = compacto;
-    // Sem timezone declarado no formato compacto. O CNJ publica em horário de
-    // Brasília; tratamos como UTC para não inventar deslocamento — e a
-    // diferença não altera a data em nenhum uso atual.
+    // O formato compacto não declara fuso, e o CNJ publica em horário de
+    // Brasília (UTC−03:00). Interpretar como UTC parece inofensivo e NÃO É:
+    // "20150826000000" viraria 26/08 00:00Z, que exibido em São Paulo é
+    // 25/08 21:00 — a data de distribuição aparece um dia antes na tela.
+    // Aconteceu de verdade, na primeira consulta real.
+    //
+    // Brasil não tem horário de verão desde 2019, e mesmo nos anos em que
+    // tinha, a diferença de uma hora não muda o dia de um carimbo à meia-noite.
     const data = new Date(
-      Date.UTC(
-        Number(ano),
-        Number(mes) - 1,
-        Number(dia),
-        Number(hora),
-        Number(minuto),
-        Number(segundo),
-      ),
+      `${ano}-${mes}-${dia}T${hora}:${minuto}:${segundo}${FUSO_BRASILIA}`,
     );
     if (!Number.isNaN(data.getTime())) return data;
   } else {

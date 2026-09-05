@@ -64,10 +64,10 @@ src/
 ├── domain/                      # o núcleo, sem I/O
 │   ├── entities/                # Processo, Movimentacao, Parte, NumeroCNJ, Oab
 │   ├── errors/                  # hierarquia de DomainError
-│   ├── ports/                   # ProcessoProvider, Cache, Logger, Clock
+│   ├── ports/                   # ProcessoProvider, RepositorioAcompanhamentos, Cache…
 │   └── usecases/                # BuscarProcessoPorNumero, BuscarProcessosPorOab
 ├── application/
-│   └── services/                # ProcessoSearchService (orquestrador)
+│   └── services/                # ProcessoSearchService, ServicoAcompanhamento
 ├── infrastructure/
 │   ├── adapters/
 │   │   ├── datajud/             # adapter + mapper + schemas + aliases
@@ -76,6 +76,8 @@ src/
 │   ├── config/                  # env.ts (validação de configuração)
 │   ├── http/                    # HttpClient (timeout + retry)
 │   ├── logging/                 # ConsoleLogger
+│   ├── persistencia/            # serialização + SQLite (acompanhamentos)
+│   ├── agenda/                  # Agendador da varredura
 │   └── ratelimit/               # TokenBucketRateLimiter
 └── main/
     ├── factories/               # composition root
@@ -356,7 +358,7 @@ Toda entrega que muda comportamento: bump no `package.json` **e** entrada no
 **Pronto:** domínio, portas, casos de uso, `DataJudAdapter`,
 `MockCrawlerAdapter`, `ProcessoSearchService` com fallback, cache com TTL/LRU,
 rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API e rate
-limit, Dockerfile multi-stage, CI, 180 testes.
+limit, Dockerfile multi-stage, CI, 218 testes.
 
 **Não implementado (decisão consciente do MVP):** persistência em banco,
 multi-tenant (a chave autentica, não separa clientes), crawler real,

@@ -42,7 +42,19 @@ describe('payload real do DataJud (TJGO)', () => {
     const processo = mapearProcesso(fonteReal(), CONSULTADO_EM);
 
     expect(processo.dataDistribuicao).toBeInstanceOf(Date);
-    expect(processo.dataDistribuicao?.toISOString()).toBe('2015-08-26T00:00:00.000Z');
+    // Meia-noite em Brasília = 03:00 UTC. Interpretar como UTC fazia a tela
+    // exibir 25/08 em vez de 26/08 — um dia a menos, na primeira consulta real.
+    expect(processo.dataDistribuicao?.toISOString()).toBe('2015-08-26T03:00:00.000Z');
+  });
+
+  it('a data exibida em horário de Brasília é o dia correto', () => {
+    // O teste que faltava: não basta a data existir, ela tem que aparecer certa.
+    const processo = mapearProcesso(fonteReal(), CONSULTADO_EM);
+    const exibida = processo.dataDistribuicao?.toLocaleDateString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+    });
+
+    expect(exibida).toBe('26/08/2015');
   });
 
   it('lida com os DOIS formatos de data que vêm no mesmo documento', () => {
@@ -50,6 +62,7 @@ describe('payload real do DataJud (TJGO)', () => {
     const processo = mapearProcesso(fonteReal(), CONSULTADO_EM);
 
     expect(processo.dataDistribuicao?.getUTCFullYear()).toBe(2015);
+    expect(processo.dataDistribuicao?.toISOString()).toContain('2015-08-26');
     expect(processo.ultimaMovimentacao?.data.toISOString()).toBe(
       '2026-07-15T15:20:55.000Z',
     );

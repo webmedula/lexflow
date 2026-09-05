@@ -4,11 +4,8 @@ import { construirServidor } from '../../src/main/http/servidor.js';
 import { carregarConfig } from '../../src/infrastructure/config/env.js';
 import type { Config } from '../../src/infrastructure/config/env.js';
 import { montarAplicacao } from '../../src/main/factories/makeProcessoSearchService.js';
-import { ProcessoSearchService } from '../../src/application/services/ProcessoSearchService.js';
-import { BuscarProcessoPorNumero } from '../../src/domain/usecases/BuscarProcessoPorNumero.js';
-import { BuscarProcessosPorOab } from '../../src/domain/usecases/BuscarProcessosPorOab.js';
-import { loggerSilencioso } from '../../src/infrastructure/logging/ConsoleLogger.js';
 import { NUMERO_TJSP_A, ProviderFalso } from '../helpers/fabricas.js';
+import { aplicacaoDeTeste } from '../helpers/aplicacao.js';
 
 /**
  * A API inteira é testada com `inject()`: sem abrir porta, sem esperar bind,
@@ -286,17 +283,9 @@ describe('API — saúde e rate limit', () => {
   it('/ready devolve 503 quando nenhuma fonte responde', async () => {
     // Cadeia montada à mão com uma fonte declaradamente fora do ar.
     const fonteMorta = new ProviderFalso({ nome: 'fonte-morta', saudavel: false });
-    const orquestrador = new ProcessoSearchService({ providers: [fonteMorta] });
-    const config = configDeTeste();
     const servidor = construirServidor(
-      {
-        buscarProcessoPorNumero: new BuscarProcessoPorNumero(orquestrador),
-        buscarProcessosPorOab: new BuscarProcessosPorOab(orquestrador),
-        orquestrador,
-        provider: orquestrador,
-        logger: loggerSilencioso,
-      },
-      config,
+      aplicacaoDeTeste([fonteMorta]),
+      configDeTeste(),
     );
 
     const r = await servidor.inject({ method: 'GET', url: '/ready' });

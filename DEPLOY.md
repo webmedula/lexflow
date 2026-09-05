@@ -220,6 +220,12 @@ DATAJUD_RATE_LIMIT_PER_MINUTE=60
 CACHE_ENABLED=true
 CACHE_TTL_SECONDS=900
 
+# Banco: precisa apontar para o volume montado em /dados
+LEXFLOW_DB_PATH=/dados/lexflow.db
+# Varredura automática dos processos acompanhados. 0 desliga.
+SYNC_INTERVALO_HORAS=12
+SYNC_PAUSA_MS=1500
+
 LOG_LEVEL=info
 ```
 
@@ -228,6 +234,27 @@ LOG_LEVEL=info
 > credencial e só falha depois, na primeira chamada — longe da causa. A partir da
 > v0.4.1 o LexFlow detecta esses textos e avisa, mas o hábito certo é deixar a
 > linha vazia mesmo.
+
+### Aba Mounts — **obrigatório a partir da v0.8.0**
+
+O LexFlow agora guarda os processos acompanhados e o histórico de novidades num
+arquivo SQLite. Sem um volume, esse arquivo vive dentro do contêiner e **é
+apagado a cada redeploy** — o usuário perde a carteira inteira e o histórico de
+"o que mudou".
+
+Em **Mounts → Add Mount**:
+
+| Campo | Valor |
+|---|---|
+| Type | **Volume** |
+| Name | `lexflow-dados` |
+| Mount Path | `/dados` |
+
+O `Dockerfile` já define `LEXFLOW_DB_PATH=/dados/lexflow.db` e cria o diretório
+com o dono certo. Você só precisa montar o volume.
+
+Para conferir depois do deploy: acompanhe um processo, faça um **Deploy** de
+novo e veja se ele continua na lista. Se sumiu, o volume não está montado.
 
 ### Aba Domains
 

@@ -40,6 +40,16 @@ const schema = z.object({
     .enum(['debug', 'info', 'warn', 'error', 'silent'])
     .default('info'),
 
+  // --- Banco e sincronização ------------------------------------------------
+  // Caminho do arquivo SQLite. No contêiner tem que apontar para um VOLUME,
+  // senão os acompanhamentos somem a cada redeploy.
+  LEXFLOW_DB_PATH: z.string().default('./dados/lexflow.db'),
+  // Intervalo da varredura automática, em horas. 0 desliga.
+  SYNC_INTERVALO_HORAS: z.coerce.number().min(0).default(12),
+  SYNC_MAXIMO_POR_VARREDURA: inteiroPositivo(200),
+  // Pausa entre consultas. A chave do CNJ é compartilhada por todo o país.
+  SYNC_PAUSA_MS: z.coerce.number().int().min(0).default(1500),
+
   // --- HTTP ---------------------------------------------------------------
   // 0.0.0.0 e não 127.0.0.1: dentro de um contêiner, escutar só em loopback
   // torna o serviço invisível para o proxy do Easypanel. É o erro nº 1 de quem
@@ -77,6 +87,12 @@ export interface Config {
     readonly maxEntradas: number;
   };
   readonly nivelLog: NivelLog;
+  readonly banco: { readonly caminho: string };
+  readonly sincronizacao: {
+    readonly intervaloHoras: number;
+    readonly maximoPorVarredura: number;
+    readonly pausaMs: number;
+  };
   readonly http: {
     readonly host: string;
     readonly porta: number;
@@ -120,6 +136,12 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
       maxEntradas: env.CACHE_MAX_ENTRIES,
     },
     nivelLog: env.LOG_LEVEL,
+    banco: { caminho: env.LEXFLOW_DB_PATH },
+    sincronizacao: {
+      intervaloHoras: env.SYNC_INTERVALO_HORAS,
+      maximoPorVarredura: env.SYNC_MAXIMO_POR_VARREDURA,
+      pausaMs: env.SYNC_PAUSA_MS,
+    },
     http: {
       host: env.HTTP_HOST,
       porta: env.HTTP_PORT,

@@ -33,7 +33,7 @@ describe('console web', () => {
 
     expect(r.statusCode).toBe(200);
     expect(r.headers['content-type']).toContain('text/html');
-    expect(r.body).toContain('<title>LexFlow — Console</title>');
+    expect(r.body).toContain('<title>LexFlow</title>');
   });
 
   it('mostra a versão em execução', async () => {
@@ -73,6 +73,25 @@ describe('console web', () => {
       url: '/v1/processos/1234567-47.2023.8.26.0100',
     });
     expect(r.statusCode).toBe(401);
+  });
+
+  it('mantém a classificação de andamentos internos e marcos', async () => {
+    // Se estas tabelas sumirem, a linha do tempo volta a ser um muro de 361
+    // itens. Os códigos vieram de uma resposta REAL do TJGO.
+    const r = await servidor.inject({ method: 'GET', url: '/' });
+
+    expect(r.body).toMatch(/var INTERNOS=\{[^}]*12266/);
+    expect(r.body).toMatch(/var MARCOS=\{[^}]*848/);
+  });
+
+  it('nunca descarta andamento: o recolhido é contado e reversível', async () => {
+    // Sumir com movimentação em silêncio é como se perde prazo. O botão de
+    // alternar e a contagem precisam existir na página.
+    const r = await servidor.inject({ method: 'GET', url: '/' });
+
+    expect(r.body).toContain('interno(s)');
+    expect(r.body).toContain('Nada foi descartado');
+    expect(r.body).toContain('alternar');
   });
 
   it('o console não consome cota do rate limit', async () => {

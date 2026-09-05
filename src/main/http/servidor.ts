@@ -11,6 +11,7 @@ import autenticacao from './plugins/autenticacao.js';
 import { ROTA_HEALTH, ROTA_READY, rotasDeSaude } from './rotas/saude.js';
 import { ROTA_CONSOLE, rotasDeInterface } from './rotas/interface.js';
 import { rotasDeProcesso } from './rotas/processos.js';
+import { rotasDeAcompanhamento } from './rotas/acompanhamentos.js';
 
 /**
  * Monta o servidor HTTP sem subir porta nenhuma.
@@ -64,6 +65,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(rotasDeSaude(app));
   void servidor.register(rotasDeInterface());
   void servidor.register(rotasDeProcesso(app));
+  void servidor.register(rotasDeAcompanhamento(app.acompanhamento));
 
   servidor.setNotFoundHandler((requisicao, resposta) => {
     void resposta.code(404).send({
@@ -141,6 +143,10 @@ export async function iniciar(app: Aplicacao, config: Config): Promise<FastifyIn
 
   await servidor.listen({ host: config.http.host, port: config.http.porta });
 
+  // Só depois de o servidor estar de pé: se a varredura começasse antes, o
+  // health check poderia falhar enquanto o processo está ocupado consultando.
+  app.agendador.iniciar();
+
   app.logger.info('LexFlow no ar', {
     versao: VERSAO,
     host: config.http.host,
@@ -156,7 +162,10 @@ export async function iniciar(app: Aplicacao, config: Config): Promise<FastifyIn
     app.logger.info('encerrando com elegância', { sinal });
     servidor
       .close()
-      .then(() => process.exit(0))
+      .then(() => {
+        app.encerrar();
+        process.exit(0);
+      })
       .catch(() => process.exit(1));
   };
 

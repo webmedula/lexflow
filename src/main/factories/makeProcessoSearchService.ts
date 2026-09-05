@@ -1,4 +1,8 @@
 import { ProcessoSearchService } from '../../application/services/ProcessoSearchService.js';
+import { ServicoAcompanhamento } from '../../application/services/ServicoAcompanhamento.js';
+import { Agendador } from '../../infrastructure/agenda/Agendador.js';
+import { abrirBanco } from '../../infrastructure/persistencia/sqlite/banco.js';
+import { RepositorioAcompanhamentosSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioAcompanhamentosSqlite.js';
 import type { Logger } from '../../domain/ports/Logger.js';
 import type { ProcessoProvider } from '../../domain/ports/ProcessoProvider.js';
 import { BuscarProcessoPorNumero } from '../../domain/usecases/BuscarProcessoPorNumero.js';
@@ -22,7 +26,11 @@ export interface Aplicacao {
   readonly buscarProcessosPorOab: BuscarProcessosPorOab;
   readonly orquestrador: ProcessoSearchService;
   readonly provider: ProcessoProvider;
+  readonly acompanhamento: ServicoAcompanhamento;
+  readonly agendador: Agendador;
   readonly logger: Logger;
+  /** Fecha o banco. Chamado no desligamento gracioso. */
+  readonly encerrar: () => void;
 }
 
 /**
@@ -72,12 +80,39 @@ export function montarAplicacao(config: Config): Aplicacao {
       })
     : orquestrador;
 
+  // O banco entra aqui, no único lugar que conhece implementações concretas.
+  const db = abrirBanco(config.banco.caminho);
+  const repositorio = new RepositorioAcompanhamentosSqlite(db);
+
+  // A sincronização usa o `provider` COM cache: se dois workspaces acompanham
+  // o mesmo processo, a segunda consulta da varredura sai da memória em vez de
+  // gastar outra ida de 20 segundos ao CNJ.
+  const acompanhamento = new ServicoAcompanhamento({
+    repositorio,
+    provider,
+    logger,
+    maximoPorVarredura: config.sincronizacao.maximoPorVarredura,
+    pausaEntreConsultasMs: config.sincronizacao.pausaMs,
+  });
+
+  const agendador = new Agendador({
+    intervaloHoras: config.sincronizacao.intervaloHoras,
+    logger,
+    tarefa: () => acompanhamento.sincronizar(),
+  });
+
   return {
     buscarProcessoPorNumero: new BuscarProcessoPorNumero(provider),
     buscarProcessosPorOab: new BuscarProcessosPorOab(provider),
     orquestrador,
     provider,
+    acompanhamento,
+    agendador,
     logger,
+    encerrar: () => {
+      agendador.parar();
+      db.close();
+    },
   };
 }
 

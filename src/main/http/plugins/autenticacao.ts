@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
-import { identificarChave } from '../chaves.js';
+import { identificarChave, workspaceDaChave } from '../chaves.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -10,6 +10,8 @@ declare module 'fastify' {
      * A chave em si NUNCA sai do processo.
      */
     identidadeDaChave?: string;
+    /** Espaço isolado do assinante. Enquanto não há contas, a chave é o usuário. */
+    workspace?: string;
   }
 }
 
@@ -63,6 +65,7 @@ const autenticacaoPlugin: FastifyPluginAsync<OpcoesAutenticacao> = async (
     }
 
     requisicao.identidadeDaChave = identificarChave(aceita);
+    requisicao.workspace = workspaceDaChave(aceita);
   });
 };
 

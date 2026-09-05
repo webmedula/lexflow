@@ -90,3 +90,19 @@ export function validarChavesDeApi(
 export function identificarChave(chave: string): string {
   return createHash('sha256').update(chave).digest('hex').slice(0, 8);
 }
+
+/**
+ * Espaço isolado do assinante, derivado da chave de API.
+ *
+ * Enquanto não existem contas de usuário, a chave É o usuário: cada uma vê
+ * apenas os processos que ela acompanha. Isso dá isolamento real desde já, sem
+ * construir cadastro, login e recuperação de senha antes de o produto provar
+ * valor — e migra limpo depois, porque a coluna `workspace` já existe no banco.
+ *
+ * 16 hex (64 bits) e não os 8 do identificador de log: colisão aqui misturaria
+ * a carteira de dois assinantes, o que é bem pior do que confundir duas linhas
+ * de log.
+ */
+export function workspaceDaChave(chave: string): string {
+  return createHash('sha256').update(chave).digest('hex').slice(0, 16);
+}

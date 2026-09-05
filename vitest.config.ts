@@ -5,6 +5,9 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.spec.ts'],
     globals: false,
+    // Vitest 3 / Vite 7: necessário porque `node:sqlite` é recente e versões
+    // anteriores do Vite tentavam resolvê-lo como pacote em node_modules.
+    server: { deps: { external: [/^node:sqlite$/] } },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

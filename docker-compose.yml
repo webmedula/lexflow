@@ -25,6 +25,11 @@ services:
       CACHE_TTL_SECONDS: '900'
       RATE_LIMIT_MAX: '60'
       LOG_LEVEL: debug
+      LEXFLOW_DB_PATH: /dados/lexflow.db
+      SYNC_INTERVALO_HORAS: '12'
+    volumes:
+      # Sem isto, os acompanhamentos somem a cada `docker compose up --build`.
+      - lexflow-dados:/dados
     restart: unless-stopped
     healthcheck:
       test:
@@ -38,3 +43,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  lexflow-dados:

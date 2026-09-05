@@ -9,6 +9,108 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.8.0] — 2026-09-05
+
+**O LexFlow deixa de ser consulta avulsa e vira produto de acompanhamento.**
+
+### ⚠️ Ação necessária no deploy
+
+Monte um **volume em `/dados`** no Easypanel (aba Mounts). Sem ele, o banco vive
+dentro do contêiner e é apagado a cada redeploy — a carteira do usuário some.
+Ver [DEPLOY.md](./DEPLOY.md).
+
+A imagem passou para **Node 24**, exigido pelo `node:sqlite`.
+
+### Adicionado
+
+- **Acompanhamento de processos.** O usuário marca um processo e o LexFlow passa
+  a verificá-lo sozinho. A primeira consulta acontece na hora de adicionar, para
+  o processo já aparecer preenchido na lista.
+- **Feed de atualizações.** Só o que apareceu DEPOIS de você começar a
+  acompanhar, em ordem cronológica, com marcação de lido. Para um advogado, é
+  provavelmente a tela mais útil: não "meus 40 processos", e sim "o que mudou".
+- **Varredura automática em segundo plano**, a cada 12h por padrão, com disparo
+  manual pela tela. Sequencial e com pausa entre consultas — paralelizar contra
+  a chave compartilhada do CNJ queimaria a cota de todo o país.
+- **Navegação de verdade**: Atualizações, Meus processos e Buscar, com detalhe do
+  processo e volta.
+- **Filtros** na lista (texto, tribunal, classe, período, só com novidade,
+  ordenação) e no feed (não lidas, tribunal), alimentados por facetas reais do
+  banco.
+- **Espaços isolados por chave de API.** Enquanto não há contas de usuário, cada
+  chave é um assinante com sua própria carteira. A coluna `workspace` já existe
+  no banco, então migrar para login não mexe no modelo.
+- Persistência em **SQLite** via `node:sqlite` — sem dependência nativa, sem
+  toolchain de compilação no Alpine, sem serviço extra para subir.
+- 34 testes novos (total: 218), incluindo isolamento entre workspaces, detecção
+  de novidade entre duas varreduras e idempotência da sincronização.
+
+### Decisões que vale registrar
+
+**Por que banco agora, depois de eu ter recusado.** Recusei quando o motivo era
+"guardar processos" — não havia o que guardar além de ficção. Duas medidas
+mudaram isso: a consulta fria ao CNJ leva ~20s (medido: `took: 20514`), então o
+usuário não pode esperar pela fonte; e "o que mudou desde ontem" é irrespondível
+sem ter o ontem. O banco deixou de ser preferência de arquitetura e virou
+requisito medido.
+
+**Primeira sincronização não gera novidade.** O histórico inteiro seria "novo";
+despejar 361 avisos em quem acabou de adicionar o processo não ajuda ninguém.
+
+**Movimentação que some da fonte não vira alarme.** Tribunal reescreve e remove
+andamento; tratar ausência como evento geraria alarme falso a cada oscilação, e
+alarme falso corrói a confiança no aviso que importa.
+
+**Falha ao adicionar não desfaz o acompanhamento.** O processo fica na lista com
+o motivo, e a varredura tenta de novo — senão o usuário teria que readicionar
+toda vez que o tribunal saísse do ar.
+
+---
+
+## [0.7.0] — 2026-09-05
+
+Foco: a tela mostrar o que importa, e a data certa.
+
+### Corrigido
+
+- **A data de distribuição aparecia um dia antes.** O formato compacto do CNJ
+  (`"20150826000000"`) não declara fuso, e eu o interpretava como UTC — que,
+  exibido em horário de Brasília, volta para 25/08. Aparecia na tela como
+  "Distribuição 25/08/2015" para um processo distribuído em 26/08. Agora é
+  interpretado como UTC−03:00, que é como o CNJ carimba. Teste novo verifica a
+  data **exibida**, não só a existência dela: o teste anterior passava com a data
+  errada.
+
+### Adicionado
+
+- **Cabeçalho com o estado do processo**: número em destaque, classe e assunto,
+  selos de tribunal/grau/fonte, e um bloco "última movimentação" com o tempo
+  decorrido em linguagem natural ("há 2 meses").
+- **Linha do tempo organizada**, no lugar da lista plana de 361 itens:
+  - agrupada por ano, com o ano fixo no topo enquanto se rola;
+  - repetições idênticas no mesmo dia colapsadas em um item com `×N` — o CNJ
+    registra "Confirmada" duas e três vezes seguidas;
+  - **andamentos internos recolhidos por padrão** (confirmações, expedições,
+    juntadas de documento). Numa resposta real de 361 andamentos, isso reduz a
+    124 o que aparece de primeira — 66% do volume é registro de cartório que não
+    muda o estado do processo;
+  - **marcos em destaque** (distribuição, sentença, trânsito em julgado, alvará,
+    decurso de prazo).
+- Metadados em grade, com contagem total de andamentos.
+
+### Importante sobre o que fica recolhido
+
+Nada é descartado. A contagem do que foi recolhido fica sempre visível, um
+clique reverte, e a escolha é lembrada no navegador. Sumir com movimentação em
+silêncio é como se perde prazo — o mesmo princípio que fez a data em formato
+desconhecido passar a falhar alto na v0.5.0.
+
+A classificação entre "interno" e "marco" usa códigos da Tabela Processual
+Unificada observados numa resposta real do TJGO, mas quem decide o que importa é
+quem advoga. Se estiver errada, é a tabela que muda — o dado continua todo lá.
+
+---
+
 ## [0.6.0] — 2026-09-04
 
 **O sistema passou a ter tela.**
