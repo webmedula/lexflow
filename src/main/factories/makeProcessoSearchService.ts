@@ -1,8 +1,19 @@
 import { ProcessoSearchService } from '../../application/services/ProcessoSearchService.js';
 import { ServicoAcompanhamento } from '../../application/services/ServicoAcompanhamento.js';
+import { ServicoNotificacao } from '../../application/services/ServicoNotificacao.js';
+import { ServicoVigilanciaOab } from '../../application/services/ServicoVigilanciaOab.js';
+import type { BuscaPorOabComPeriodo } from '../../application/services/ServicoVigilanciaOab.js';
 import { Agendador } from '../../infrastructure/agenda/Agendador.js';
+import type { Notificador } from '../../domain/ports/Notificador.js';
+import type { RepositorioNotificacao } from '../../domain/ports/RepositorioNotificacao.js';
+import {
+  EmailSmtpNotificador,
+  LogNotificador,
+} from '../../infrastructure/notificacao/EmailSmtpNotificador.js';
 import { abrirBanco } from '../../infrastructure/persistencia/sqlite/banco.js';
 import { RepositorioAcompanhamentosSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioAcompanhamentosSqlite.js';
+import { RepositorioNotificacaoSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioNotificacaoSqlite.js';
+import { RepositorioVigilanciasSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioVigilanciasSqlite.js';
 import type { Logger } from '../../domain/ports/Logger.js';
 import type { ProcessoProvider } from '../../domain/ports/ProcessoProvider.js';
 import { BuscarProcessoPorNumero } from '../../domain/usecases/BuscarProcessoPorNumero.js';
@@ -28,7 +39,11 @@ export interface Aplicacao {
   readonly orquestrador: ProcessoSearchService;
   readonly provider: ProcessoProvider;
   readonly acompanhamento: ServicoAcompanhamento;
+  readonly vigilancia: ServicoVigilanciaOab | undefined;
+  readonly notificacao: ServicoNotificacao;
+  readonly preferenciasNotificacao: RepositorioNotificacao;
   readonly agendador: Agendador;
+  readonly agendadorVigilancia: Agendador | undefined;
   readonly logger: Logger;
   /** Fecha o banco. Chamado no desligamento gracioso. */
   readonly encerrar: () => void;
@@ -96,11 +111,64 @@ export function montarAplicacao(config: Config): Aplicacao {
     pausaEntreConsultasMs: config.sincronizacao.pausaMs,
   });
 
+  const preferenciasNotificacao = new RepositorioNotificacaoSqlite(db);
+  const notificacao = new ServicoNotificacao({
+    preferencias: preferenciasNotificacao,
+    acompanhamentos: repositorio,
+    notificador: construirNotificador(config, logger),
+    logger,
+    horasAteAlertar: config.notificacao.horasAteAlertar,
+    ...(config.notificacao.urlBase ? { urlBase: config.notificacao.urlBase } : {}),
+  });
+
   const agendador = new Agendador({
     intervaloHoras: config.sincronizacao.intervaloHoras,
     logger,
-    tarefa: () => acompanhamento.sincronizar(),
+    // Notificar faz parte da varredura, não é um passo à parte: se separasse,
+    // um deploy podia deixar a varredura viva e o aviso morto — o pior estado
+    // possível, porque o sistema continua "funcionando" e ninguém é avisado.
+    tarefa: async () => {
+      const r = await acompanhamento.sincronizar();
+      await notificacao.marcarVarreduraOk();
+      await notificacao.despachar();
+      return r;
+    },
   });
+
+  // A vigilância só existe se a cadeia tiver uma fonte que busque por OAB com
+  // recorte de período — hoje, o DJEN. Sem ela, o serviço não é montado e a
+  // rota responde 501, em vez de existir e nunca encontrar nada.
+  const fonteOab = providers.find(temBuscaPorPeriodo);
+  const vigilancia = fonteOab
+    ? new ServicoVigilanciaOab({
+        vigilancias: new RepositorioVigilanciasSqlite(db),
+        acompanhamentos: repositorio,
+        busca: fonteOab,
+        logger,
+        maximoPorVarredura: config.vigilancia.maximoPorVarredura,
+        pausaMs: config.vigilancia.pausaMs,
+      })
+    : undefined;
+
+  if (!vigilancia) {
+    logger.warn(
+      'vigilância por OAB indisponível: nenhuma fonte da cadeia busca por OAB com período',
+      { acao: 'inclua "djen" em LEXFLOW_PROVIDER_CHAIN' },
+    );
+  }
+
+  const agendadorVigilancia =
+    vigilancia && config.vigilancia.intervaloHoras > 0
+      ? new Agendador({
+          intervaloHoras: config.vigilancia.intervaloHoras,
+          logger,
+          tarefa: async () => {
+            const r = await vigilancia.varrer();
+            if (r.novidades > 0 || r.processosNovos > 0) await notificacao.despachar();
+            return r;
+          },
+        })
+      : undefined;
 
   return {
     buscarProcessoPorNumero: new BuscarProcessoPorNumero(provider),
@@ -108,13 +176,64 @@ export function montarAplicacao(config: Config): Aplicacao {
     orquestrador,
     provider,
     acompanhamento,
+    vigilancia,
+    notificacao,
+    preferenciasNotificacao,
     agendador,
+    agendadorVigilancia,
     logger,
     encerrar: () => {
       agendador.parar();
+      agendadorVigilancia?.parar();
       db.close();
     },
   };
+}
+
+/**
+ * Reconhece a fonte que sabe buscar por OAB dentro de um período.
+ *
+ * Checagem estrutural em vez de `instanceof DjenAdapter` de propósito: o
+ * composition root pode conhecer implementações concretas, mas amarrar a
+ * vigilância a UMA classe faria o próximo adapter com a mesma capacidade —
+ * um agregador pago, por exemplo — exigir edição aqui em vez de só entrar na
+ * cadeia.
+ */
+function temBuscaPorPeriodo(
+  provider: ProcessoProvider,
+): provider is ProcessoProvider & BuscaPorOabComPeriodo {
+  return (
+    provider.capacidades.buscarPorOab &&
+    typeof (provider as Partial<BuscaPorOabComPeriodo>).buscarPorOabNoPeriodo ===
+      'function'
+  );
+}
+
+/**
+ * SMTP quando configurado; log quando não.
+ *
+ * Cair para o log em vez de desligar a notificação é decisão consciente: o
+ * caminho inteiro continua sendo exercitado — detecta, agrupa, monta o resumo —
+ * e o operador vê no log o que teria saído. Desligar esconderia um defeito no
+ * resumo até o dia em que o SMTP fosse ligado, que é o pior dia para descobrir.
+ */
+function construirNotificador(config: Config, logger: Logger): Notificador {
+  if (!config.notificacao.smtpHost || !config.notificacao.remetente) {
+    logger.info('notificação por e-mail em modo log', {
+      motivo: 'SMTP_HOST ou SMTP_FROM não definidos',
+    });
+    return new LogNotificador(logger);
+  }
+  return new EmailSmtpNotificador({
+    host: config.notificacao.smtpHost,
+    porta: config.notificacao.smtpPorta,
+    seguro: config.notificacao.smtpSeguro,
+    remetente: config.notificacao.remetente,
+    logger,
+    ...(config.notificacao.smtpUsuario
+      ? { usuario: config.notificacao.smtpUsuario, senha: config.notificacao.smtpSenha }
+      : {}),
+  });
 }
 
 /**

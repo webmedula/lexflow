@@ -164,7 +164,37 @@ h3.sec{font-size:12px;font-weight:700;text-transform:uppercase;
   animation:pulsa 1.4s ease-in-out infinite;margin-top:10px}
 @keyframes pulsa{0%,100%{opacity:.25}50%{opacity:1}}
 
+/* ---------- providência, filtros e leitura do ato ---------- */
+/* O cartão de providência é o primeiro da página e precisa se distinguir sem
+   gritar: borda de acento à esquerda, não fundo vermelho. Alarme permanente
+   deixa de ser alarme. */
+.cartao.alerta{border-left:3px solid var(--acento)}
+.acao{display:grid;grid-template-columns:88px 1fr;gap:10px;padding:9px 0;
+  border-bottom:1px solid var(--linha)}
+.acao:last-of-type{border-bottom:0}
+.ev.pede .tt{font-weight:600}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+.chip{background:transparent;border:1px solid var(--linha);color:var(--tinta2);
+  border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer;
+  font-family:inherit}
+.chip:hover{color:var(--tinta);border-color:var(--tinta2)}
+.chip.on{background:var(--acento);border-color:var(--acento);color:#fff}
+.link{background:none;border:0;color:var(--acento);cursor:pointer;padding:4px 0;
+  font-size:12.5px;font-family:inherit;text-decoration:underline}
+.cp a{color:var(--acento)}
+/* O inteiro teor expandido é texto de decisão: precisa respirar e preservar as
+   quebras de linha do ato, senão vira um bloco ilegível de 20 mil caracteres. */
+.cp{white-space:pre-wrap}
+.vig{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
+  padding:11px 0;border-bottom:1px solid var(--linha)}
+.vig:last-of-type{border-bottom:0}
+.vig .id{font-weight:600}
+.campo{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:10px 0}
+.campo label{display:block;font-size:12px;color:var(--tinta2);margin-bottom:4px}
+
 @media (max-width:560px){
+  .acao{grid-template-columns:1fr;gap:2px}
+  .vig{grid-template-columns:1fr;align-items:start}
   .ev{grid-template-columns:1fr;gap:2px}
   .nov{grid-template-columns:1fr;gap:3px}
   .capa .num{font-size:20px}

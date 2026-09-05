@@ -75,6 +75,33 @@ function mapearAdvogados(comunicacao: ComunicacaoDjen): Advogado[] {
 }
 
 /**
+ * Sentinelas que o DJEN devolve NO LUGAR do inteiro teor quando o documento não
+ * é público.
+ *
+ * Não é conteúdo — é um aviso. E é muito comum: no processo
+ * 0311517-22.2015.8.09.0051, 43 das 62 publicações (69%) trazem exatamente
+ * "ARQUIVOS DIGITAIS INDISPONÍVEIS (NÃO SÃO DO TIPO PÚBLICO)" e nada mais.
+ *
+ * Guardar isso como despacho faria a tela exibir 43 andamentos com um "inteiro
+ * teor" que só diz que não há inteiro teor. É a mesma regra que já está no
+ * CLAUDE.md — nunca escreva placeholder no lugar de um valor — só que aqui quem
+ * emite o placeholder é a fonte, e cabe à borda não repassar.
+ */
+const TEOR_NAO_PUBLICO = [
+  /arquivos?\s+digitais?\s+indispon[íi]ve/i,
+  /n[ãa]o\s+s[ãa]o\s+do\s+tipo\s+p[úu]blico/i,
+  /documento\s+n[ãa]o\s+dispon[íi]vel/i,
+];
+
+/**
+ * Um teor real curto existe ("Ciência da decisão."), então o corte não pode ser
+ * por tamanho. O que identifica o sentinela é o TEXTO, e só ele.
+ */
+export function ehTeorNaoPublico(texto: string): boolean {
+  return TEOR_NAO_PUBLICO.some((r) => r.test(texto));
+}
+
+/**
  * Converte uma comunicação em andamento.
  *
  * `titulo` cai em cascata — tipoDocumento ("Decisão"), depois tipoComunicacao
@@ -82,7 +109,10 @@ function mapearAdvogados(comunicacao: ComunicacaoDjen): Advogado[] {
  * mas uma lista com "—" em cada linha não é uma lista.
  */
 export function mapearMovimentacao(comunicacao: ComunicacaoDjen): Movimentacao {
-  const texto = comunicacao.texto ? limparTextoDoAto(comunicacao.texto) : '';
+  const bruto = comunicacao.texto ? limparTextoDoAto(comunicacao.texto) : '';
+  const naoPublico = bruto.length > 0 && ehTeorNaoPublico(bruto);
+  const texto = naoPublico ? '' : bruto;
+
   const titulo =
     comunicacao.tipoDocumento?.trim() ||
     comunicacao.tipoComunicacao?.trim() ||
@@ -97,6 +127,7 @@ export function mapearMovimentacao(comunicacao: ComunicacaoDjen): Movimentacao {
     titulo,
     idExterno: `${NOME_DJEN}:${comunicacao.id}`,
     ...(texto ? { conteudo: texto } : {}),
+    ...(naoPublico ? { teorIndisponivel: true } : {}),
     ...(comunicacao.link ? { url: comunicacao.link } : {}),
   };
 }

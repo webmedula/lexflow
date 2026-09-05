@@ -12,6 +12,7 @@ import { ROTA_HEALTH, ROTA_READY, rotasDeSaude } from './rotas/saude.js';
 import { ROTA_CONSOLE, rotasDeInterface } from './rotas/interface.js';
 import { rotasDeProcesso } from './rotas/processos.js';
 import { rotasDeAcompanhamento } from './rotas/acompanhamentos.js';
+import { rotasDeVigilancia } from './rotas/vigilancias.js';
 
 /**
  * Monta o servidor HTTP sem subir porta nenhuma.
@@ -66,6 +67,9 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(rotasDeInterface());
   void servidor.register(rotasDeProcesso(app));
   void servidor.register(rotasDeAcompanhamento(app.acompanhamento));
+  void servidor.register(
+    rotasDeVigilancia(app.vigilancia, app.preferenciasNotificacao),
+  );
 
   servidor.setNotFoundHandler((requisicao, resposta) => {
     void resposta.code(404).send({
@@ -146,6 +150,11 @@ export async function iniciar(app: Aplicacao, config: Config): Promise<FastifyIn
   // Só depois de o servidor estar de pé: se a varredura começasse antes, o
   // health check poderia falhar enquanto o processo está ocupado consultando.
   app.agendador.iniciar();
+  // A varredura de OAB tem relógio próprio: roda de hora em hora porque só toca
+  // o DJEN, enquanto a de processos espera 12h por causa dos 20 segundos do
+  // DataJud. Amarrar as duas no mesmo intervalo faria a fonte lenta ditar o
+  // ritmo da rápida — e é na rápida que estão as publicações que abrem prazo.
+  app.agendadorVigilancia?.iniciar();
 
   app.logger.info('LexFlow no ar', {
     versao: VERSAO,

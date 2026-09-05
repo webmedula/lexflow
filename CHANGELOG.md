@@ -9,6 +9,97 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.10.0] — 2026-09-05
+
+**O sistema deixa de vigiar o que você digitou e passa a vigiar o seu nome.**
+
+Até aqui era preciso saber o número do processo para acompanhá-lo — ou seja, era
+preciso já saber que o processo existe. Esta versão inverte isso e fecha o ciclo:
+detecta sozinho, separa o que pede providência, e avisa.
+
+### Adicionado
+
+- **Vigilância contínua por OAB.** O advogado cadastra a inscrição uma vez; toda
+  publicação nova no nome dele entra sozinha na carteira. Novas rotas
+  `/v1/vigilancias` e aba **Vigilância** no console.
+  - A primeira varredura olha **30 dias**, não o histórico inteiro: um advogado
+    com 1.871 publicações veria a carteira toda entrar como "novidade" e o aviso
+    de verdade sumiria no meio.
+  - As seguintes retomam com **2 dias de sobreposição**, porque o DJEN indexa
+    com atraso e varrer do exato ponto de parada perderia publicação — que é
+    perder prazo.
+  - Roda **de hora em hora**, contra as 12h da varredura de processos. Pode,
+    porque só toca o DJEN (200ms, sem chave). Amarrar as duas no mesmo relógio
+    fazia a fonte lenta ditar o ritmo da rápida, e é na rápida que estão as
+    publicações que abrem prazo.
+- **Notificação por e-mail**, via SMTP (`Notificador` como porta, para o
+  WhatsApp entrar depois sem mexer no resumo). Um e-mail por ciclo, agrupado por
+  processo, com o trecho do teor — não um e-mail por movimentação.
+- **Aviso de que NÃO conseguimos verificar.** Se a última varredura bem-sucedida
+  passar de 26h, sai um alerta. É metade da funcionalidade, não um extra:
+  notificação é uma promessa, e a partir do primeiro aviso o advogado passa a
+  ler silêncio como "não houve nada". Um sistema que só avisa novidade é pior do
+  que não ter notificação, porque troca incerteza conhecida por falsa segurança.
+- **Triagem do que exige ação** (`domain/entities/triagem.ts`): separa o ato que
+  abre prazo ou pede providência (`INTIME-SE`, `MANIFESTE-SE`, "prazo de N
+  dias", sentença, decisão, acórdão) do registro de cartório (juntada,
+  expedição, conclusão). Aplicada uma vez, na construção do `Processo`, para que
+  API, e-mail e tela concordem. **Nunca esconde andamento** — só ordena e
+  destaca.
+- **Modo log do notificador**: sem SMTP configurado, o caminho inteiro continua
+  sendo exercitado e o log mostra o que teria saído.
+
+### Alterado — a tela do processo
+
+O topo respondia "o que é este processo?" quando a pergunta do advogado ao abrir
+é "o que eu preciso fazer?". A ordem mudou:
+
+1. **Pede providência** — o que abre prazo, com trecho do texto
+2. **Última movimentação** — agora com o inteiro teor, não só o rótulo
+   ("Ato ordinatório" é categoria, não informação)
+3. **Partes** — quem está do outro lado importa mais que a data de distribuição
+4. Ficha cadastral, com **hora** na verificação (verificado às 03h e às 14h são
+   coisas diferentes quando se conta prazo) e as fontes que responderam
+5. Andamentos, com filtros (tudo / pede providência / com inteiro teor) e
+   **"ler o ato inteiro"** por andamento
+
+### Corrigido
+
+- **O DJEN devolve um aviso no lugar do inteiro teor** quando o documento não é
+  público: `ARQUIVOS DIGITAIS INDISPONÍVEIS (NÃO SÃO DO TIPO PÚBLICO)`. São
+  **43 das 62 publicações** do processo de teste — 69%. O mapper guardava esse
+  aviso como se fosse o despacho, e a tela exibiria 43 andamentos com um
+  "inteiro teor" que só diz que não há inteiro teor. Agora é reconhecido, marcado
+  como `teorIndisponivel` e acompanhado do link para o tribunal. Efeito colateral
+  desejado: com o teor legitimamente ausente, o orquestrador volta a considerar
+  que falta conteúdo e continua perguntando às outras fontes.
+- **Corpo de requisição inválido virava HTTP 500.** `ZodError` não estava
+  mapeado, então um campo faltando acendia alarme de produção em vez de dizer ao
+  cliente qual campo corrigir. Agora é 400, com o nome do campo.
+- **Resumo reenviado a cada ciclo.** O filtro do repositório é
+  `detectada_em >= desde`, e usar o instante do último envio reincluía a novidade
+  detectada no mesmo milissegundo. O usuário receberia o mesmo aviso para sempre
+  e pararia de confiar no aviso.
+
+### Notas de arquitetura
+
+- `Movimentacao` ganhou `teorIndisponivel`, `exigeAcao`, `fonte` e `url`.
+- Falha de varredura **não** marca a inscrição como varrida: marcar abriria um
+  buraco silencioso exatamente no período em que a fonte esteve fora.
+- A vigilância **funde** o retrato guardado com o que o DJEN traz, nunca
+  substitui — o DJEN não tem os andamentos internos, e substituir faria um
+  processo de 361 andamentos aparecer com 8.
+- `nodemailer` é a primeira dependência de runtime nova desde o Fastify.
+
+### ⚠️ Ação necessária no deploy
+
+Se `LEXFLOW_PROVIDER_CHAIN` estiver preenchida no Easypanel com o valor antigo,
+**troque para `datajud,djen`**. Valor explícito ganha do padrão do código — foi
+por isso que o DJEN não entrou na v0.9.0. Sem `djen` na cadeia, a vigilância por
+OAB responde 501.
+
+---
+
 ## [0.9.0] — 2026-09-05
 
 **A busca por OAB passa a existir — e o processo passa a vir inteiro.**

@@ -220,6 +220,19 @@ DATAJUD_RATE_LIMIT_PER_MINUTE=60
 DJEN_RATE_LIMIT_PER_MINUTE=60
 DJEN_MAX_COMUNICACOES_POR_OAB=500
 
+# Vigilância por OAB: de hora em hora, porque só toca o DJEN.
+VIGILANCIA_INTERVALO_HORAS=1
+VIGILANCIA_MAXIMO_POR_VARREDURA=50
+
+# Aviso por e-mail. Vazio = modo log (o resumo aparece no log, nada é enviado).
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=
+# Endereço público, para os links do e-mail.
+LEXFLOW_URL_BASE=
+
 CACHE_ENABLED=true
 CACHE_TTL_SECONDS=900
 
@@ -398,6 +411,21 @@ saída para `comunicaapi.pje.jus.br`.
 403 vindo de host que não é o CNJ é rede, não credencial. O contêiner precisa de
 saída HTTPS para `comunicaapi.pje.jus.br` (DJEN) e `api-publica.datajud.cnj.jus.br`
 (DataJud). Em VPS com allowlist de egresso, libere os dois.
+
+**A aba Vigilância responde 501**
+Falta `djen` em `LEXFLOW_PROVIDER_CHAIN`. É a única fonte que indexa advogado.
+Repare que valor preenchido no painel GANHA do padrão do código — se a variável
+ficou com o valor antigo de uma versão anterior, o DJEN não entra.
+
+**Cadastrei a OAB e não apareceu processo nenhum**
+A primeira varredura cobre 30 dias. Processo sem publicação no diário nesse
+período não aparece — é o limite da fonte, não defeito. Confira também se
+`varridaEm` saiu de "ainda não verificada" na própria aba.
+
+**Não chega e-mail**
+Sem `SMTP_HOST` o sistema fica em modo log de propósito: procure no log a linha
+"notificação (SMTP não configurado — nada foi enviado)". Com SMTP configurado e
+ainda sem chegar, a linha "falha ao enviar e-mail" traz o motivo do servidor.
 
 **A busca por OAB não devolve nada**
 Confira se `djen` está em `LEXFLOW_PROVIDER_CHAIN`: é a única fonte do projeto

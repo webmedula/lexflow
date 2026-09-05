@@ -9,6 +9,27 @@ export const SCRIPT = String.raw`
 (function(){
 var $=function(i){return document.getElementById(i)};
 var CH='lexflow.chave', VER='lexflow.verinternos';
+var FILTRO_MOV='lexflow.filtroMov';
+/** Textos completos dos andamentos exibidos, para o botão "ler o ato inteiro". */
+var janelaTextos=[];
+
+function recorte(t,n){
+  var x=String(t).replace(/\s+/g,' ').trim();
+  return x.length<=n?x:x.slice(0,n-1)+'…';
+}
+function chip(id,rotulo,atual){
+  return '<button class="chip'+(atual===id?' on':'')+'" data-chip="'+id+'">'+rotulo+'</button>';
+}
+/** Data e hora — a hora importa quando se conta prazo. */
+function dth(v){
+  if(!v)return '—';
+  try{return new Date(v).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',
+    day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+  catch(e){return '—'}
+}
+function redesenharDetalhe(){
+  if(estado.detalhe)abrir(estado.detalhe); else executarBusca();
+}
 
 /* Códigos da Tabela Processual Unificada vistos numa resposta REAL do TJGO.
    A classificação é palpite de quem não advoga — por isso NADA é escondido de
@@ -74,7 +95,7 @@ function vazio(icone,titulo,texto,acao){
 
 /* ---------------- chrome ---------------- */
 function pintarNav(){
-  ['novidades','processos','buscar'].forEach(function(a){
+  ['novidades','processos','buscar','vigilancia'].forEach(function(a){
     var b=$('nav-'+a); if(b)b.classList.toggle('ativo',estado.aba===a&&!estado.detalhe)});
 }
 function atualizarBolha(){
@@ -416,11 +437,25 @@ function agrupar(movs){
   return out;
 }
 
+/**
+ * A tela de um processo.
+ *
+ * A ordem dos blocos MUDOU na v0.10.0, e a mudança é a coisa mais importante
+ * desta tela: antes ela respondia "o que é este processo?" — número, classe,
+ * vara, distribuição — quando a pergunta que o advogado faz ao abrir é "o que
+ * eu preciso fazer?". Agora vem primeiro o que exige providência, depois o
+ * último ato COM O TRECHO DO TEOR, e só então a ficha cadastral, que é consulta
+ * ocasional e não leitura diária.
+ */
 function processoHtml(p,acomp,op){
   op=op||{};
   var movs=p.movimentacoes||[];
   var relev=movs.filter(function(m){return !INTERNOS[m.codigoTpu]});
   var ultima=relev[0]||movs[0]||null;
+  // O campo exigeAcao vem do servidor (domain/entities/triagem.ts). A tela não
+  // reclassifica: duas heurísticas para a mesma coisa divergem no dia em que
+  // alguém ajusta só uma.
+  var acoes=movs.filter(function(m){return m.exigeAcao}).slice(0,5);
 
   var h='<div class="capa"><div class="num">'+esc(p.numero)+'</div>'+
     '<div class="sob">'+esc(p.classe||'Classe não informada')+
@@ -435,22 +470,35 @@ function processoHtml(p,acomp,op){
   else h+='<button class="bt" id="acompanhar">Acompanhar este processo</button>';
   h+='</div></div>';
 
+  // 1. O que pede providência. Primeiro bloco da página.
+  if(acoes.length){
+    h+='<div class="cartao alerta"><h3 class="sec">Pede providência · '+acoes.length+'</h3>';
+    acoes.forEach(function(m){
+      h+='<div class="acao"><div class="dt">'+dt(m.data)+'</div><div>'+
+        '<div class="tt">'+esc(m.titulo)+'</div>'+
+        (m.conteudo?'<div class="cp">'+esc(recorte(m.conteudo,260))+'</div>':'')+
+        '</div></div>';
+    });
+    h+='<div class="nota">Marcado por leitura automática do texto (prazo, '+
+      '"intime-se", "manifeste-se"). <strong>Confira sempre no ato completo</strong> — '+
+      'a contagem do prazo é sua.</div></div>';
+  }
+
+  // 2. O último ato, com trecho do teor. Antes esta faixa mostrava só o rótulo
+  //    ("Ato ordinatório"), que é categoria e não informação.
   if(ultima){
     h+='<div class="agora"><div class="k">Última movimentação</div>'+
       '<div class="t">'+esc(ultima.titulo)+'</div>'+
-      '<div class="d">'+dt(ultima.data)+' · '+humano(ultima.data)+'</div></div>';
+      '<div class="d">'+dt(ultima.data)+' · '+humano(ultima.data)+
+      (ultima.fonte?' · via '+esc(ultima.fonte):'')+'</div>'+
+      (ultima.conteudo?'<div class="cp">'+esc(recorte(ultima.conteudo,320))+'</div>':'')+
+      (ultima.teorIndisponivel?'<div class="nota">O diário não publica o texto deste '+
+        'documento'+(ultima.url?' — <a href="'+esc(ultima.url)+'" target="_blank" '+
+        'rel="noopener noreferrer">abrir no tribunal</a>':'')+'.</div>':'')+
+      '</div>';
   }
 
-  h+='<div class="fatos">'+
-    '<div class="fato"><div class="k">Vara</div><div class="v">'+esc(p.vara||'—')+'</div></div>'+
-    '<div class="fato"><div class="k">Distribuição</div><div class="v">'+dt(p.dataDistribuicao)+'</div></div>'+
-    '<div class="fato"><div class="k">Andamentos</div><div class="v">'+movs.length+'</div></div>'+
-    (acomp&&acomp.sincronizadoEm?'<div class="fato"><div class="k">Verificado</div><div class="v">'+
-      humano(acomp.sincronizadoEm)+'</div></div>':'')+
-    (p.valorCausa!=null?'<div class="fato"><div class="k">Valor da causa</div><div class="v">'+
-      p.valorCausa.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'</div></div>':'')+
-    '</div>';
-
+  // 3. Partes: quem está do outro lado importa mais que a data de distribuição.
   h+='<div class="cartao"><h3 class="sec">Partes</h3>';
   if(p.partes&&p.partes.length){
     p.partes.forEach(function(pt){
@@ -466,37 +514,88 @@ function processoHtml(p,acomp,op){
   }
   h+='</div>';
 
+  // 4. Ficha cadastral.
+  h+='<div class="fatos">'+
+    '<div class="fato"><div class="k">Vara</div><div class="v">'+esc(p.vara||'—')+'</div></div>'+
+    '<div class="fato"><div class="k">Distribuição</div><div class="v">'+dt(p.dataDistribuicao)+'</div></div>'+
+    '<div class="fato"><div class="k">Andamentos</div><div class="v">'+movs.length+'</div></div>'+
+    // Com a HORA: verificado às 03h e verificado às 14h são coisas diferentes
+    // quando se conta prazo.
+    (acomp&&acomp.sincronizadoEm?'<div class="fato"><div class="k">Verificado</div><div class="v">'+
+      humano(acomp.sincronizadoEm)+'</div><div class="k">'+dth(acomp.sincronizadoEm)+'</div></div>':'')+
+    (p.procedencia&&p.procedencia.provider?'<div class="fato"><div class="k">Fontes</div>'+
+      '<div class="v">'+esc(p.procedencia.provider)+'</div></div>':'')+
+    (p.valorCausa!=null?'<div class="fato"><div class="k">Valor da causa</div><div class="v">'+
+      p.valorCausa.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'</div></div>':'')+
+    '</div>';
+
+  // 5. Linha do tempo, filtrável e expansível.
   var ver=false; try{ver=localStorage.getItem(VER)==='1'}catch(e){}
-  var vis=ver?movs:movs.filter(function(m){return !INTERNOS[m.codigoTpu]});
-  var escond=movs.length-vis.length, grupos=agrupar(vis);
+  var filtro='tudo'; try{filtro=localStorage.getItem(FILTRO_MOV)||'tudo'}catch(e){}
+
+  var base=ver?movs:movs.filter(function(m){return !INTERNOS[m.codigoTpu]});
+  var vis=base;
+  if(filtro==='acao')vis=base.filter(function(m){return m.exigeAcao});
+  else if(filtro==='teor')vis=base.filter(function(m){return m.conteudo});
+  var escond=movs.length-base.length, grupos=agrupar(vis);
 
   h+='<div class="cartao"><div class="titulo-secao" style="margin-bottom:6px">'+
     '<h3 class="sec" style="margin:0">Andamentos · '+grupos.length+' de '+movs.length+'</h3>'+
     ((escond>0||ver)?'<button class="bt bt2" id="alternar">'+
       (ver?'Recolher internos':'Mostrar '+escond+' interno(s)')+'</button>':'')+'</div>';
+
+  h+='<div class="chips">'+
+    chip('tudo','Tudo',filtro)+
+    chip('acao','Pede providência',filtro)+
+    chip('teor','Com inteiro teor',filtro)+
+    '</div>';
+
   if(escond>0&&!ver)h+='<div class="nota" style="margin:0 0 10px">Recolhidos: confirmações, '+
     'expedições e juntadas de documento — registros de cartório que não mudam o estado do '+
     'processo. Nada foi descartado.</div>';
 
+  if(!grupos.length)h+='<div class="nota">Nenhum andamento neste filtro.</div>';
+
   var anoAtual=null;
-  grupos.forEach(function(g){
+  grupos.forEach(function(g,idx){
     var a=anoDe(g.mov.data);
     if(a!==anoAtual){anoAtual=a;h+='<div class="ano">'+a+'</div>'}
-    h+='<div class="ev'+(MARCOS[g.mov.codigoTpu]?' marco':'')+'">'+
-      '<div class="dt">'+dt(g.mov.data)+'</div><div>'+
-      '<div class="tt">'+esc(g.mov.titulo)+(g.n>1?' <span class="xn">×'+g.n+'</span>':'')+'</div>'+
-      (g.mov.complementos&&g.mov.complementos.length?'<div class="cp">'+esc(g.mov.complementos.join(' · '))+'</div>':'')+
-      (g.mov.conteudo?'<div class="cp">'+esc(g.mov.conteudo)+'</div>':'')+
+    var m=g.mov, longo=m.conteudo&&m.conteudo.length>320;
+    h+='<div class="ev'+(MARCOS[m.codigoTpu]?' marco':'')+(m.exigeAcao?' pede':'')+'">'+
+      '<div class="dt">'+dt(m.data)+'</div><div>'+
+      '<div class="tt">'+esc(m.titulo)+(g.n>1?' <span class="xn">×'+g.n+'</span>':'')+
+      (m.exigeAcao?' <span class="selo al">providência</span>':'')+'</div>'+
+      (m.complementos&&m.complementos.length?'<div class="cp">'+esc(m.complementos.join(' · '))+'</div>':'')+
+      (m.conteudo?'<div class="cp" id="tx'+idx+'">'+esc(longo?recorte(m.conteudo,320):m.conteudo)+'</div>'+
+        (longo?'<button class="link" data-ler="'+idx+'">ler o ato inteiro</button>':''):'')+
+      (m.teorIndisponivel?'<div class="nota">Documento não público no diário'+
+        (m.url?' — <a href="'+esc(m.url)+'" target="_blank" rel="noopener noreferrer">abrir no tribunal</a>':'')+
+        '</div>':'')+
       '</div></div>';
   });
   h+='</div>';
+
+  // Guardado fora do HTML para o botão "ler o ato inteiro" não precisar
+  // reescrever a página inteira nem embutir 20 mil caracteres num atributo.
+  janelaTextos=grupos.map(function(g){return g.mov.conteudo||''});
 
   setTimeout(function(){
     var b=$('alternar');
     if(b)b.addEventListener('click',function(){
       try{localStorage.setItem(VER,ver?'0':'1')}catch(e){}
-      if(estado.detalhe)abrir(estado.detalhe); else executarBusca();
+      redesenharDetalhe();
     });
+    document.querySelectorAll('[data-chip]').forEach(function(el){
+      el.addEventListener('click',function(){
+        try{localStorage.setItem(FILTRO_MOV,el.getAttribute('data-chip'))}catch(e){}
+        redesenharDetalhe();
+      })});
+    document.querySelectorAll('[data-ler]').forEach(function(el){
+      el.addEventListener('click',function(){
+        var i=Number(el.getAttribute('data-ler'));
+        var alvo=$('tx'+i);
+        if(alvo){alvo.textContent=janelaTextos[i]||'';el.remove()}
+      })});
   },0);
   return h;
 }
@@ -524,10 +623,121 @@ function carregarFacetas(){
   return api('/v1/facetas').then(function(f){estado.facetas=f}).catch(function(){});
 }
 
+/* ---------------- aba: vigilância por OAB e avisos ---------------- */
+/**
+ * A tela que muda a natureza do produto.
+ *
+ * Até aqui o usuário precisava saber o número do processo para acompanhá-lo —
+ * ou seja, precisava já saber que o processo existe. Cadastrando a inscrição,
+ * ele passa a ser avisado de processo que nem sabia que tinha.
+ */
+function verVigilancia(){
+  $('conteudo').innerHTML=
+    '<div class="titulo-secao"><div><h2>Vigilância por OAB</h2>'+
+    '<div class="sub">Cadastre sua inscrição uma vez. Toda publicação nova no '+
+    'seu nome entra sozinha na carteira.</div></div></div>'+
+
+    '<div class="cartao"><h3 class="sec">Inscrições vigiadas</h3>'+
+    '<div class="campo">'+
+      '<div><label for="v-oab">Número da OAB</label>'+
+      '<input id="v-oab" class="ent" placeholder="47383" style="width:150px"></div>'+
+      '<div><label for="v-uf">UF</label>'+
+      '<input id="v-uf" class="ent" placeholder="GO" maxlength="2" style="width:70px"></div>'+
+      '<div><label for="v-apelido">Apelido (opcional)</label>'+
+      '<input id="v-apelido" class="ent" placeholder="Dr. João" style="width:180px"></div>'+
+      '<button class="bt" id="v-add">Vigiar</button>'+
+    '</div>'+
+    '<div id="v-lista"><span class="gira"></span>Carregando…</div></div>'+
+
+    '<div class="cartao"><h3 class="sec">Aviso por e-mail</h3>'+
+    '<div class="nota">Um resumo por ciclo, não um e-mail por movimentação. E, '+
+    'igualmente importante: se ficarmos sem conseguir verificar, você é avisado '+
+    'disso também — silêncio não deve ser lido como "não houve nada".</div>'+
+    '<div class="campo">'+
+      '<div><label for="n-email">Endereço</label>'+
+      '<input id="n-email" class="ent" type="email" placeholder="voce@escritorio.com.br" style="width:260px"></div>'+
+      '<button class="bt" id="n-salvar">Salvar</button>'+
+      '<button class="bt bt2" id="n-desligar">Desligar avisos</button>'+
+    '</div><div id="n-estado" class="nota"></div></div>';
+
+  $('v-add').addEventListener('click',adicionarVigilancia);
+  $('n-salvar').addEventListener('click',function(){salvarNotificacao(true)});
+  $('n-desligar').addEventListener('click',function(){salvarNotificacao(false)});
+  carregarVigilancias();
+  carregarNotificacao();
+}
+
+function carregarVigilancias(){
+  api('/v1/vigilancias').then(function(r){
+    var l=r.vigilancias||[];
+    if(!l.length){
+      $('v-lista').innerHTML='<div class="nota">Nenhuma inscrição vigiada ainda.</div>';
+      return;
+    }
+    $('v-lista').innerHTML=l.map(function(v){
+      return '<div class="vig"><div>'+
+        '<div class="id">OAB '+esc(v.identificacao)+(v.apelido?' · '+esc(v.apelido):'')+'</div>'+
+        '<div class="nota">'+
+          (v.ativa?'':'desligada · ')+
+          v.processosEncontrados+' processo(s) trazidos · '+
+          (v.varridaEm?'verificada '+humano(v.varridaEm):'ainda não verificada')+
+          (v.erro?' · <span style="color:var(--al)">'+esc(v.erro)+'</span>':'')+
+        '</div></div>'+
+        '<button class="bt bt3" data-parar="'+esc(v.uf)+'/'+esc(v.oab)+'">remover</button>'+
+        '</div>';
+    }).join('');
+    document.querySelectorAll('[data-parar]').forEach(function(el){
+      el.addEventListener('click',function(){
+        var partes=el.getAttribute('data-parar').split('/');
+        api('/v1/vigilancias/'+encodeURIComponent(partes[0])+'/'+encodeURIComponent(partes[1]),
+          {method:'DELETE'}).then(carregarVigilancias).catch(function(e){alert(explicar(e))});
+      })});
+  }).catch(function(e){$('v-lista').innerHTML=erroBloco(e)});
+}
+
+function adicionarVigilancia(){
+  var oab=$('v-oab').value.trim(), uf=$('v-uf').value.trim().toUpperCase();
+  var apelido=$('v-apelido').value.trim();
+  if(!oab||uf.length!==2)return;
+  var b=$('v-add'); b.disabled=true; b.innerHTML='<span class="gira"></span>Vigiando';
+  api('/v1/vigilancias',{method:'POST',body:{oab:oab,uf:uf,apelido:apelido||undefined}})
+    .then(function(){
+      $('v-oab').value='';$('v-apelido').value='';
+      carregarVigilancias();
+      // Primeira varredura na hora: cadastrar e não ver nada acontecer por uma
+      // hora passa a impressão de que não funcionou.
+      return api('/v1/vigilancias/varrer',{method:'POST',body:{}});
+    })
+    .then(function(){
+      $('v-lista').insertAdjacentHTML('afterbegin',
+        '<div class="nota">Primeira varredura em andamento — os processos dos últimos '+
+        '30 dias vão aparecer em Meus processos.</div>');
+    })
+    .catch(function(e){alert(explicar(e))})
+    .then(function(){b.disabled=false;b.textContent='Vigiar'});
+}
+
+function carregarNotificacao(){
+  api('/v1/notificacao').then(function(n){
+    $('n-email').value=n.email||'';
+    $('n-estado').textContent=n.ativa
+      ? 'Avisos ligados'+(n.ultimoEnvioEm?' · último envio '+humano(n.ultimoEnvioEm):'')
+      : 'Avisos desligados';
+  }).catch(function(){});
+}
+
+function salvarNotificacao(ativa){
+  var email=$('n-email').value.trim();
+  api('/v1/notificacao',{method:'PUT',body:{email:email||undefined,ativa:ativa}})
+    .then(carregarNotificacao)
+    .catch(function(e){alert(explicar(e))});
+}
+
 function render(){
   if(estado.detalhe)return;
   if(estado.aba==='novidades')return verNovidades();
   if(estado.aba==='processos')return verProcessos();
+  if(estado.aba==='vigilancia')return verVigilancia();
   return verBuscar();
 }
 
@@ -545,8 +755,8 @@ function iniciar(){
   });
 }
 
-['novidades','processos','buscar'].forEach(function(a){
-  $('nav-'+a).addEventListener('click',function(){ir(a)})});
+['novidades','processos','buscar','vigilancia'].forEach(function(a){
+  var b=$('nav-'+a); if(b)b.addEventListener('click',function(){ir(a)})});
 $('sair').addEventListener('click',function(){
   estado.chave='';try{localStorage.removeItem(CH)}catch(e){}
   $('barra').classList.add('oculto');telaChave()});

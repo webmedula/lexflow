@@ -76,7 +76,8 @@ src/
 │   ├── ports/                   # ProcessoProvider, RepositorioAcompanhamentos, Cache…
 │   └── usecases/                # BuscarProcessoPorNumero, BuscarProcessosPorOab
 ├── application/
-│   └── services/                # ProcessoSearchService, ServicoAcompanhamento
+│   └── services/                # ProcessoSearchService, ServicoAcompanhamento,
+│                                #   ServicoVigilanciaOab, ServicoNotificacao
 ├── infrastructure/
 │   ├── adapters/
 │   │   ├── datajud/             # adapter + mapper + schemas + aliases
@@ -86,7 +87,8 @@ src/
 │   ├── config/                  # env.ts (validação de configuração)
 │   ├── http/                    # HttpClient (timeout + retry)
 │   ├── logging/                 # ConsoleLogger
-│   ├── persistencia/            # serialização + SQLite (acompanhamentos)
+│   ├── persistencia/            # serialização + SQLite (acompanhamentos, vigilâncias)
+│   ├── notificacao/             # EmailSmtpNotificador, LogNotificador
 │   ├── agenda/                  # Agendador da varredura
 │   └── ratelimit/               # TokenBucketRateLimiter
 └── main/
@@ -365,6 +367,25 @@ Não são detalhes — moldam o código.
   sem chave, chave com menos de `TAMANHO_MINIMO_CHAVE`, chave repetida, ou
   `LEXFLOW_AUTH_DISABLED` junto com chaves preenchidas — todos derrubam a
   montagem. Chave fraca é pior do que nenhuma: passa sensação de proteção.
+- **Notificação é uma promessa.** A partir do primeiro aviso enviado, o
+  advogado para de conferir manualmente e passa a ler silêncio como "não houve
+  nada". Por isso `ServicoNotificacao` tem DUAS obrigações, e a segunda não é
+  opcional: avisar quando há novidade **e avisar quando não conseguimos
+  verificar**. Nunca entregue a primeira sem a segunda — trocaria uma incerteza
+  conhecida por falsa segurança.
+- **Triagem ordena, nunca esconde.** `exigeAcao === false` serve para destacar o
+  que importa, jamais para filtrar andamento fora da tela. Sumir com um ato
+  porque a expressão regular não reconheceu o verbo é exatamente como se perde
+  prazo, e nenhuma heurística merece esse poder. E toda triagem exibida vem
+  acompanhada de "confira no ato completo".
+- **Varredura que falhou não se marca como feita.** `registrarFalha` NÃO toca em
+  `varrida_em`: a próxima execução precisa cobrir a janela que esta não
+  conseguiu ler. Marcar abriria um buraco silencioso no período exato em que a
+  fonte esteve fora.
+- **Placeholder também chega de fora.** O DJEN devolve
+  `ARQUIVOS DIGITAIS INDISPONÍVEIS (NÃO SÃO DO TIPO PÚBLICO)` no lugar do teor —
+  em 69% das publicações do processo de teste. Aviso de fonte não é conteúdo:
+  reconheça e marque (`teorIndisponivel`), não repasse como se fosse o despacho.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache
@@ -391,12 +412,19 @@ Toda entrega que muda comportamento: bump no `package.json` **e** entrada no
 `ProcessoSearchService` com fallback **e enriquecimento entre fontes**,
 `fundirProcessos`, acompanhamento com SQLite e varredura agendada, cache com
 TTL/LRU, rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API
-e rate limit, console web com busca por OAB e acompanhar em lote, Dockerfile
-multi-stage, CI, 247 testes.
+e rate limit, **vigilância contínua por OAB**, **triagem do que exige ação**,
+**notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
+acompanhar em lote e tela do processo orientada a providência, Dockerfile
+multi-stage, CI, 299 testes.
 
 **Não implementado (decisão consciente do MVP):** contas de usuário com login e
 cobrança (hoje a chave de API é o usuário e o workspace), crawler real,
-notificação por e-mail/push das novidades, fila de jobs. O cache é em memória —
-uma instância, e evapora no redeploy.
+**WhatsApp** (adiado: exige template aprovado pela Meta e conta business
+verificada — e a biblioteca não oficial que resolveria numa tarde viola os
+termos e derruba o número, levando junto o aviso de prazo de todos os
+assinantes), **cálculo de prazo** (dias úteis do art. 219 do CPC, recesso,
+suspensões — alto valor e alto risco: só entra como calculadora com as contas à
+vista, nunca como afirmação), página do processo para o cliente do advogado,
+fila de jobs. O cache é em memória — uma instância, e evapora no redeploy.
 
 Ao implementar qualquer um deles, **atualize este arquivo na mesma PR.**

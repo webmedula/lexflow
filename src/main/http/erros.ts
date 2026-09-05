@@ -1,3 +1,4 @@
+import { ZodError } from 'zod';
 import {
   DomainError,
   NumeroCNJInvalidoError,
@@ -38,6 +39,23 @@ export interface RespostaDeErro {
  * nosso e esconde o 500 que realmente importa.
  */
 export function mapearErro(erro: unknown): RespostaDeErro {
+  // Corpo de requisição fora do contrato é culpa do cliente, não falha nossa.
+  // Sem este ramo, um campo faltando na requisição virava 500 — que acende
+  // alarme de produção e esconde a informação de que basta corrigir o payload.
+  // O detalhe do Zod vai junto: é o que diz QUAL campo está errado.
+  if (erro instanceof ZodError) {
+    return {
+      status: 400,
+      corpo: {
+        erro: 'REQUISICAO_INVALIDA',
+        mensagem: erro.issues
+          .slice(0, 3)
+          .map((i) => `${i.path.join('.') || 'corpo'}: ${i.message}`)
+          .join('; '),
+      },
+    };
+  }
+
   if (erro instanceof NumeroCNJInvalidoError || erro instanceof OabInvalidaError) {
     return { status: 400, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }

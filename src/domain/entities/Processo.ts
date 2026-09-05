@@ -2,6 +2,7 @@ import type { NumeroCNJ } from './NumeroCNJ.js';
 import type { Movimentacao } from './Movimentacao.js';
 import { ordenarPorDataDesc } from './Movimentacao.js';
 import type { Parte } from './Parte.js';
+import { triarTodas } from './triagem.js';
 
 /** De onde vieram os dados desta instância. Sobrevive até a resposta da API. */
 export interface Procedencia {
@@ -77,7 +78,11 @@ export class Processo {
     this.valorCausa = props.valorCausa;
     this.segredoJustica = props.segredoJustica ?? false;
     this.partes = props.partes ?? [];
-    this.movimentacoes = ordenarPorDataDesc(props.movimentacoes ?? []);
+    // A triagem é aplicada UMA vez, na construção, e não em cada tela que
+    // exibe a lista. Assim a resposta da API, o corpo do e-mail e o console
+    // concordam sobre o que exige ação — três lugares que, classificando por
+    // conta própria, divergiriam no dia em que alguém ajustasse só um deles.
+    this.movimentacoes = triarTodas(ordenarPorDataDesc(props.movimentacoes ?? []));
     this.procedencia = props.procedencia;
 
     Object.freeze(this);

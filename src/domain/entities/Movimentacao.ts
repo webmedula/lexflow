@@ -42,6 +42,18 @@ export interface Movimentacao {
    * diferentes — e o advogado precisa saber qual está olhando.
    */
   readonly fonte?: string;
+  /**
+   * A fonte reconhece o ato mas NÃO entrega o texto dele.
+   *
+   * Distingue três estados que sem isso virariam dois: o ato tem teor e está
+   * aqui (`conteudo` preenchido); a fonte não expõe teor nenhum (`conteudo`
+   * ausente); e a fonte disse explicitamente que este documento não é público
+   * (`teorIndisponivel`). O terceiro caso merece um aviso e um link para o
+   * tribunal, não um espaço em branco que parece defeito nosso.
+   */
+  readonly teorIndisponivel?: boolean;
+  /** Se o ato abre prazo ou pede providência. Ver `triagem.ts`. */
+  readonly exigeAcao?: boolean;
 }
 
 /** Ordena do andamento mais recente para o mais antigo. */

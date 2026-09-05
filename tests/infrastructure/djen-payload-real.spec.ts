@@ -5,6 +5,7 @@ import {
   agruparEmProcessos,
   mapearMovimentacao,
   mapearPolo,
+  ehTeorNaoPublico,
   parseDataDisponibilizacao,
   estaVigente,
 } from '../../src/infrastructure/adapters/djen/djen.mapper.js';
@@ -214,6 +215,47 @@ describe('limpeza do inteiro teor', () => {
     expect(limparTextoDoAto('use a marca &lt;prazo&gt; aqui')).toBe(
       'use a marca <prazo> aqui',
     );
+  });
+});
+
+describe('teor que a fonte não entrega', () => {
+  // 43 das 62 publicações do processo 0311517-22.2015.8.09.0051 trazem só o
+  // aviso de indisponibilidade. Guardá-lo como despacho faria a tela exibir 43
+  // andamentos com um "inteiro teor" que só diz que não há inteiro teor.
+  const SENTINELA = 'ARQUIVOS DIGITAIS INDISPONÍVEIS (NÃO SÃO DO TIPO PÚBLICO)';
+
+  function comTexto(texto: string): ComunicacaoDjen {
+    return { ...COMUNICACAO, id: 999, texto, tipoDocumento: 'Outros' };
+  }
+
+  it('reconhece o aviso de documento não público', () => {
+    expect(ehTeorNaoPublico(SENTINELA)).toBe(true);
+  });
+
+  it('não grava o aviso como se fosse o despacho', () => {
+    const m = mapearMovimentacao(comTexto(SENTINELA));
+    expect(m.conteudo).toBeUndefined();
+    expect(m.teorIndisponivel).toBe(true);
+  });
+
+  it('mantém o link para o tribunal, que é o caminho que sobra', () => {
+    const m = mapearMovimentacao(comTexto(SENTINELA));
+    expect(m.url).toContain('projudi.tjgo.jus.br');
+  });
+
+  it('teor curto de verdade continua sendo teor', () => {
+    // O corte não pode ser por tamanho: "Ciência da decisão." é ato real.
+    const m = mapearMovimentacao(comTexto('Ciência da decisão.'));
+    expect(m.conteudo).toBe('Ciência da decisão.');
+    expect(m.teorIndisponivel).toBeUndefined();
+  });
+
+  it('sem teor, o orquestrador volta a considerar que falta conteúdo', () => {
+    // Efeito colateral desejado: um processo cujas publicações são todas
+    // indisponíveis não parece "completo", e a cadeia continua perguntando às
+    // outras fontes em vez de parar achando que já tem tudo.
+    const { processos } = agruparEmProcessos([comTexto(SENTINELA)], AGORA);
+    expect(processos[0]?.movimentacoes.some((m) => m.conteudo)).toBe(false);
   });
 });
 

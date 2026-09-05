@@ -58,6 +58,41 @@ const ESQUEMA = [
      ON novidades (workspace, detectada_em DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_nov_nao_vistas
      ON novidades (workspace, vista_em)`,
+
+  // Inscrições da OAB sob vigilância contínua. A chave é (workspace, oab, uf)
+  // e não um id: cadastrar a mesma inscrição duas vezes tem que ser a mesma
+  // vigilância, não duas varreduras concorrentes contra a mesma fonte.
+  `CREATE TABLE IF NOT EXISTS vigilancias_oab (
+     workspace            TEXT NOT NULL,
+     oab                  TEXT NOT NULL,
+     uf                   TEXT NOT NULL,
+     apelido              TEXT,
+     criada_em            TEXT NOT NULL,
+     varrida_em           TEXT,
+     erro                 TEXT,
+     processos_encontrados INTEGER NOT NULL DEFAULT 0,
+     ativa                INTEGER NOT NULL DEFAULT 1,
+     PRIMARY KEY (workspace, oab, uf)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_vig_varrer
+     ON vigilancias_oab (ativa, varrida_em)`,
+
+  `CREATE TABLE IF NOT EXISTS notificacoes (
+     workspace        TEXT PRIMARY KEY,
+     email            TEXT,
+     ativa            INTEGER NOT NULL DEFAULT 0,
+     ultimo_envio_em  TEXT,
+     ultimo_alerta_em TEXT
+   )`,
+
+  // Chave-valor para marcas do sistema inteiro. Hoje guarda só quando a última
+  // varredura terminou bem — o que sustenta o aviso de "faz X horas que não
+  // consigo verificar". Precisa estar em disco: é depois de um redeploy que dá
+  // para ficar horas sem varrer sem ninguém perceber.
+  `CREATE TABLE IF NOT EXISTS estado (
+     chave TEXT PRIMARY KEY,
+     valor TEXT NOT NULL
+   )`,
 ];
 
 export function abrirBanco(caminho: string): DatabaseSync {

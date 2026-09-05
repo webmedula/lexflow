@@ -36,6 +36,7 @@ export function paginaConsole(versao: string): string {
       <button id="nav-novidades">Atualizações <span class="bolha oculto" id="bolha"></span></button>
       <button id="nav-processos">Meus processos</button>
       <button id="nav-buscar">Buscar</button>
+      <button id="nav-vigilancia">Vigilância</button>
       <button id="sair" title="Esquecer a chave neste navegador">Sair</button>
     </nav>
   </div>
