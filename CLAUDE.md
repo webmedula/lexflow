@@ -77,7 +77,8 @@ src/
 │   └── usecases/                # BuscarProcessoPorNumero, BuscarProcessosPorOab
 ├── application/
 │   └── services/                # ProcessoSearchService, ServicoAcompanhamento,
-│                                #   ServicoVigilanciaOab, ServicoNotificacao
+│                                #   ServicoVigilanciaOab, ServicoNotificacao,
+│                                #   ServicoContas
 ├── infrastructure/
 │   ├── adapters/
 │   │   ├── datajud/             # adapter + mapper + schemas + aliases
@@ -89,6 +90,7 @@ src/
 │   ├── logging/                 # ConsoleLogger
 │   ├── persistencia/            # serialização + SQLite (acompanhamentos, vigilâncias)
 │   ├── notificacao/             # EmailSmtpNotificador, LogNotificador
+│   ├── seguranca/               # hash de senha (scrypt) e token de sessão
 │   ├── agenda/                  # Agendador da varredura
 │   └── ratelimit/               # TokenBucketRateLimiter
 └── main/
@@ -367,6 +369,24 @@ Não são detalhes — moldam o código.
   sem chave, chave com menos de `TAMANHO_MINIMO_CHAVE`, chave repetida, ou
   `LEXFLOW_AUTH_DISABLED` junto com chaves preenchidas — todos derrubam a
   montagem. Chave fraca é pior do que nenhuma: passa sensação de proteção.
+- **Duas autenticações, um workspace.** Pessoa entra por e-mail e senha (sessão
+  em cookie); integração entra por chave de API. As duas resolvem para o mesmo
+  `workspace`, e nenhuma rota de dados sabe qual delas trouxe a requisição — é
+  isso que impede a autenticação de vazar para dentro do domínio. **A sessão tem
+  precedência sobre a chave**: com as duas presentes, vence a pessoa, senão a
+  carteira dela "some" conforme a aba.
+- **Senha nunca vira dependência nativa.** `scrypt` do `node:crypto`, com os
+  parâmetros gravados junto do hash. bcrypt e argon2 exigiriam compilar módulo
+  nativo no Alpine — o mesmo motivo que escolheu `node:sqlite`.
+- **O banco guarda o HASH do token de sessão, nunca o token.** Vazamento de
+  banco não pode virar sessão aberta. E o token não volta no corpo da resposta:
+  vive só no cookie HttpOnly, fora do alcance de qualquer script da página.
+- **Cadastro é fechado por código de convite**, que são as chaves de API. A
+  chave do CNJ é compartilhada nacionalmente: formulário aberto na internet
+  transforma o VPS em proxy gratuito para a cota alheia.
+- **"E-mail não encontrado" e "senha incorreta" são a MESMA resposta**, e a
+  verificação gasta o mesmo tempo nos dois casos. Respostas diferentes
+  transformam a tela de login num verificador de quem é cliente.
 - **Notificação é uma promessa.** A partir do primeiro aviso enviado, o
   advogado para de conferir manualmente e passa a ler silêncio como "não houve
   nada". Por isso `ServicoNotificacao` tem DUAS obrigações, e a segunda não é
@@ -412,13 +432,16 @@ Toda entrega que muda comportamento: bump no `package.json` **e** entrada no
 `ProcessoSearchService` com fallback **e enriquecimento entre fontes**,
 `fundirProcessos`, acompanhamento com SQLite e varredura agendada, cache com
 TTL/LRU, rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API
-e rate limit, **vigilância contínua por OAB**, **triagem do que exige ação**,
+e rate limit, **contas de usuário com senha e sessão**, **painel inicial**,
+**identidade visual e tema claro**, **vigilância contínua por OAB**,
+**triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 299 testes.
+multi-stage, CI, 324 testes.
 
-**Não implementado (decisão consciente do MVP):** contas de usuário com login e
-cobrança (hoje a chave de API é o usuário e o workspace), crawler real,
+**Não implementado (decisão consciente do MVP):** cobrança e planos, recuperação
+de senha por e-mail (hoje a troca exige saber a senha atual), convite de membros
+para um mesmo escritório, crawler real,
 **WhatsApp** (adiado: exige template aprovado pela Meta e conta business
 verificada — e a biblioteca não oficial que resolveria numa tarde viola os
 termos e derruba o número, levando junto o aviso de prazo de todos os

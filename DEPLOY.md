@@ -412,6 +412,19 @@ saída para `comunicaapi.pje.jus.br`.
 saída HTTPS para `comunicaapi.pje.jus.br` (DJEN) e `api-publica.datajud.cnj.jus.br`
 (DataJud). Em VPS com allowlist de egresso, libere os dois.
 
+**Primeiro acesso depois de atualizar para a v0.11**
+A tela agora pede e-mail e senha. Como ainda não existe conta nenhuma, ela abre
+direto em **Criar conta** — e o "código de acesso" é a chave que está em
+`LEXFLOW_API_KEYS`. A PRIMEIRA conta criada adota o workspace da primeira chave,
+então a carteira que você já tinha continua lá. Se criar a conta e a carteira
+aparecer vazia, confira se `LEXFLOW_API_KEYS` continua com a MESMA chave de
+antes: mudou a chave, mudou o workspace.
+
+**"Faço login e volto para a tela de login"**
+É o cookie sendo descartado pelo navegador. Confira `HTTP_TRUST_PROXY=true` —
+é ele que decide se o cookie sai com `Secure`, e `Secure` sob HTTP puro é
+descartado em silêncio.
+
 **A aba Vigilância responde 501**
 Falta `djen` em `LEXFLOW_PROVIDER_CHAIN`. É a única fonte que indexa advogado.
 Repare que valor preenchido no painel GANHA do padrão do código — se a variável

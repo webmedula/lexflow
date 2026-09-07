@@ -9,6 +9,85 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.11.0] — 2026-09-07
+
+**O LexFlow passa a parecer o que já era.**
+
+A crítica que originou esta versão foi simples: a tela estava bem construída,
+mas parecia ferramenta interna, não produto que se vende. O que denunciava não
+era acabamento — era, em ordem, a porta de entrada, a ausência de painel e a
+falta de identidade.
+
+### Adicionado — contas de verdade
+
+- **Entrada com e-mail e senha.** "Cole sua chave de API" era o momento mais
+  evidente de que aquilo não era um produto: nenhum advogado entende a
+  expressão. Agora é login, como qualquer serviço que se paga.
+- **Senha com `scrypt` do próprio Node.** Não é bcrypt nem argon2 pela mesma
+  razão que levou ao `node:sqlite` no lugar do `better-sqlite3`: **zero
+  dependência nativa** — a imagem é Alpine e compilar módulo nativo lá exige
+  python, make e g++. Os parâmetros vão gravados junto do hash, para o custo
+  poder subir no futuro sem invalidar as senhas antigas.
+- **Sessão em cookie HttpOnly**, com o HASH do token no banco — nunca o token.
+  Se o banco vazar, o que está lá não abre conta nenhuma. `SameSite=Lax` para
+  que chegar pelo link do e-mail de aviso não caia na tela de login, e `Secure`
+  apenas sob HTTPS (marcar sempre faria o navegador descartar o cookie em
+  `localhost`, com o sintoma "faço login e volto para o login").
+- **Cadastro por código de acesso**, que é uma das chaves de `LEXFLOW_API_KEYS`.
+  Não é burocracia: a chave do CNJ é compartilhada por todo o país, e um
+  formulário aberto na internet transforma o VPS em proxy gratuito para a cota
+  alheia — quem leva o bloqueio é a chave. Distribuir uma chave por cliente vira,
+  de quebra, o mecanismo natural de onboarding e revogação.
+- **A chave de API continua valendo** para integração (n8n, CLI, scripts). Os
+  dois caminhos resolvem para o mesmo `workspace`, e nenhuma rota de dados sabe
+  qual dos dois trouxe a requisição. A sessão tem precedência: com os dois
+  presentes, vence a pessoa — do contrário a carteira "sumiria" conforme a aba.
+
+### Adicionado — painel e primeiro uso
+
+- **Painel como tela inicial.** Antes o usuário caía numa lista. Lista não
+  responde à pergunta que ele traz ao abrir — "tem alguma coisa me esperando?".
+  Quatro números: novidades não lidas, processos acompanhados, inscrições
+  vigiadas e **quando foi a última verificação**. O último é o que quase nenhum
+  concorrente mostra, e é o que separa "nada aconteceu" de "o sistema parou de
+  olhar".
+- **Primeira execução guiada**, em três passos, começando pelo que dá resultado
+  sem digitar número nenhum (cadastrar a OAB). Um painel zerado é a pior
+  primeira impressão possível de um SaaS.
+
+### Alterado — identidade visual
+
+- **Tema claro** com fundo levemente quente, verde-petróleo como marca e serifa
+  nos títulos. A escolha é comercial, não estética: escuro lê como ferramenta de
+  programador, e praticamente todo software jurídico brasileiro é azul — o
+  petróleo mantém a seriedade sem se confundir com os concorrentes.
+- **Marca em SVG inline** (também usada como favicon), sistema de cor em tokens,
+  hierarquia tipográfica e estados vazios desenhados.
+- Tudo continua **sem nenhum recurso externo**: fonte do sistema, zero CDN, zero
+  build. Um teste garante isso — carregar Google Fonts quebraria o console de
+  quem estiver atrás do firewall de um fórum.
+
+### Corrigido
+
+- **Campos de filtro sem estilo.** Os `input` e `select` das telas de processos,
+  atualizações e busca não usavam a classe do sistema de design e apareciam com
+  a aparência nativa do navegador no meio de uma interface desenhada. Foi visto
+  em captura de tela real, não no código.
+- **Rodapé flutuando no meio da página** sempre que o conteúdo era curto — que é
+  exatamente o caso de quem acabou de assinar.
+- **501 logado como erro, com stack trace.** Vigilância por OAB sem o DJEN na
+  cadeia não é falha, é configuração; a cada abertura da aba o log ganhava um
+  stack. É assim que se aprende a ignorar o log, que é o único lugar onde o 500
+  de verdade aparece. Virou aviso, sem stack.
+
+### Migração
+
+A primeira conta criada **adota o workspace derivado da primeira chave de API**.
+Sem isso, você criaria sua conta e encontraria a carteira vazia, achando que o
+deploy apagou os dados. Sai uma linha no log quando acontece.
+
+---
+
 ## [0.10.0] — 2026-09-05
 
 **O sistema deixa de vigiar o que você digitou e passa a vigiar o seu nome.**
