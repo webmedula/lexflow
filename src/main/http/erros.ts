@@ -1,5 +1,7 @@
 import { ZodError } from 'zod';
 import {
+  CredencialTribunalAusenteError,
+  CredencialTribunalInvalidaError,
   DomainError,
   NumeroCNJInvalidoError,
   OabInvalidaError,
@@ -7,6 +9,7 @@ import {
   ProcessoNaoEncontradoError,
   ProviderIndisponivelError,
   RespostaInvalidaError,
+  TeorNaoAutorizadoError,
   TodasAsFontesFalharamError,
 } from '../../domain/errors/index.js';
 
@@ -66,6 +69,28 @@ export function mapearErro(erro: unknown): RespostaDeErro {
 
   if (erro instanceof OperacaoNaoSuportadaError) {
     return { status: 501, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 428 (Precondition Required) e não 401: quem chamou está autenticado no
+  // LexFlow: o que falta é a credencial DELE no tribunal. Devolver 401 faria o
+  // cliente HTTP e o navegador tratarem como sessão expirada e mandarem a pessoa
+  // fazer login de novo — que não resolve nada e esconde o que falta fazer.
+  if (erro instanceof CredencialTribunalAusenteError) {
+    return { status: 428, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 424 (Failed Dependency): a falha é numa credencial que o assinante nos deu
+  // para usar em outro sistema. Não é 401 (nossa autenticação está boa) nem 502
+  // (o tribunal respondeu certinho — recusou). E precisa ser distinguível dos
+  // dois porque a ação é diferente: alguém precisa atualizar a senha.
+  if (erro instanceof CredencialTribunalInvalidaError) {
+    return { status: 424, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 403: o tribunal respondeu e negou o arquivo. É a resposta certa para quem
+  // não tem procuração nos autos — e não 404, que diria que a peça não existe.
+  if (erro instanceof TeorNaoAutorizadoError) {
+    return { status: 403, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 
   if (erro instanceof TodasAsFontesFalharamError) {

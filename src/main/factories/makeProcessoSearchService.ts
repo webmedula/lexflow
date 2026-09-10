@@ -1,6 +1,7 @@
 import { ProcessoSearchService } from '../../application/services/ProcessoSearchService.js';
 import { ServicoAcompanhamento } from '../../application/services/ServicoAcompanhamento.js';
 import { ServicoNotificacao } from '../../application/services/ServicoNotificacao.js';
+import { ServicoPecas } from '../../application/services/ServicoPecas.js';
 import { ServicoVigilanciaOab } from '../../application/services/ServicoVigilanciaOab.js';
 import type { BuscaPorOabComPeriodo } from '../../application/services/ServicoVigilanciaOab.js';
 import { Agendador } from '../../infrastructure/agenda/Agendador.js';
@@ -18,6 +19,11 @@ import type { Logger } from '../../domain/ports/Logger.js';
 import type { ProcessoProvider } from '../../domain/ports/ProcessoProvider.js';
 import { BuscarProcessoPorNumero } from '../../domain/usecases/BuscarProcessoPorNumero.js';
 import { BuscarProcessosPorOab } from '../../domain/usecases/BuscarProcessosPorOab.js';
+import { BaixarPecaDoProcesso } from '../../domain/usecases/BaixarPecaDoProcesso.js';
+import { ListarPecasDoProcesso } from '../../domain/usecases/ListarPecasDoProcesso.js';
+import { MniAdapter } from '../../infrastructure/adapters/mni/MniAdapter.js';
+import { RepositorioCredenciaisSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioCredenciaisSqlite.js';
+import { Cofre } from '../../infrastructure/seguranca/cofre.js';
 import {
   DataJudAdapter,
   NOME_DATAJUD,
@@ -41,6 +47,11 @@ export interface Aplicacao {
   readonly acompanhamento: ServicoAcompanhamento;
   readonly vigilancia: ServicoVigilanciaOab | undefined;
   readonly notificacao: ServicoNotificacao;
+  /**
+   * `undefined` quando não há chave de cofre configurada. As rotas respondem
+   * 501 com a instrução, em vez de existirem e falharem na primeira consulta.
+   */
+  readonly pecas: ServicoPecas | undefined;
   readonly preferenciasNotificacao: RepositorioNotificacao;
   readonly agendador: Agendador;
   readonly agendadorVigilancia: Agendador | undefined;
@@ -157,6 +168,8 @@ export function montarAplicacao(config: Config): Aplicacao {
     );
   }
 
+  const pecas = montarServicoPecas(config, db, logger);
+
   const agendadorVigilancia =
     vigilancia && config.vigilancia.intervaloHoras > 0
       ? new Agendador({
@@ -178,6 +191,7 @@ export function montarAplicacao(config: Config): Aplicacao {
     acompanhamento,
     vigilancia,
     notificacao,
+    pecas,
     preferenciasNotificacao,
     agendador,
     agendadorVigilancia,
@@ -188,6 +202,71 @@ export function montarAplicacao(config: Config): Aplicacao {
       db.close();
     },
   };
+}
+
+/**
+ * Monta o acesso a peças — ou não monta, e diz por quê.
+ *
+ * A ausência da chave do cofre NÃO derruba o serviço e NÃO cai para guardar
+ * senha em claro: monta tudo menos isso. É a mesma escolha feita para o DataJud
+ * sem chave, e pela mesma razão — ficar sem uma funcionalidade é melhor do que
+ * ficar sem serviço. A diferença é que aqui o custo do atalho seria a senha do
+ * advogado no tribunal em texto puro no banco, e esse atalho não existe.
+ */
+function montarServicoPecas(
+  config: Config,
+  db: ReturnType<typeof abrirBanco>,
+  logger: Logger,
+): ServicoPecas | undefined {
+  if (pareceValorDeExemplo(config.mni.chaveDoCofre)) {
+    logger.warn(
+      'acesso a peças desligado: LEXFLOW_CREDENCIAL_CHAVE ainda contém o texto de exemplo',
+      { acao: 'gere uma chave real com `npm run chave -- --cofre`' },
+    );
+    return undefined;
+  }
+  if (!config.mni.chaveDoCofre) {
+    logger.warn('acesso a peças desligado: LEXFLOW_CREDENCIAL_CHAVE não definida', {
+      motivo:
+        'sem cofre, a senha do advogado no tribunal só poderia ser guardada em claro',
+      acao: 'gere uma chave com `npm run chave -- --cofre`',
+    });
+    return undefined;
+  }
+
+  let cofre: Cofre;
+  try {
+    cofre = Cofre.comChaveBase64(config.mni.chaveDoCofre);
+  } catch (erro) {
+    // Chave presente e inválida é diferente de chave ausente: alguém TENTOU
+    // configurar. Derrubar seria defensável, mas o efeito prático é o serviço
+    // inteiro fora do ar por causa de um caractere colado errado.
+    logger.error('acesso a peças desligado: chave do cofre inválida', {
+      motivo: erro instanceof Error ? erro.message : String(erro),
+    });
+    return undefined;
+  }
+
+  const credenciais = new RepositorioCredenciaisSqlite(db, cofre, logger);
+  const provedor = new MniAdapter({
+    endpoint: config.mni.endpoint,
+    tribunais: config.mni.tribunais,
+    timeoutMs: config.mni.timeoutMs,
+    limitePorMinuto: config.mni.limitePorMinuto,
+    logger,
+  });
+
+  logger.info('acesso a peças habilitado', {
+    endpoint: config.mni.endpoint,
+    tribunais: config.mni.tribunais,
+  });
+
+  return new ServicoPecas({
+    listar: new ListarPecasDoProcesso(provedor, credenciais),
+    baixar: new BaixarPecaDoProcesso(provedor, credenciais),
+    credenciais,
+    logger,
+  });
 }
 
 /**

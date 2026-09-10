@@ -1,6 +1,6 @@
 {
   "name": "lexflow",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "description": "SaaS de consulta e acompanhamento de processos judiciais nos tribunais brasileiros",
   "type": "module",
@@ -31,6 +31,7 @@
   "dependencies": {
     "@fastify/cors": "^10.1.0",
     "@fastify/rate-limit": "^10.3.0",
+    "fast-xml-parser": "^4.5.7",
     "fastify": "^5.12.1",
     "fastify-plugin": "^5.1.0",
     "nodemailer": "^10.0.0",

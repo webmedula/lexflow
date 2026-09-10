@@ -120,3 +120,61 @@ export class TodasAsFontesFalharamError extends DomainError {
     super(`Nenhuma fonte respondeu para ${criterio}. Tentativas → ${resumo}`);
   }
 }
+
+/**
+ * O tribunal recusou a credencial do advogado.
+ *
+ * Separado de `ProviderIndisponivelError` porque a reação certa é oposta:
+ * indisponibilidade pede nova tentativa e fallback; credencial recusada pede
+ * que uma PESSOA vá corrigir o cadastro. Retentar aqui não só não resolve como
+ * empurra a conta do advogado para o bloqueio por tentativas — e aí o problema
+ * deixa de ser nosso e passa a ser o acesso dele ao processo.
+ */
+export class CredencialTribunalInvalidaError extends DomainError {
+  readonly codigo = 'CREDENCIAL_TRIBUNAL_INVALIDA';
+
+  constructor(
+    readonly provider: string,
+    readonly mensagemDaFonte: string,
+  ) {
+    super(
+      `O tribunal recusou a credencial cadastrada em "${provider}": ${mensagemDaFonte}. ` +
+        'Atualize usuário e senha no cadastro de credenciais.',
+    );
+  }
+}
+
+/** Não há credencial cadastrada para este workspace no tribunal pedido. */
+export class CredencialTribunalAusenteError extends DomainError {
+  readonly codigo = 'CREDENCIAL_TRIBUNAL_AUSENTE';
+
+  constructor(readonly tribunal: string) {
+    super(
+      `Nenhuma credencial cadastrada para o tribunal ${tribunal}. ` +
+        'As peças do processo só são acessíveis a quem está habilitado nos autos, ' +
+        'então é preciso cadastrar o acesso do advogado.',
+    );
+  }
+}
+
+/**
+ * A fonte respondeu, conhece o documento, e devolveu o metadado SEM o conteúdo.
+ *
+ * É o caso mais comum de todos no MNI e não é falha nossa: sem procuração nos
+ * autos, o serviço entrega a ficha do documento e omite o arquivo. Merece tipo
+ * próprio para que a interface diga "você não está habilitado neste processo"
+ * em vez de "erro ao baixar", que manda o advogado procurar defeito onde não há.
+ */
+export class TeorNaoAutorizadoError extends DomainError {
+  readonly codigo = 'TEOR_NAO_AUTORIZADO';
+
+  constructor(
+    readonly numeroProcesso: string,
+    readonly idPeca: string,
+  ) {
+    super(
+      `O tribunal não liberou o teor da peça ${idPeca} do processo ${numeroProcesso}. ` +
+        'Isso costuma significar que a credencial usada não está habilitada nos autos.',
+    );
+  }
+}

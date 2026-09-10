@@ -77,6 +77,33 @@ const schema = z.object({
     .enum(['debug', 'info', 'warn', 'error', 'silent'])
     .default('info'),
 
+  // --- Peças do processo (MNI) ----------------------------------------------
+  // O MNI é o único caminho para as PEÇAS (petição, contestação, laudo) — o
+  // DJEN publica ato judicial e o DataJud não tem documento nenhum.
+  //
+  // Endpoint do Projudi/TJGO. NÃO é o caminho `/intercomunicacao` do PJe: nesse
+  // o Projudi responde 404, o que já levou à conclusão errada de que o TJGO não
+  // tinha MNI.
+  MNI_ENDPOINT: z
+    .string()
+    .url()
+    .default('https://projudi.tjgo.jus.br/IntercomunicacaoService'),
+  /** Siglas atendidas por esse endpoint, separadas por vírgula. */
+  MNI_TRIBUNAIS: z.string().default('TJGO'),
+  // 90s: com `incluirDocumentos` o tribunal monta e transmite os PDFs na mesma
+  // resposta. Não se compara com os 20s que bastam ao DJEN.
+  MNI_TIMEOUT_MS: inteiroPositivo(90_000),
+  // Metade do teto relatado (~50/min) antes de bloqueio de IP com 403. Num VPS
+  // o IP é compartilhado por todos os assinantes: estourar derruba todo mundo.
+  MNI_RATE_LIMIT_PER_MINUTE: inteiroPositivo(30),
+  /**
+   * Chave do cofre que cifra a senha do advogado no tribunal (32 bytes em
+   * base64). SEM ELA o acesso a peças não é montado — e é de propósito: guardar
+   * senha de tribunal em claro transformaria um vazamento de banco em acesso
+   * aos processos de terceiros. Gere com `npm run chave -- --cofre`.
+   */
+  LEXFLOW_CREDENCIAL_CHAVE: z.string().default(''),
+
   // --- Banco e sincronização ------------------------------------------------
   // Caminho do arquivo SQLite. No contêiner tem que apontar para um VOLUME,
   // senão os acompanhamentos somem a cada redeploy.
@@ -128,6 +155,13 @@ export interface Config {
     readonly habilitado: boolean;
     readonly ttlSegundos: number;
     readonly maxEntradas: number;
+  };
+  readonly mni: {
+    readonly endpoint: string;
+    readonly tribunais: readonly string[];
+    readonly timeoutMs: number;
+    readonly limitePorMinuto: number;
+    readonly chaveDoCofre: string;
   };
   readonly nivelLog: NivelLog;
   readonly banco: { readonly caminho: string };
@@ -198,6 +232,15 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
       habilitado: env.CACHE_ENABLED,
       ttlSegundos: env.CACHE_TTL_SECONDS,
       maxEntradas: env.CACHE_MAX_ENTRIES,
+    },
+    mni: {
+      endpoint: env.MNI_ENDPOINT,
+      tribunais: env.MNI_TRIBUNAIS.split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter((s) => s.length > 0),
+      timeoutMs: env.MNI_TIMEOUT_MS,
+      limitePorMinuto: env.MNI_RATE_LIMIT_PER_MINUTE,
+      chaveDoCofre: env.LEXFLOW_CREDENCIAL_CHAVE.trim(),
     },
     nivelLog: env.LOG_LEVEL,
     banco: { caminho: env.LEXFLOW_DB_PATH },

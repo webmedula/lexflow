@@ -13,6 +13,7 @@ import { ROTA_CONSOLE, rotasDeInterface } from './rotas/interface.js';
 import { rotasDeProcesso } from './rotas/processos.js';
 import { rotasDeAcompanhamento } from './rotas/acompanhamentos.js';
 import { rotasDeVigilancia } from './rotas/vigilancias.js';
+import { rotasDePecas } from './rotas/pecas.js';
 
 /**
  * Monta o servidor HTTP sem subir porta nenhuma.
@@ -67,6 +68,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(rotasDeInterface());
   void servidor.register(rotasDeProcesso(app));
   void servidor.register(rotasDeAcompanhamento(app.acompanhamento));
+  void servidor.register(rotasDePecas(app.pecas));
   void servidor.register(
     rotasDeVigilancia(app.vigilancia, app.preferenciasNotificacao),
   );

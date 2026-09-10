@@ -1,6 +1,6 @@
 # LexFlow
 
-**v0.8.0** — histórico em [CHANGELOG.md](./CHANGELOG.md).
+**v0.12.0** — histórico em [CHANGELOG.md](./CHANGELOG.md).
 Para saber qual versão está rodando: `GET /health` devolve o campo `versao`.
 
 SaaS de consulta e acompanhamento de processos judiciais nos tribunais
@@ -22,6 +22,10 @@ Nenhuma fonte sozinha atende um advogado:
   teor do despacho.
 - Um **crawler próprio** do tribunal traz partes, advogados e a íntegra das
   decisões, mas cobre um tribunal por vez e depende de o site estar no ar.
+- O **MNI** (Modelo Nacional de Interoperabilidade) é o único que entrega as
+  **peças** — petição, contestação, laudo, documento juntado pela parte. Nada
+  disso é publicado no diário, então nenhuma fonte pública tem. Em troca, exige
+  a credencial de quem está habilitado nos autos.
 
 O LexFlow põe as duas atrás da mesma interface (`ProcessoProvider`) e as encadeia
 com fallback automático. Se o crawler cai, o DataJud responde; a consulta
@@ -56,6 +60,40 @@ seja, **dá para rodar tudo sem credencial nenhuma.**
 
 ---
 
+## Peças do processo (v0.12.0)
+
+O DJEN publica **ato judicial**: despacho, decisão, sentença, intimação. Petição,
+contestação, laudo e documento juntado pela parte **nunca são publicados no
+diário** — é por isso que um sistema alimentado só por diário mostra decisões e
+julgados, e nada do que as partes escreveram.
+
+As peças saem pelo MNI, com a credencial do próprio advogado:
+
+```bash
+# 1. gere a chave que cifra as credenciais (uma vez, por instalação)
+npm run chave -- --cofre        # → LEXFLOW_CREDENCIAL_CHAVE
+
+# 2. valide o acesso ANTES de cadastrar qualquer coisa
+MNI_ID_CONSULTANTE=00000000000 MNI_SENHA_CONSULTANTE=... \
+  npm run cli -- pecas 5818922-04.2026.8.09.0011
+
+# 3. cadastre pela API, e as peças passam a sair por rota
+curl -X PUT -H "x-api-key: SUA_CHAVE" -H 'content-type: application/json' \
+  -d '{"tribunal":"TJGO","identificacao":"00000000000","senha":"..."}' \
+  http://localhost:3000/v1/credenciais
+```
+
+Três coisas que valem saber antes de usar:
+
+- **Sem procuração nos autos, o teor não vem.** O MNI entrega a ficha do
+  documento e omite o arquivo. Não é defeito: é o controle de acesso do processo
+  eletrônico. A listagem informa `comTeorDisponivel` justamente para a interface
+  poder dizer isso antes de alguém clicar.
+- **Sem `LEXFLOW_CREDENCIAL_CHAVE` a funcionalidade não sobe** e as rotas
+  respondem 501. Não há caminho que guarde senha de tribunal em claro.
+- **Uma tentativa por consulta, sem retry.** O tribunal conta tentativa
+  malsucedida para bloquear a conta do advogado.
+
 ## API HTTP
 
 ```bash
@@ -89,6 +127,11 @@ criar, onde guardar, como rotacionar sem downtime — estão no
 | GET | `/ready` — consegue atender? lista o estado das fontes | não |
 | GET | `/v1/processos/:numero` | sim |
 | GET | `/v1/advogados/:uf/:oab/processos` | sim |
+| GET | `/v1/processos/:numero/pecas` — **peças do processo** | sim |
+| GET | `/v1/processos/:numero/pecas/:id` — baixar a peça | sim |
+| GET | `/v1/credenciais` — acessos de tribunal cadastrados | sim |
+| PUT | `/v1/credenciais` — cadastrar acesso do advogado | sim |
+| DELETE | `/v1/credenciais/:tribunal` | sim |
 
 ```bash
 curl -H "x-api-key: SUA_CHAVE" \

@@ -9,6 +9,111 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.12.0] — 2026-09-10
+
+**As peças das partes.**
+
+Até aqui o sistema mostrava decisões e julgados, e só. Não era limitação do
+código: era o teto da fonte. O DJEN é o diário, e diário publica ato judicial —
+petição, contestação, laudo e documento juntado pela parte **nunca são
+publicados**. O DataJud não tem documento nenhum. Faltava a fonte que tem.
+
+### Adicionado — MNI 2.2.2 do Projudi/TJGO
+
+- **`MniAdapter`**, contra `https://projudi.tjgo.jus.br/IntercomunicacaoService`.
+  O TJGO implementa MNI, ao contrário do que a ausência de `pje.tjgo.jus.br`
+  sugere — o endereço só não segue o padrão `/intercomunicacao` do PJe, que ali
+  responde 404. O link está na página inicial do próprio Projudi.
+- **Autenticação por `idConsultante` + `senhaConsultante`**: usuário e senha do
+  advogado, dentro do envelope SOAP. Não passa pela tela de login, então não há
+  CAPTCHA nem código por e-mail no caminho, e este tribunal não exige
+  certificado digital.
+- **Entidade `Peca`** separada de `Movimentacao`: a movimentação diz que algo
+  aconteceu, a peça é o arquivo. O TEOR não mora na entidade — `Peca` é metadado
+  e circula barato; o arquivo sai por rota própria, uma peça por vez, senão uma
+  listagem despejaria dezenas de MB na resposta.
+- **Porta `ProvedorDePecas`, deliberadamente separada de `ProcessoProvider`.**
+  Não é purismo: `CachedProcessoProvider` indexa por número de processo, **sem
+  workspace na chave**. Uma fonte com credencial dentro da cadeia serviria ao
+  assinante seguinte a resposta obtida com a credencial do anterior.
+- Rotas `GET /v1/processos/:numero/pecas` e
+  `GET /v1/processos/:numero/pecas/:id` (download como anexo).
+- `npm run cli -- pecas <numero>` lendo a credencial do AMBIENTE, não do banco:
+  serve para validar o acesso antes de cadastrar ninguém. Com `--capturar`,
+  grava a resposta crua do tribunal.
+
+### Adicionado — cofre de credenciais
+
+- **`credenciais_tribunal`, com a senha cifrada em AES-256-GCM.** É o dado mais
+  sensível do banco: a chave de API só abre o LexFlow, esta abre o processo no
+  tribunal. GCM e não CBC porque o GCM autentica — adulterar a coluna dá erro de
+  decifração, e não um "segredo" corrompido que só falha lá no tribunal
+  parecendo senha errada do usuário.
+- **Sem `LEXFLOW_CREDENCIAL_CHAVE`, o acesso a peças não é montado** e as rotas
+  respondem 501 com a instrução. Não existe caminho que guarde senha em claro.
+- Chave gerada por `npm run chave -- --cofre`.
+- Rotas `GET/PUT/DELETE /v1/credenciais`. A senha nunca volta na resposta — nem
+  mascarada: `***` convidaria a interface a exibir um campo "preenchido" que não
+  pode ser reenviado, e o próximo salvamento gravaria os asteriscos como senha.
+
+### Descoberto na captura real, e que teria custado caro
+
+Duas armadilhas que nenhum fixture escrito por quem implementa revelaria. As
+duas estão gravadas em `tests/fixtures/mni-tjgo-credencial-invalida-real.txt`:
+
+- **A resposta não é XML puro.** Vem em `multipart/related` (Apache CXF, com
+  XOP/MTOM). Quem chamar o parser direto sobre o corpo recebe lixo.
+- **O teor dos documentos não vem em base64**, embora o WSDL declare
+  `xs:base64Binary`. Vem como parte binária separada, referenciada por
+  `<xop:Include href="cid:...">`. Um mapper que lesse `conteudo` como base64
+  acharia string vazia e concluiria "o tribunal não liberou o arquivo" — com o
+  arquivo ali, na parte seguinte da mesma resposta.
+- **Recusa vem com HTTP 200.** `sucesso: false` no corpo. Confiar em
+  `resposta.ok` faria "Usuário ou Senha inválida." virar consulta bem-sucedida
+  com zero peças — indistinguível de "processo sem documentos".
+
+### Segurança e limites, explícitos
+
+- **Uma tentativa, sem retry.** Diferente de todos os outros adapters, e de
+  propósito: a requisição carrega a senha do advogado, e o Projudi conta
+  tentativa malsucedida para bloquear conta. Retry transformaria senha
+  desatualizada em três recusas por consulta, e a vigilância de hora em hora
+  levaria ao bloqueio no mesmo dia.
+- **30 requisições/minuto**, metade do teto relatado antes de bloqueio de IP de
+  datacenter (403, espera de ~30 min). Num VPS o IP é de todos os assinantes.
+- **A trava que nenhum código contorna:** o MNI devolve as peças conforme o
+  perfil de acesso do consultante. Sem procuração nos autos, o metadado vem e o
+  conteúdo não. Daí `TeorNaoAutorizadoError` ter nome próprio: a interface diz
+  "você não está habilitado neste processo", e não "erro ao baixar".
+- Status HTTP novos, escolhidos para dizer o que fazer: **428** (falta
+  cadastrar credencial — não 401, que mandaria refazer login à toa), **424** (o
+  tribunal recusou a credencial — nem 401 nem 502), **403** (respondeu e negou o
+  arquivo — não 404, que diria que a peça não existe).
+
+### Corrigido
+
+- **`.env.example` estava desatualizado e sabotava a busca por OAB.** Trazia
+  `LEXFLOW_PROVIDER_CHAIN=mock-crawler-tjsp,datajud` e `DATAJUD_TIMEOUT_MS=8000`.
+  Quem seguisse o README (`cp .env.example .env`) subia sem DJEN na cadeia: a
+  vigilância respondia 501 e a busca por OAB devolvia zero. O arquivo correto
+  tinha virado `env.example` (sem ponto) num dos uploads, e o antigo ficou.
+- Removidos do repositório `download` (um `.dockerignore` antigo),
+  `download (1)` (um `.gitignore` antigo) e `prettierrc.json`, duplicata de
+  `.prettierrc.json`.
+- README anunciava v0.8.0 com o `package.json` em 0.11.0.
+
+### Dívida assumida, declarada aqui para não ser esquecida
+
+O caminho de SUCESSO do MNI **ainda não tem captura real**: exige a credencial
+de um advogado habilitado nos autos, e não havia nenhuma disponível. Os testes
+de sucesso rodam contra um payload montado a partir do WSDL real — que é
+exatamente o circuito fechado que o CLAUDE.md manda evitar. Na primeira consulta
+bem-sucedida, use `npm run cli -- pecas <numero> --capturar` e substitua o bloco
+`xmlComDocumentos` de `tests/infrastructure/MniAdapter.spec.ts` pela resposta de
+verdade.
+
+---
+
 ## [0.11.0] — 2026-09-07
 
 **O LexFlow passa a parecer o que já era.**

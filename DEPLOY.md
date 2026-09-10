@@ -233,6 +233,20 @@ SMTP_FROM=
 # Endereço público, para os links do e-mail.
 LEXFLOW_URL_BASE=
 
+# --- Peças do processo (v0.12.0) -------------------------------------------
+# Cifra a senha do advogado no tribunal. Gere com: npm run chave -- --cofre
+# VAZIA = acesso a peças desligado, e as rotas respondem 501 com a instrução.
+# Não existe caminho que guarde senha de tribunal em claro.
+#
+# NUNCA troque esta chave depois de cadastrar credenciais: o que está no banco
+# foi cifrado com a antiga e vira ilegível, obrigando cada assinante a cadastrar
+# a senha do tribunal de novo.
+LEXFLOW_CREDENCIAL_CHAVE=
+MNI_ENDPOINT=https://projudi.tjgo.jus.br/IntercomunicacaoService
+MNI_TRIBUNAIS=TJGO
+MNI_TIMEOUT_MS=90000
+MNI_RATE_LIMIT_PER_MINUTE=30
+
 CACHE_ENABLED=true
 CACHE_TTL_SECONDS=900
 
@@ -244,6 +258,15 @@ SYNC_PAUSA_MS=1500
 
 LOG_LEVEL=info
 ```
+
+**Saída de rede exigida pelo contêiner:** `api-publica.datajud.cnj.jus.br`,
+`comunicaapi.pje.jus.br` e — a partir da v0.12.0 — `projudi.tjgo.jus.br`.
+
+**Atenção ao IP do VPS.** O MNI bloqueia IP de datacenter quando o volume de
+requisições sobe: responde 403 e a espera é da ordem de 30 minutos. Como o IP é
+o mesmo para todos os assinantes, um pico derruba o acesso de todo mundo junto —
+por isso `MNI_RATE_LIMIT_PER_MINUTE` vem em 30, metade do teto relatado. Não
+aumente sem necessidade.
 
 > **Não escreva um texto de exemplo no lugar de um valor que você ainda não tem.**
 > Uma variável com `COLE_AQUI_...` dentro não está vazia: o serviço a aceita como

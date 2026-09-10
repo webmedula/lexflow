@@ -85,6 +85,25 @@ const ESQUEMA = [
      ultimo_alerta_em TEXT
    )`,
 
+  // Credencial do advogado no tribunal, para as consultas que exigem
+  // habilitação nos autos (peças, via MNI). A senha vai CIFRADA na coluna —
+  // ver `infrastructure/seguranca/cofre.ts`. É o dado mais sensível do banco:
+  // a chave de API só abre o LexFlow, esta abre o processo no tribunal.
+  //
+  // Uma credencial por (workspace, tribunal): o advogado tem uma inscrição por
+  // sistema, e permitir duas criaria a dúvida de qual usar numa consulta — que
+  // se resolveria testando as duas e colecionando recusa até bloquear a conta.
+  `CREATE TABLE IF NOT EXISTS credenciais_tribunal (
+     workspace     TEXT NOT NULL,
+     tribunal      TEXT NOT NULL,
+     identificacao TEXT NOT NULL,
+     senha_cifrada TEXT NOT NULL,
+     criada_em     TEXT NOT NULL,
+     usada_em      TEXT,
+     recusada_em   TEXT,
+     PRIMARY KEY (workspace, tribunal)
+   )`,
+
   // Chave-valor para marcas do sistema inteiro. Hoje guarda só quando a última
   // varredura terminou bem — o que sustenta o aviso de "faz X horas que não
   // consigo verificar". Precisa estar em disco: é depois de um redeploy que dá

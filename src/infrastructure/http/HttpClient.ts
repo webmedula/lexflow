@@ -22,6 +22,22 @@ export interface RespostaHttp {
 }
 
 /**
+ * Resposta em BYTES, para quando o corpo não é texto.
+ *
+ * Nasceu do MNI: a resposta vem em `multipart/related` com os PDFs das peças
+ * como partes binárias. Lida como string, ela passa por decodificação UTF-8 —
+ * que substitui todo byte inválido por U+FFFD e corrompe o arquivo de forma
+ * irreversível, sem erro nenhum no caminho. O `content-type` vem junto porque é
+ * dele que sai o boundary do multipart.
+ */
+export interface RespostaHttpBinaria {
+  readonly status: number;
+  readonly ok: boolean;
+  readonly contentType: string;
+  readonly bytes: Uint8Array;
+}
+
+/**
  * Ajustes por requisição, sobrepondo os padrões do cliente.
  *
  * Existe porque nem toda chamada merece a mesma política. Uma consulta de
@@ -82,6 +98,35 @@ export class HttpClient {
     );
   }
 
+  /**
+   * POST de XML com resposta em bytes — o formato que SOAP exige.
+   *
+   * Método próprio em vez de um parâmetro em `postJson` porque a diferença não é
+   * só o `content-type`: é o caminho inteiro da resposta, que aqui NÃO pode
+   * passar por `text()`. Ver `RespostaHttpBinaria`.
+   */
+  async postXml(
+    url: string,
+    xml: string,
+    headers: Record<string, string> = {},
+    opcoes?: OpcoesRequisicao,
+  ): Promise<RespostaHttpBinaria> {
+    return this.executarBinario(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'text/xml;charset=UTF-8',
+          accept: 'text/xml, multipart/related, application/xop+xml',
+          ...this.headersPadrao,
+          ...headers,
+        },
+        body: xml,
+      },
+      opcoes,
+    );
+  }
+
   async get(
     url: string,
     headers: Record<string, string> = {},
@@ -102,13 +147,46 @@ export class HttpClient {
     init: RequestInit,
     opcoes?: OpcoesRequisicao,
   ): Promise<RespostaHttp> {
+    return this.comRetry(url, init, opcoes, async (resposta) => ({
+      status: resposta.status,
+      ok: resposta.ok,
+      corpo: await resposta.text(),
+    }));
+  }
+
+  private async executarBinario(
+    url: string,
+    init: RequestInit,
+    opcoes?: OpcoesRequisicao,
+  ): Promise<RespostaHttpBinaria> {
+    return this.comRetry(url, init, opcoes, async (resposta) => ({
+      status: resposta.status,
+      ok: resposta.ok,
+      contentType: resposta.headers.get('content-type') ?? '',
+      bytes: new Uint8Array(await resposta.arrayBuffer()),
+    }));
+  }
+
+  /**
+   * A política de timeout e retry, uma vez só.
+   *
+   * O que muda entre texto e bytes é a LEITURA do corpo, não quando retentar —
+   * e duplicar o laço para trocar `text()` por `arrayBuffer()` garantiria que um
+   * ajuste de backoff fosse aplicado em um caminho e esquecido no outro.
+   */
+  private async comRetry<T extends { readonly status: number }>(
+    url: string,
+    init: RequestInit,
+    opcoes: OpcoesRequisicao | undefined,
+    ler: (resposta: Response) => Promise<T>,
+  ): Promise<T> {
     const timeoutMs = opcoes?.timeoutMs ?? this.timeoutMs;
     const tentativas = Math.max(1, opcoes?.tentativas ?? this.tentativas);
     let ultimoErro: unknown;
 
     for (let tentativa = 1; tentativa <= tentativas; tentativa++) {
       try {
-        const resposta = await this.umaTentativa(url, init, timeoutMs);
+        const resposta = await this.umaTentativa(url, init, timeoutMs, ler);
 
         // 5xx e 429 são transitórios: vale retentar. 4xx (exceto 429) é erro
         // nosso — retentar só queima cota.
@@ -133,20 +211,17 @@ export class HttpClient {
     throw new HttpRedeError(url, ultimoErro);
   }
 
-  private async umaTentativa(
+  private async umaTentativa<T>(
     url: string,
     init: RequestInit,
     timeoutMs: number,
-  ): Promise<RespostaHttp> {
+    ler: (resposta: Response) => Promise<T>,
+  ): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const resposta = await fetch(url, { ...init, signal: controller.signal });
-      return {
-        status: resposta.status,
-        ok: resposta.ok,
-        corpo: await resposta.text(),
-      };
+      return await ler(resposta);
     } catch (erro) {
       if (erro instanceof Error && erro.name === 'AbortError') {
         throw new HttpTimeoutError(url, timeoutMs);

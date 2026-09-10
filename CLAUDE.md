@@ -11,21 +11,30 @@ desatualizado** — resolva a divergência, não a ignore.
 SaaS de consulta e acompanhamento de processos judiciais nos tribunais
 brasileiros. O advogado consulta por número CNJ ou pela própria OAB e recebe
 metadados, partes e movimentações em um formato único, independentemente da
-fonte que respondeu.
+fonte que respondeu — e, cadastrando o acesso dele no tribunal, também as
+**peças**: petição, contestação, laudo e documento juntado pela parte.
 
 **A tese do produto é a busca HÍBRIDA.** Nenhuma fonte isolada resolve:
 
-| Fonte | Custo | Cobertura | Partes/advogados | Inteiro teor | Busca por OAB | Linha do tempo |
-|---|---|---|---|---|---|---|
-| API Pública DataJud (CNJ) | grátis | ~91 tribunais | ❌ não indexa | ❌ só rótulo TPU | ❌ impossível | ✅ completa |
-| DJEN / Comunica API (CNJ) | grátis, sem chave | nacional | ✅ | ✅ | ✅ | ⚠️ só o publicado |
-| Crawler próprio (e-SAJ, PJe, Projudi) | infra + manutenção | 1 tribunal por crawler | ✅ | ✅ | ✅ | ✅ |
-| Agregadores pagos | R$ por consulta | ampla | ✅ | ✅ | ✅ | ✅ |
+| Fonte | Custo | Cobertura | Partes/advogados | Inteiro teor | **Peças das partes** | Busca por OAB | Linha do tempo |
+|---|---|---|---|---|---|---|---|
+| API Pública DataJud (CNJ) | grátis | ~91 tribunais | ❌ não indexa | ❌ só rótulo TPU | ❌ | ❌ impossível | ✅ completa |
+| DJEN / Comunica API (CNJ) | grátis, sem chave | nacional | ✅ | ✅ do publicado | ❌ | ✅ | ⚠️ só o publicado |
+| **MNI 2.2.2** (Projudi/TJGO) | grátis, credencial do advogado | 1 tribunal por endpoint | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Crawler próprio (e-SAJ, PJe, Projudi) | infra + manutenção | 1 tribunal por crawler | ✅ | ✅ | ⚠️ | ✅ | ✅ |
+| Agregadores pagos | R$ por consulta | ampla | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 O sistema combina fontes atrás de uma única interface, faz fallback automático
 e — desde a v0.9.0 — **complementa**: achar o processo não encerra a busca, as
 fontes seguintes preenchem o que a vencedora não soube. Toda decisão de
 arquitetura abaixo existe para servir a isso.
+
+**A segunda regra de ouro, aprendida em 09/2026:** peça de parte NÃO É ATO
+PUBLICADO. O diário publica despacho, decisão e sentença; petição, contestação,
+laudo e documento juntado pela parte nunca aparecem lá. Um sistema alimentado só
+por DJEN mostra "decisões e julgados" e nada mais — e isso é o teto da fonte, não
+um bug a caçar. Peça só sai do sistema do tribunal, com a credencial de quem tem
+procuração nos autos.
 
 **Regra de ouro das fontes, aprendida do jeito caro:** o DataJud e o DJEN se
 completam e nenhum substitui o outro. O DataJud tem a linha do tempo inteira e
@@ -78,11 +87,12 @@ src/
 ├── application/
 │   └── services/                # ProcessoSearchService, ServicoAcompanhamento,
 │                                #   ServicoVigilanciaOab, ServicoNotificacao,
-│                                #   ServicoContas
+│                                #   ServicoPecas
 ├── infrastructure/
 │   ├── adapters/
 │   │   ├── datajud/             # adapter + mapper + schemas + aliases
 │   │   ├── djen/                # adapter + mapper + limpeza de HTML
+│   │   ├── mni/                 # adapter + envelope SOAP + mapper + MTOM
 │   │   └── crawler/             # MockCrawlerAdapter + fixtures
 │   ├── cache/                   # InMemoryCache, CachedProcessoProvider
 │   ├── config/                  # env.ts (validação de configuração)
@@ -90,7 +100,7 @@ src/
 │   ├── logging/                 # ConsoleLogger
 │   ├── persistencia/            # serialização + SQLite (acompanhamentos, vigilâncias)
 │   ├── notificacao/             # EmailSmtpNotificador, LogNotificador
-│   ├── seguranca/               # hash de senha (scrypt) e token de sessão
+│   ├── seguranca/               # cofre AES-256-GCM das credenciais de tribunal
 │   ├── agenda/                  # Agendador da varredura
 │   └── ratelimit/               # TokenBucketRateLimiter
 └── main/
@@ -162,6 +172,9 @@ interface ProcessoProvider {
 | `RespostaInvalidaError` | respondeu, payload fora do contrato | dispara o fallback |
 | `NumeroCNJInvalidoError` / `OabInvalidaError` | entrada do usuário inválida | propaga; nenhuma fonte é consultada |
 | `TodasAsFontesFalharamError` | a cadeia acabou | 5xx na API; carrega o histórico das tentativas |
+| `CredencialTribunalAusenteError` | o workspace não cadastrou o acesso | 428; a pessoa precisa cadastrar |
+| `CredencialTribunalInvalidaError` | o tribunal recusou usuário/senha | 424; **não retentar** — marca a credencial como recusada |
+| `TeorNaoAutorizadoError` | respondeu e não liberou o arquivo | 403; em geral falta procuração nos autos |
 
 **A distinção que sustenta o produto:** "esse processo não existe" ≠ "não
 consegui ver esse processo". Colapsar as duas coisas faz o sistema dizer ao
@@ -304,6 +317,18 @@ npm run build            # compila para dist/
 5. Rate limiting **obrigatório**. Crawler sem limite derruba o tribunal e queima
    o IP.
 
+### Adicionar uma fonte de PEÇAS
+
+Implemente `ProvedorDePecas` (não `ProcessoProvider`) e registre em
+`montarServicoPecas`, no composition root. A porta é separada por três razões
+que estão escritas nela, e a mais concreta é esta: `CachedProcessoProvider`
+indexa por número de processo, **sem workspace na chave** — uma fonte com
+credencial dentro da cadeia serviria ao assinante seguinte a resposta obtida com
+a credencial do anterior.
+
+Ao mexer no MNI, o teste que vale é `tests/infrastructure/mni-mtom.spec.ts`, que
+roda contra a captura real do TJGO.
+
 ### Trocar o cache por Redis
 
 Implemente `domain/ports/Cache.ts` em `infrastructure/cache/RedisCache.ts` e
@@ -387,6 +412,28 @@ Não são detalhes — moldam o código.
 - **"E-mail não encontrado" e "senha incorreta" são a MESMA resposta**, e a
   verificação gasta o mesmo tempo nos dois casos. Respostas diferentes
   transformam a tela de login num verificador de quem é cliente.
+- **Peça exige habilitação, e isso não se contorna.** O MNI devolve documentos
+  conforme o perfil de acesso do consultante: sem procuração nos autos, vem o
+  metadado e não vem o arquivo. Não é limitação técnica a resolver — é o controle
+  de acesso do processo eletrônico. Trate como resposta legítima
+  (`TeorNaoAutorizadoError`), nunca como erro de download.
+- **Credencial de tribunal nunca vai para log, resposta ou mensagem de erro.**
+  Nem em `debug`, nem dentro de objeto de contexto. É o vazamento que não aparece
+  em auditoria de código, porque parece inofensivo na linha em que é escrito. E
+  nunca há caminho que a grave em claro: sem `LEXFLOW_CREDENCIAL_CHAVE` a
+  funcionalidade inteira não sobe.
+- **No MNI não há retry, e é deliberado.** A requisição carrega a senha do
+  advogado, e o tribunal conta tentativa malsucedida para bloquear a conta. Uma
+  senha desatualizada com retry vira três recusas por consulta; com a vigilância
+  de hora em hora, isso é bloqueio no mesmo dia — e o advogado perde o acesso ao
+  próprio processo por culpa nossa.
+- **SOAP do tribunal responde HTTP 200 em erro.** `sucesso: false` mora no corpo.
+  Confiar em `resposta.ok` faz "Usuário ou Senha inválida." virar consulta bem
+  sucedida com zero peças, indistinguível de "processo sem documentos".
+- **A resposta do MNI é multipart, e o teor não é base64.** Vem em
+  `multipart/related` com XOP/MTOM: o XML traz `<xop:Include href="cid:...">` e o
+  arquivo é uma parte binária separada. Ler o corpo como texto corrompe todo
+  binário sem lançar erro — por isso `HttpClient.postXml` devolve bytes.
 - **Notificação é uma promessa.** A partir do primeiro aviso enviado, o
   advogado para de conferir manualmente e passa a ler silêncio como "não houve
   nada". Por isso `ServicoNotificacao` tem DUAS obrigações, e a segunda não é
@@ -433,7 +480,8 @@ Toda entrega que muda comportamento: bump no `package.json` **e** entrada no
 `fundirProcessos`, acompanhamento com SQLite e varredura agendada, cache com
 TTL/LRU, rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API
 e rate limit, **contas de usuário com senha e sessão**, **painel inicial**,
-**identidade visual e tema claro**, **vigilância contínua por OAB**,
+**identidade visual e tema claro**, **vigilância contínua por OAB**, **peças do processo via MNI com cofre de
+credenciais**,
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
