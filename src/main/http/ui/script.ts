@@ -77,6 +77,9 @@ function explicar(e){
     400:'O formato do número CNJ ou da OAB não confere.',
     404:'Consultamos as fontes e nenhuma tem esse processo.',
     429:'Muitas consultas seguidas. Aguarde um instante.',
+    403:'O tribunal respondeu e não liberou este arquivo. Em geral significa que o acesso cadastrado não está habilitado nos autos.',
+    424:'O tribunal recusou o acesso cadastrado. Atualize usuário e senha em "Meus acessos".',
+    428:'Falta cadastrar o acesso do advogado no tribunal, em "Meus acessos".',
     501:'Nenhuma fonte configurada faz essa busca. Verifique LEXFLOW_PROVIDER_CHAIN — a busca por OAB vem do DJEN.',
     502:'As fontes externas falharam. Em geral é o CNJ lento ou fora do ar.',
     503:'Fonte temporariamente indisponível.'};
@@ -95,7 +98,7 @@ function vazio(icone,titulo,texto,acao){
 
 /* ---------------- chrome ---------------- */
 function pintarNav(){
-  ['novidades','processos','buscar','vigilancia'].forEach(function(a){
+  ['novidades','processos','buscar','vigilancia','credenciais'].forEach(function(a){
     var b=$('nav-'+a); if(b)b.classList.toggle('ativo',estado.aba===a&&!estado.detalhe)});
 }
 function atualizarBolha(){
@@ -385,8 +388,9 @@ function abrir(numero){
   api('/v1/acompanhamentos/'+encodeURIComponent(numero)).then(function(a){
     if(a.processo){
       alvo.innerHTML='<button class="bt bt3" id="voltar">&larr; voltar</button>'+
-        processoHtml(a.processo,a,{acompanhado:true});
+        processoHtml(a.processo,a,{acompanhado:true})+'<div id="pecas"></div>';
       ligarBotoesDetalhe(numero,true);
+      carregarPecas(numero);
     }else{
       alvo.innerHTML='<button class="bt bt3" id="voltar">&larr; voltar</button>'+
         vazio('⏳','Ainda sem dados deste processo',
@@ -402,8 +406,9 @@ function abrir(numero){
     if(e.status===404){
       api('/v1/processos/'+encodeURIComponent(numero)).then(function(p){
         alvo.innerHTML='<button class="bt bt3" id="voltar">&larr; voltar</button>'+
-          processoHtml(p,null,{buscaAvulsa:true});
+          processoHtml(p,null,{buscaAvulsa:true})+'<div id="pecas"></div>';
         ligarBotoesDetalhe(numero,false);
+        carregarPecas(numero);
         $('voltar').addEventListener('click',function(){estado.detalhe=null;pintarNav();render()});
       }).catch(function(e2){alvo.innerHTML=erroBloco(e2)});
       return;
@@ -600,6 +605,199 @@ function processoHtml(p,acomp,op){
   return h;
 }
 
+/* ---------------- aba: meus acessos (credenciais de tribunal) ---------------- */
+/*
+ * A tela que faltava para a v0.12.0 fazer sentido para quem usa: as peças do
+ * processo só saem para quem está habilitado nos autos, e quem prova isso é a
+ * credencial do próprio advogado no sistema do tribunal.
+ *
+ * A senha SAI daqui e nunca volta: o servidor a guarda cifrada e não a devolve
+ * em nenhuma resposta. Por isso o campo aparece sempre vazio, mesmo com acesso
+ * já cadastrado — não é defeito, é o desenho.
+ */
+function verCredenciais(){
+  var alvo=$('conteudo');
+  alvo.innerHTML='<div class="cartao"><span class="gira"></span>Carregando…</div>';
+
+  api('/v1/credenciais').then(function(r){
+    var lista=r.credenciais||[];
+    var h='<div class="titulo-secao"><div><h2>Meus acessos</h2>'+
+      '<div class="sub">O acesso do advogado no tribunal, usado para buscar as peças do processo</div></div></div>';
+
+    if(lista.length){
+      h+='<div class="cartao"><h3 class="sec">Cadastrados · '+lista.length+'</h3>';
+      lista.forEach(function(c){
+        var estadoTxt, estadoCls;
+        if(c.recusadaEm){estadoTxt='recusado pelo tribunal em '+dt(c.recusadaEm);estadoCls='al'}
+        else if(c.usadaEm){estadoTxt='usado com sucesso '+humano(c.usadaEm);estadoCls='nv'}
+        else{estadoTxt='ainda não usado';estadoCls=''}
+        h+='<div class="acao"><div class="dt">'+esc(c.tribunal)+'</div><div>'+
+          '<div class="tt">'+esc(c.identificacao)+
+          ' <span class="selo'+(estadoCls?' '+estadoCls:'')+'">'+esc(estadoTxt)+'</span></div>'+
+          (c.recusadaEm?'<div class="cp">A senha provavelmente mudou no tribunal. '+
+            'Cadastre de novo abaixo — enquanto isso, as peças deste tribunal não são buscadas.</div>':'')+
+          '<button class="link" data-remover="'+esc(c.tribunal)+'">remover este acesso</button>'+
+          '</div></div>';
+      });
+      h+='</div>';
+    }else{
+      h+=vazio('🔑','Nenhum acesso cadastrado',
+        'Sem o acesso do advogado, o sistema mostra decisões e julgados — que é o que o diário publica — mas não as petições e documentos juntados pelas partes.');
+    }
+
+    h+='<div class="cartao"><h3 class="sec">'+(lista.length?'Cadastrar outro':'Cadastrar acesso')+'</h3>'+
+      '<label class="rotulo" for="c-trib">Tribunal</label>'+
+      '<input id="c-trib" value="TJGO" autocomplete="off">'+
+      '<div class="nota">Hoje só o TJGO tem fonte de peças configurada.</div>'+
+      '<label class="rotulo" for="c-id">CPF do advogado</label>'+
+      '<input id="c-id" placeholder="somente números" autocomplete="off" inputmode="numeric">'+
+      '<label class="rotulo" for="c-senha">Senha do Projudi</label>'+
+      '<input id="c-senha" type="password" placeholder="a mesma senha do sistema do tribunal" autocomplete="new-password">'+
+      '<div class="nota">Guardada cifrada no servidor e nunca devolvida em nenhuma tela. '+
+      'É usada só para consultar os processos em que este advogado está habilitado.</div>'+
+      '<div style="margin-top:12px"><button class="bt" id="c-salvar">Salvar acesso</button></div>'+
+      '<div id="c-msg"></div></div>';
+
+    alvo.innerHTML=h;
+    ligarCredenciais();
+  }).catch(function(e){
+    // 501 significa servidor sem cofre configurado — a instrução vem do próprio
+    // erro, e é para quem opera, não para o advogado.
+    alvo.innerHTML='<div class="titulo-secao"><div><h2>Meus acessos</h2></div></div>'+erroBloco(e);
+  });
+}
+
+function ligarCredenciais(){
+  document.querySelectorAll('[data-remover]').forEach(function(el){
+    el.addEventListener('click',function(){
+      var t=el.getAttribute('data-remover');
+      api('/v1/credenciais/'+encodeURIComponent(t),{method:'DELETE'})
+        .then(verCredenciais).catch(function(e){alert(explicar(e))});
+    })});
+
+  var b=$('c-salvar');
+  if(!b)return;
+  b.addEventListener('click',function(){
+    var trib=($('c-trib').value||'').trim().toUpperCase();
+    var id=($('c-id').value||'').replace(/\D/g,'');
+    var senha=$('c-senha').value||'';
+    var msg=$('c-msg');
+    if(!trib||!id||!senha){
+      msg.innerHTML='<div class="nota" style="color:var(--erro)">Preencha tribunal, CPF e senha.</div>';
+      return;
+    }
+    b.disabled=true;b.innerHTML='<span class="gira"></span>Salvando';
+    api('/v1/credenciais',{method:'PUT',body:{tribunal:trib,identificacao:id,senha:senha}})
+      .then(function(){
+        // Limpa a senha da tela assim que ela sai daqui.
+        $('c-senha').value='';
+        verCredenciais();
+      })
+      .catch(function(e){
+        b.disabled=false;b.textContent='Salvar acesso';
+        msg.innerHTML='<div class="nota" style="color:var(--erro)">'+esc(explicar(e))+'</div>';
+      });
+  });
+}
+
+/* ---------------- peças do processo ---------------- */
+/*
+ * Carregado DEPOIS do processo, e não junto: a consulta ao MNI passa por
+ * autenticação no tribunal e pode levar dezenas de segundos. Amarrar as duas
+ * faria a tela inteira esperar pela mais lenta — e o advogado ficaria sem ver
+ * as movimentações, que já estavam prontas.
+ */
+function carregarPecas(numero){
+  var caixa=$('pecas');
+  if(!caixa)return;
+  caixa.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+    '<div class="nota"><span class="gira"></span>Consultando o tribunal…</div></div>';
+
+  api('/v1/processos/'+encodeURIComponent(numero)+'/pecas').then(function(r){
+    var pecas=r.pecas||[];
+    var h='<div class="cartao"><h3 class="sec">Peças do processo · '+pecas.length+'</h3>';
+
+    if(!pecas.length){
+      h+='<div class="nota">O tribunal não devolveu nenhuma peça para este processo.</div></div>';
+      caixa.innerHTML=h;return;
+    }
+
+    if(r.comTeorDisponivel===0){
+      // O caso mais comum de todos, e o que mais parece defeito sem explicação.
+      h+='<div class="nota" style="color:var(--erro)">Nenhuma das peças veio com o arquivo. '+
+        'Isso costuma significar que o acesso cadastrado não tem procuração NESTE processo — '+
+        'o tribunal manda a ficha do documento e retém o conteúdo.</div>';
+    }else if(r.comTeorDisponivel<pecas.length){
+      h+='<div class="nota">'+r.comTeorDisponivel+' de '+pecas.length+
+        ' com arquivo disponível. As demais o tribunal não liberou.</div>';
+    }
+
+    pecas.forEach(function(p){
+      var origem = p.origem==='PARTE' ? '<span class="selo nv">da parte</span>'
+                 : p.origem==='JUIZO' ? '<span class="selo">do juízo</span>' : '';
+      h+='<div class="ev"><div class="dt">'+dt(p.dataHora)+'</div><div>'+
+        '<div class="tt">'+esc(p.rotulo)+' '+origem+
+        (p.sigilosa?' <span class="selo al">sigilosa</span>':'')+'</div>'+
+        (p.descricao&&p.descricao!==p.rotulo?'<div class="cp">'+esc(p.descricao)+'</div>':'')+
+        (p.signatarios&&p.signatarios.length?'<div class="cp">assinada por '+
+          esc(p.signatarios.join(', '))+'</div>':'')+
+        (p.conteudoDisponivel
+          ? '<button class="link" data-peca="'+esc(p.id)+'">baixar '+
+            esc((p.mimetype||'arquivo').replace('application/',''))+'</button>'
+          : '<div class="nota">arquivo não liberado pelo tribunal</div>')+
+        '</div></div>';
+    });
+    h+='</div>';
+    caixa.innerHTML=h;
+    ligarDownloadDePecas(numero);
+  }).catch(function(e){
+    if(e.status===428){
+      caixa.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+        '<div class="nota">Petições, contestações e documentos juntados pelas partes não são '+
+        'publicados no diário — só saem do sistema do tribunal, para quem está habilitado nos autos.</div>'+
+        '<div style="margin-top:12px"><button class="bt" id="ir-cred">Cadastrar o acesso do advogado</button></div></div>';
+      var b=$('ir-cred');
+      if(b)b.addEventListener('click',function(){ir('credenciais')});
+      return;
+    }
+    if(e.status===501){
+      caixa.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+        '<div class="nota">O acesso a peças não está configurado neste servidor.</div></div>';
+      return;
+    }
+    caixa.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+      '<div class="nota" style="color:var(--erro)">'+esc(explicar(e))+'</div></div>';
+  });
+}
+
+/*
+ * O download passa por fetch, e não por um link direto, porque a rota exige o
+ * header x-api-key — que um <a href> não tem como mandar.
+ */
+function ligarDownloadDePecas(numero){
+  document.querySelectorAll('[data-peca]').forEach(function(el){
+    el.addEventListener('click',function(){
+      var id=el.getAttribute('data-peca');
+      var rotulo=el.textContent;
+      el.textContent='baixando…';
+      fetch('/v1/processos/'+encodeURIComponent(numero)+'/pecas/'+encodeURIComponent(id),
+        {headers:{'x-api-key':estado.chave}})
+        .then(function(r){
+          if(!r.ok)throw new Error('HTTP '+r.status);
+          var nome=(r.headers.get('content-disposition')||'').match(/filename="([^"]+)"/);
+          return r.blob().then(function(b){return{blob:b,nome:nome?nome[1]:('peca-'+id)}});
+        })
+        .then(function(x){
+          var u=URL.createObjectURL(x.blob);
+          var a=document.createElement('a');
+          a.href=u;a.download=x.nome;document.body.appendChild(a);a.click();
+          document.body.removeChild(a);URL.revokeObjectURL(u);
+          el.textContent=rotulo;
+        })
+        .catch(function(){el.textContent='falhou — tentar de novo'});
+    })});
+}
+
 /* ---------------- chave / arranque ---------------- */
 function telaChave(){
   $('conteudo').innerHTML=
@@ -738,6 +936,7 @@ function render(){
   if(estado.aba==='novidades')return verNovidades();
   if(estado.aba==='processos')return verProcessos();
   if(estado.aba==='vigilancia')return verVigilancia();
+  if(estado.aba==='credenciais')return verCredenciais();
   return verBuscar();
 }
 
@@ -755,7 +954,7 @@ function iniciar(){
   });
 }
 
-['novidades','processos','buscar','vigilancia'].forEach(function(a){
+['novidades','processos','buscar','vigilancia','credenciais'].forEach(function(a){
   var b=$('nav-'+a); if(b)b.addEventListener('click',function(){ir(a)})});
 $('sair').addEventListener('click',function(){
   estado.chave='';try{localStorage.removeItem(CH)}catch(e){}

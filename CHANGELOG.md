@@ -9,6 +9,42 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.13.0] — 2026-09-11
+
+**A interface que faltava.**
+
+A v0.12.0 entregou as peças pela API e parou aí. Do lado de quem usa, nada tinha
+mudado: nenhum campo para o advogado informar o acesso dele, nenhuma peça em
+tela. Funcionalidade que só existe para quem chama com `curl` não existe.
+
+### Adicionado
+
+- **Aba "Meus acessos"** — cadastro do acesso do advogado no tribunal, com
+  tribunal, CPF e senha. Lista o que está cadastrado e o estado de cada um:
+  usado com sucesso, ainda não usado, ou **recusado pelo tribunal** com a data.
+  Esse último é o que evita a vigilância falhar em silêncio quando a senha muda.
+- **Peças na tela do processo**, com a origem de cada uma (da parte / do juízo),
+  data, assinantes e botão de download.
+- O download vai por `fetch` e não por link direto: a rota exige o header
+  `x-api-key`, que um `<a href>` não tem como mandar.
+
+### Decisões que a tela carrega
+
+- **As peças carregam DEPOIS do processo, em requisição separada.** A consulta
+  ao MNI autentica no tribunal e pode levar dezenas de segundos; amarrada à
+  principal, faria o advogado esperar por ela para ver as movimentações que já
+  estavam prontas.
+- **O 428 vira convite, não erro.** Sem credencial cadastrada, a tela explica que
+  petição e documento de parte não são publicados no diário e oferece o botão de
+  cadastrar — em vez de mostrar um código na cara de quem só queria ler a peça.
+- **"Nenhuma peça com arquivo" é explicado na hora.** É o caso mais comum de
+  todos — falta de procuração naquele processo — e o que mais parece defeito
+  nosso sem uma frase dizendo o que é.
+- **O campo de senha nasce sempre vazio**, inclusive com acesso já cadastrado: o
+  servidor guarda cifrado e não devolve. A tela avisa, senão parece que não salvou.
+
+---
+
 ## [0.12.0] — 2026-09-10
 
 **As peças das partes.**

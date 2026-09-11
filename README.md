@@ -1,6 +1,6 @@
 # LexFlow
 
-**v0.12.0** — histórico em [CHANGELOG.md](./CHANGELOG.md).
+**v0.13.0** — histórico em [CHANGELOG.md](./CHANGELOG.md).
 Para saber qual versão está rodando: `GET /health` devolve o campo `versao`.
 
 SaaS de consulta e acompanhamento de processos judiciais nos tribunais

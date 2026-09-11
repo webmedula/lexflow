@@ -171,6 +171,7 @@ describe('composition root', () => {
   it('monta a aplicação apenas com o crawler quando não há chave do DataJud', async () => {
     const app = montarAplicacao(
       carregarConfig({
+        LEXFLOW_DB_PATH: ':memory:',
         LEXFLOW_PROVIDER_CHAIN: 'mock-crawler-tjsp,datajud',
         DATAJUD_API_KEY: '',
         MOCK_CRAWLER_LATENCY_MS: '0',
@@ -192,6 +193,7 @@ describe('composition root', () => {
     // Reproduz o incidente: o bloco do DEPLOY.md colado sem substituir o valor.
     const app = montarAplicacao(
       carregarConfig({
+        LEXFLOW_DB_PATH: ':memory:',
         LEXFLOW_PROVIDER_CHAIN: 'mock-crawler-tjsp,datajud',
         DATAJUD_API_KEY: 'COLE_AQUI_A_CHAVE_DO_CNJ_OU_DEIXE_VAZIO',
         MOCK_CRAWLER_LATENCY_MS: '0',
@@ -210,6 +212,7 @@ describe('composition root', () => {
     expect(() =>
       montarAplicacao(
         carregarConfig({
+          LEXFLOW_DB_PATH: ':memory:',
           LEXFLOW_PROVIDER_CHAIN: 'inexistente',
           LOG_LEVEL: 'silent',
         } as NodeJS.ProcessEnv),

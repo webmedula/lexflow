@@ -16,6 +16,12 @@ const CHAVE = 'chave-de-teste-1234567890';
 
 function configDeTeste(extra: Record<string, string> = {}): Config {
   return carregarConfig({
+    // Banco EM MEMÓRIA, e não o caminho padrão em disco: o Vitest roda os
+    // arquivos de teste em paralelo, e dois deles abrindo o mesmo
+    // ./dados/lexflow.db disputam o arquivo — o sintoma é
+    // "database is locked" num teste que não fala de banco nenhum, e que passa
+    // ou falha conforme o número de núcleos da máquina.
+    LEXFLOW_DB_PATH: ':memory:',
     LEXFLOW_PROVIDER_CHAIN: 'mock-crawler-tjsp',
     MOCK_CRAWLER_LATENCY_MS: '0',
     LOG_LEVEL: 'silent',

@@ -8,6 +8,7 @@ const CHAVE = 'chave-de-teste-1234567890';
 
 function montar(): FastifyInstance {
   const config = carregarConfig({
+    LEXFLOW_DB_PATH: ':memory:',
     LEXFLOW_PROVIDER_CHAIN: 'mock-crawler-tjsp',
     MOCK_CRAWLER_LATENCY_MS: '0',
     LOG_LEVEL: 'silent',
@@ -99,5 +100,59 @@ describe('console web', () => {
       const r = await servidor.inject({ method: 'GET', url: '/' });
       expect(r.statusCode).toBe(200);
     }
+  });
+});
+
+/**
+ * A interface é o único lugar onde o advogado consegue cadastrar o acesso dele
+ * no tribunal. Sem ela, a v0.12.0 existe só para quem chama a API com curl — foi
+ * exatamente o que aconteceu no primeiro deploy, e é o que estes testes impedem
+ * de acontecer de novo em silêncio.
+ */
+describe('console — peças e acessos de tribunal', () => {
+  let servidor: FastifyInstance;
+
+  beforeEach(() => {
+    servidor = montar();
+  });
+  afterEach(async () => {
+    await servidor.close();
+  });
+
+  async function console_(): Promise<string> {
+    return (await servidor.inject({ method: 'GET', url: '/' })).body;
+  }
+
+  it('oferece a aba de acessos na navegação', async () => {
+    const html = await console_();
+    expect(html).toContain('nav-credenciais');
+    expect(html).toContain('Meus acessos');
+  });
+
+  it('tem formulário com tribunal, CPF e senha', async () => {
+    const html = await console_();
+    expect(html).toContain('c-trib');
+    expect(html).toContain('c-id');
+    expect(html).toContain('c-senha');
+  });
+
+  it('avisa que a senha fica cifrada e não volta para a tela', async () => {
+    // A senha some do campo depois de salva, e isso PARECE defeito para quem
+    // não foi avisado — o texto na tela é parte do funcionamento.
+    expect(await console_()).toContain('cifrada no servidor');
+  });
+
+  it('carrega as peças na tela do processo', async () => {
+    const html = await console_();
+    expect(html).toContain('carregarPecas');
+    expect(html).toContain('/pecas');
+  });
+
+  it('explica o 428 em vez de mostrar erro cru', async () => {
+    // Sem credencial cadastrada, a resposta correta é um convite a cadastrar —
+    // não "erro 428" na cara de quem só queria ler a petição.
+    const html = await console_();
+    expect(html).toContain('Cadastrar o acesso do advogado');
+    expect(html).toContain('publicados no diário');
   });
 });

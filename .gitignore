@@ -6,3 +6,12 @@ coverage/
 .env.local
 .DS_Store
 .vitest/
+
+# Banco local. NUNCA versionar: guarda a carteira dos assinantes, o e-mail de
+# aviso e — desde a v0.12.0 — as credenciais de tribunal cifradas. Rodar os
+# testes ou o servidor cria este arquivo, e um `git add -A` distraído o leva
+# junto para dentro de um repositório público.
+dados/
+*.db
+*.db-wal
+*.db-shm
