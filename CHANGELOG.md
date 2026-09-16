@@ -9,6 +9,99 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.13.2] — 2026-09-16
+
+**O download das peças, fechado contra o tribunal de verdade.**
+
+A v0.13.1 fez as 278 peças aparecerem. Faltava o arquivo. A causa era a mesma
+de antes, no outro caminho: pedir um documento pelo id com `movimentos=false`
+devolve 800 bytes e nenhum documento. Com `movimentos=true`, 501.753 bytes,
+o documento pedido e o PDF em anexo MTOM.
+
+### Corrigido
+
+- **`obterConteudo` pede a linha do tempo**, como `listarPecas` já fazia. O
+  recorte por id continua: sem ele viriam as 278 peças a cada download.
+- **O botão de download aparece em todas as peças.** A interface só o mostrava
+  quando `conteudoDisponivel`, que na listagem do MNI é `false` para todas —
+  inclusive as que baixam sem problema. Um processo inteiramente acessível
+  aparecia com a mensagem "nenhuma peça liberada" e zero botões.
+- **403 e 424 têm mensagem própria no download.** Antes qualquer falha virava
+  "falhou — tentar de novo", o que fazia o advogado clicar dez vezes numa peça
+  que ele não tem direito de ver. Agora: falta de procuração nos autos, ou
+  senha recusada com o caminho para "Meus acessos".
+- **O nome do arquivo é o do tribunal** (`certidaosistemadigital.pdf`), lido de
+  `<outroParametro nome="NomeArquivo">`, e só então um nome montado por nós.
+
+### Mudado
+
+- `GET /v1/processos/:n/pecas` troca `comTeorDisponivel` por **`comArquivo`**.
+  O primeiro contava "quantas vieram com o teor junto" — zero sempre, no MNI — e
+  a tela lia isso como "quantas eu consigo abrir". São perguntas diferentes, e a
+  segunda não tem resposta antes da tentativa.
+- A tela e o CLI passam a destacar **quantas peças são das partes**, que é a
+  informação que motivou tudo isso. No processo medido: 58 petições e 2
+  procurações entre 278.
+
+### Aprendido
+
+- A forma da resposta de sucesso está verificada contra o TJGO ao vivo e
+  documentada no teste: `<documento>` é filho de `<processo>` e carrega o
+  `movimento` que o originou; `<movimento>` aponta de volta por
+  `<idDocumentoVinculado>`; o teor vem por `xop:Include`, nunca inline.
+- Dívida que continua: os BYTES da resposta de sucesso não estão versionados. A
+  captura real tem 501 KB e carrega petição com dado de parte. Fechar isso exige
+  `npm run cli -- pecas <n> --capturar` num processo escolhido para esse fim.
+
+---
+
+## [0.13.1] — 2026-09-16
+
+**As peças apareciam como zero, e o tribunal não reclamava.**
+
+Com a credencial do advogado cadastrada e correta, `GET /v1/processos/:n/pecas`
+respondia `total: 0` num processo com 278 documentos. Nem erro, nem log, nem
+teste vermelho: o TJGO devolvia `sucesso: true` e a resposta simplesmente vinha
+sem a lista.
+
+### Corrigido
+
+- **`listarPecas` agora pede a linha do tempo** (`movimentos=true`). No Projudi
+  o documento nasce pendurado num movimento, e sem pedir os movimentos o
+  tribunal devolve só o cabeçalho — com sucesso. Medido no mesmo processo, mesma
+  credencial, mesmo `incluirDocumentos=true`:
+
+  | `movimentos` | resposta | `<documento>` |
+  |---|---|---|
+  | `false` | 4.122 bytes | 0 |
+  | `true` | 279.653 bytes | 278 |
+
+  Há teste travando a linha no envelope, porque é o tipo de mudança que se
+  desfaz sem querer e volta a falhar em silêncio.
+
+- **Classificação de origem ajustada pelo censo real** de um processo do TJGO
+  (278 peças): "Ato Ordinatório" (17) e "Ementa" (1) caíam em `DESCONHECIDA` e
+  agora são `JUIZO`.
+
+### Aprendido
+
+- No Projudi o rótulo da peça chega em `descricao`, **não** em
+  `tipoDocumentoLocal` — esse atributo não existe na resposta real.
+- `DESCONHECIDA` não é falha da heurística: 111 das 278 peças vêm rotuladas
+  literalmente como "Outros" pelo próprio tribunal.
+
+### Em aberto
+
+- **Download do teor ainda não funciona.** Pedir um `<documento>` específico com
+  `movimentos=false` devolve resposta sem documento nenhum (800 bytes sem
+  cabeçalho, 4.122 com). Falta medir a combinação `movimentos=true` +
+  `documento=<id>`. Enquanto isso, `obterConteudo` está sem caminho de sucesso
+  verificado contra o tribunal.
+- Continua de pé a dívida do fixture: os testes de sucesso do MNI rodam contra
+  payload derivado do WSDL, não contra captura real.
+
+---
+
 ## [0.13.0] — 2026-09-11
 
 **A interface que faltava.**

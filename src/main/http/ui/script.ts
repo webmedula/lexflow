@@ -722,14 +722,11 @@ function carregarPecas(numero){
       caixa.innerHTML=h;return;
     }
 
-    if(r.comTeorDisponivel===0){
-      // O caso mais comum de todos, e o que mais parece defeito sem explicação.
-      h+='<div class="nota" style="color:var(--erro)">Nenhuma das peças veio com o arquivo. '+
-        'Isso costuma significar que o acesso cadastrado não tem procuração NESTE processo — '+
-        'o tribunal manda a ficha do documento e retém o conteúdo.</div>';
-    }else if(r.comTeorDisponivel<pecas.length){
-      h+='<div class="nota">'+r.comTeorDisponivel+' de '+pecas.length+
-        ' com arquivo disponível. As demais o tribunal não liberou.</div>';
+    var daParte=pecas.filter(function(p){return p.origem==='PARTE'}).length;
+    if(daParte){
+      h+='<div class="nota">'+daParte+' de '+pecas.length+
+        ' foram juntadas pelas partes — petições, contestações, laudos e documentos. '+
+        'Essas o diário nunca publica.</div>';
     }
 
     pecas.forEach(function(p){
@@ -741,10 +738,12 @@ function carregarPecas(numero){
         (p.descricao&&p.descricao!==p.rotulo?'<div class="cp">'+esc(p.descricao)+'</div>':'')+
         (p.signatarios&&p.signatarios.length?'<div class="cp">assinada por '+
           esc(p.signatarios.join(', '))+'</div>':'')+
-        (p.conteudoDisponivel
-          ? '<button class="link" data-peca="'+esc(p.id)+'">baixar '+
-            esc((p.mimetype||'arquivo').replace('application/',''))+'</button>'
-          : '<div class="nota">arquivo não liberado pelo tribunal</div>')+
+        // Botão SEMPRE, e não só quando conteudoDisponivel. A listagem do MNI
+        // nunca traz o teor, então aquela condição escondia o download de todas
+        // as peças, inclusive as que baixam sem problema. Se o tribunal recusar,
+        // quem avisa é o 403 — com o motivo certo, embaixo do próprio botão.
+        '<button class="link" data-peca="'+esc(p.id)+'">baixar '+
+          esc((p.mimetype||'arquivo').replace('application/',''))+'</button>'+
         '</div></div>';
     });
     h+='</div>';
@@ -783,7 +782,7 @@ function ligarDownloadDePecas(numero){
       fetch('/v1/processos/'+encodeURIComponent(numero)+'/pecas/'+encodeURIComponent(id),
         {headers:{'x-api-key':estado.chave}})
         .then(function(r){
-          if(!r.ok)throw new Error('HTTP '+r.status);
+          if(!r.ok){var e=new Error('HTTP '+r.status);e.status=r.status;throw e}
           var nome=(r.headers.get('content-disposition')||'').match(/filename="([^"]+)"/);
           return r.blob().then(function(b){return{blob:b,nome:nome?nome[1]:('peca-'+id)}});
         })
@@ -794,7 +793,26 @@ function ligarDownloadDePecas(numero){
           document.body.removeChild(a);URL.revokeObjectURL(u);
           el.textContent=rotulo;
         })
-        .catch(function(){el.textContent='falhou — tentar de novo'});
+        .catch(function(e){
+          // 403 não é falha de download, é o controle de acesso dos autos
+          // funcionando. Dizer "falhou, tente de novo" faria o advogado clicar
+          // dez vezes numa peça que ele não tem direito de ver.
+          if(e&&e.status===403){
+            el.textContent='—';
+            el.insertAdjacentHTML('afterend',
+              '<div class="nota">o tribunal não liberou esta peça para o acesso '+
+              'cadastrado — em geral falta procuração nos autos</div>');
+            return;
+          }
+          if(e&&e.status===424){
+            el.textContent='—';
+            el.insertAdjacentHTML('afterend',
+              '<div class="nota" style="color:var(--erro)">o tribunal recusou o acesso '+
+              'cadastrado; atualize a senha em "Meus acessos"</div>');
+            return;
+          }
+          el.textContent='falhou — tentar de novo';
+        });
     })});
 }
 

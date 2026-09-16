@@ -43,12 +43,16 @@ export interface PecaProps {
   /** Anexos deste documento. O MNI é recursivo: anexo pode ter anexo. */
   readonly vinculadas?: readonly Peca[];
   /**
-   * A fonte devolveu o teor junto do metadado.
+   * A fonte devolveu o teor JUNTO do metadado, nesta mesma resposta.
    *
-   * Distingue "ainda não pedi o conteúdo" de "pedi e veio vazio" — e o segundo
-   * caso é comum e tem causa conhecida: sem procuração nos autos, o MNI devolve
-   * o metadado e omite o conteúdo. Um booleano aqui evita que a interface
-   * mostre um botão de download que vai falhar.
+   * **Não é "posso baixar".** No MNI é sempre `false` na listagem, medido no
+   * TJGO: a ficha das 278 peças vem sem um único `<conteudo>`, e o arquivo só
+   * aparece quando se pede o documento pelo id. Quem tratar `false` como "o
+   * tribunal não liberou" esconde o botão de download de um processo inteiro
+   * ao qual o advogado tem acesso pleno.
+   *
+   * Se existe direito de ver a peça, só a tentativa responde — e a resposta é
+   * `TeorNaoAutorizadoError`, no download, não aqui.
    */
   readonly conteudoDisponivel?: boolean;
 }
@@ -173,6 +177,17 @@ const ROTULOS_DE_PARTE = [
   'juntada',
 ];
 
+/**
+ * Os dois últimos entraram pelo censo de um processo real do TJGO — 278 peças,
+ * rótulos e contagens: Outros 111, Petição 58, Certidão 31, Decisão 22,
+ * **Ato Ordinatório 17**, Documento Diverso 12, Ofício 8, Alvará 7, Despacho 7,
+ * Procuração 2, Sentença 1, Relatório e Voto 1, **Ementa 1**.
+ *
+ * Sem eles, 18 atos de cartório e de acórdão caíam em `DESCONHECIDA`. O censo
+ * também explica por que `DESCONHECIDA` não é caso de falha: 111 peças vêm
+ * rotuladas literalmente como "Outros" pelo tribunal, e nenhuma heurística
+ * decide isso — só abrir o arquivo.
+ */
 const ROTULOS_DE_JUIZO = [
   'despacho',
   'decis',
@@ -188,6 +203,8 @@ const ROTULOS_DE_JUIZO = [
   'alvar',
   'edital',
   'voto',
+  'ato ordinat',
+  'ementa',
 ];
 
 function classificarOrigem(

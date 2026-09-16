@@ -427,6 +427,21 @@ Não são detalhes — moldam o código.
   senha desatualizada com retry vira três recusas por consulta; com a vigilância
   de hora em hora, isso é bloqueio no mesmo dia — e o advogado perde o acesso ao
   próprio processo por culpa nossa.
+- **No Projudi, sem `movimentos=true` não vem peça nenhuma** — nem na listagem,
+  nem pedindo um documento pelo id. O tribunal responde `sucesso: true` com o
+  cabeçalho e mais nada, sem aviso, e o sintoma é indistinguível de "processo
+  sem documentos". Medido no mesmo processo, mesma credencial, mesmo
+  `incluirDocumentos=true`: `false` → 4 KB e 0 documentos; `true` → 280 KB e 278.
+  Baixando uma peça: `false` → 800 bytes e nada; `true` → 501 KB com o PDF em
+  anexo MTOM. Os ~250 KB de movimentos são pedágio, não desperdício.
+- **A listagem do MNI NUNCA traz o teor**, nem para quem tem procuração —
+  `conteudoDisponivel` é sempre `false` ali. Tratar isso como "o tribunal não
+  liberou" esconde o download de um processo inteiro ao qual o advogado tem
+  acesso pleno. Quem responde "posso ver?" é a tentativa de baixar, com
+  `TeorNaoAutorizadoError`.
+- **O rótulo da peça no Projudi chega em `descricao`**, não em
+  `tipoDocumentoLocal` — esse atributo não existe na resposta real. Nome e tipo
+  do arquivo moram em `<outroParametro nome="NomeArquivo">` e `"ArquivoTipo"`.
 - **SOAP do tribunal responde HTTP 200 em erro.** `sucesso: false` mora no corpo.
   Confiar em `resposta.ok` faz "Usuário ou Senha inválida." virar consulta bem
   sucedida com zero peças, indistinguível de "processo sem documentos".

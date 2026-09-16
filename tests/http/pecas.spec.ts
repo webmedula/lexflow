@@ -111,7 +111,7 @@ describe('API — peças', () => {
     expect(r.json().erro).toBe('CREDENCIAL_TRIBUNAL_AUSENTE');
   });
 
-  it('lista as peças e diz quantas têm teor disponível', async () => {
+  it('lista as peças e conta quantas têm arquivo', async () => {
     await cadastrarCredencial();
     const r = await servidor.inject({
       method: 'GET',
@@ -121,7 +121,10 @@ describe('API — peças', () => {
 
     expect(r.statusCode).toBe(200);
     expect(r.json().total).toBe(2);
-    expect(r.json().comTeorDisponivel).toBe(1);
+    // As DUAS têm arquivo: `conteudoDisponivel` false só diz que o teor não
+    // veio junto da ficha — no MNI nunca vem. Contar por ele daria 1 aqui e
+    // ZERO contra o tribunal de verdade, escondendo o processo inteiro.
+    expect(r.json().comArquivo).toBe(2);
   });
 
   it('classifica a origem da peça sem esconder nenhuma', async () => {

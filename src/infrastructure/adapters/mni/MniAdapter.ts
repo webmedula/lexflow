@@ -164,14 +164,26 @@ export class MniAdapter implements ProvedorDePecas {
     numeroProcesso: string,
     credencial: CredencialTribunal,
   ): Promise<Peca[]> {
+    // `movimentos: true` é OBRIGATÓRIO para a lista de peças aparecer, e isso
+    // não está escrito em lugar nenhum do MNI. Medido no TJGO, mesmo processo,
+    // mesma credencial, mesmo `incluirDocumentos: true`:
+    //
+    //   movimentos=false → 4.122 bytes,     0 <documento>, 381 movimentos ocultos
+    //   movimentos=true  → 279.653 bytes, 278 <documento>, 381 <movimento>
+    //
+    // No Projudi o documento é filho do processo mas nasce PENDURADO num
+    // movimento (atributo `movimento="47660211"`), e sem pedir a linha do tempo
+    // o tribunal devolve só o cabeçalho — com `sucesso: true`, sem aviso
+    // nenhum. O sintoma é indistinguível de "processo sem peças", que foi
+    // exatamente a pista falsa que custou uma tarde de diagnóstico.
+    //
     // `incluirDocumentos: true` com `documentos` vazio parece contraditório e
-    // não é: é assim que se pede a FICHA de todos os documentos. Sem essa
-    // marca o tribunal devolve o processo sem a lista de peças, e a tela
-    // apareceria vazia num processo cheio.
+    // não é: é assim que se pede a FICHA de todos os documentos.
     const { resposta, anexos } = await this.chamar(
       envelopeConsultarProcesso({
         numeroProcesso,
         credencial,
+        movimentos: true,
         incluirCabecalho: true,
         incluirDocumentos: true,
       }),
@@ -193,13 +205,24 @@ export class MniAdapter implements ProvedorDePecas {
     idPeca: string,
     credencial: CredencialTribunal,
   ): Promise<ConteudoPeca> {
-    // Um id por vez, e não o processo inteiro: é a diferença entre alguns
-    // megabytes e algumas centenas, num tribunal que cobra isso em bloqueio
-    // de IP.
+    // `movimentos: true` aqui pela MESMA razão de `listarPecas`, e custa caro:
+    // a linha do tempo inteira viaja junto do arquivo. Medido no TJGO, pedindo
+    // UMA petição de um processo com 381 movimentos:
+    //
+    //   movimentos=false →     800 bytes, 0 documento, sem anexo
+    //   movimentos=true  → 501.753 bytes, 1 documento, anexo MTOM com o PDF
+    //
+    // Os ~250 KB de movimentos são pedágio, não desperdício evitável: sem eles
+    // o tribunal não devolve documento nenhum, nem quando o id é pedido
+    // explicitamente. `incluirCabecalho: false` corta só 3 KB, mas corta.
+    //
+    // O recorte por id continua valendo, e é ele que evita o pior caso: sem
+    // `documentos`, viriam as 278 peças de uma vez.
     const { resposta, anexos } = await this.chamar(
       envelopeConsultarProcesso({
         numeroProcesso,
         credencial,
+        movimentos: true,
         incluirCabecalho: false,
         incluirDocumentos: true,
         documentos: [idPeca],
@@ -214,7 +237,11 @@ export class MniAdapter implements ProvedorDePecas {
     return {
       id: idPeca,
       mimetype: achado.mimetype,
-      nomeArquivo: nomeDeArquivo(numeroProcesso, idPeca, achado.mimetype),
+      // O nome real do tribunal quando ele manda (`certidaosistemadigital.pdf`),
+      // e só então um nome montado. Quem baixa 30 peças precisa distinguir os
+      // arquivos na pasta de Downloads.
+      nomeArquivo:
+        achado.nomeArquivo ?? nomeDeArquivo(numeroProcesso, idPeca, achado.mimetype),
       bytes: achado.bytes,
     };
   }

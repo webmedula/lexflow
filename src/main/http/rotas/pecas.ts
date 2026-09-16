@@ -47,11 +47,15 @@ export function rotasDePecas(servico: ServicoPecas | undefined): FastifyPluginAs
 
         return {
           total: pecas.length,
-          // Contagem à parte porque é a pergunta que a tela faz primeiro:
-          // "quantas dessas eu consigo abrir?". Sem procuração nos autos, o
-          // tribunal manda a ficha e retém o arquivo — e a interface precisa
-          // dizer isso antes de o advogado clicar e receber erro.
-          comTeorDisponivel: pecas.filter((p) => p.conteudoDisponivel).length,
+          // "Quantas têm arquivo", e NÃO "quantas eu consigo abrir".
+          //
+          // A segunda pergunta não tem resposta na listagem, e medir isso foi o
+          // que mostrou: o MNI nunca manda o teor junto da ficha — nem para quem
+          // tem procuração. Só a tentativa de baixar responde. A contagem
+          // anterior somava `conteudoDisponivel`, dava zero sempre, e a tela
+          // anunciava "nenhuma peça liberada" num processo inteiramente
+          // acessível.
+          comArquivo: pecas.filter((p) => p.mimetype !== undefined).length,
           pecas: pecas.map((p) => p.toJSON()),
         };
       },

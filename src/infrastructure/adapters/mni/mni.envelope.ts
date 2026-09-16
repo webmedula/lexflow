@@ -24,12 +24,18 @@ export const ACAO_CONSULTAR_ALTERACAO = `${NS_SERVICO}consultarAlteracao`;
 export interface OpcoesConsultarProcesso {
   readonly numeroProcesso: string;
   readonly credencial: CredencialTribunal;
-  /** Traz a linha do tempo junto. */
+  /**
+   * Traz a linha do tempo junto — e, no Projudi, é o que destrava a LISTA DE
+   * PEÇAS. Medido no TJGO: com `false` a resposta tem 4 KB e zero documentos;
+   * com `true`, 280 KB e 278 documentos, mesmo `incluirDocumentos: true` nos
+   * dois casos. Ver o comentário em `MniAdapter.listarPecas`.
+   */
   readonly movimentos?: boolean;
   readonly incluirCabecalho?: boolean;
   /**
-   * Traz os documentos. Sem `documentos`, é o processo INTEIRO — dezenas de
-   * megabytes. Com `documentos`, só os ids pedidos.
+   * Traz os documentos. Sem `documentos`, vem a ficha de todos (280 KB no
+   * processo medido — metadado, sem os arquivos). Com `documentos`, só os ids
+   * pedidos, e aí sim o teor pode vir junto como anexo MTOM.
    */
   readonly incluirDocumentos?: boolean;
   /** Ids de documento a trazer. Vazio significa "todos". */

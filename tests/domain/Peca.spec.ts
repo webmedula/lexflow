@@ -28,9 +28,22 @@ describe('Peca — origem', () => {
     expect(peca({ tipoLocal: 'Juntada de Certidão' }).origem).toBe('JUIZO');
   });
 
+  it('classifica os rótulos que o TJGO usa de verdade', () => {
+    // Rótulos tirados do censo de um processo real: 278 peças, e no Projudi o
+    // rótulo chega em `descricao` — não existe `tipoDocumentoLocal` lá.
+    expect(peca({ descricao: 'Ato Ordinatório' }).origem).toBe('JUIZO');
+    expect(peca({ descricao: 'Ementa' }).origem).toBe('JUIZO');
+    expect(peca({ descricao: 'Relatório e Voto' }).origem).toBe('JUIZO');
+    expect(peca({ descricao: 'Petição' }).origem).toBe('PARTE');
+    expect(peca({ descricao: 'Procuração' }).origem).toBe('PARTE');
+  });
+
   it('admite não saber, em vez de chutar', () => {
     expect(peca({ tipoLocal: 'Anexo 3' }).origem).toBe('DESCONHECIDA');
     expect(peca().origem).toBe('DESCONHECIDA');
+    // 111 das 278 peças do processo real vêm rotuladas assim pelo tribunal.
+    // Fingir que sabemos seria pior do que dizer que não sabemos.
+    expect(peca({ descricao: 'Outros' }).origem).toBe('DESCONHECIDA');
   });
 });
 

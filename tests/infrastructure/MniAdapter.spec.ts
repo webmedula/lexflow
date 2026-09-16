@@ -87,18 +87,24 @@ function respostaMultipart(
 }
 
 /**
- * ATENÇÃO — payload de sucesso MONTADO A PARTIR DO WSDL, não capturado.
+ * Payload de sucesso com a FORMA verificada contra o TJGO ao vivo, montado aqui.
  *
- * O WSDL é real (baixado de projudi.tjgo.jus.br/IntercomunicacaoService?WSDL) e
- * a estrutura abaixo segue `tipoProcessoJudicial` e `tipoDocumento` como estão
- * declarados lá. Mas o CAMINHO FELIZ do MNI exige a credencial de um advogado
- * habilitado nos autos, e nenhuma existia quando isto foi escrito.
+ * O que foi confirmado numa consulta real, com credencial de advogado
+ * habilitado (processo 0311517-22.2015.8.09.0051, 278 peças):
  *
- * Ou seja: aqui o teste ainda é palpite verificado contra o contrato, e não
- * contra a realidade — exatamente a situação que o `datajud-payload-real`
- * documenta como perigosa. **Na primeira consulta bem-sucedida com credencial
- * real, salve a resposta em `tests/fixtures/` e troque este bloco por ela.** Só
- * então os testes de sucesso valem alguma coisa.
+ * - `<documento>` é filho de `<processo>`, e traz o `movimento` que o originou;
+ * - **não existe `tipoDocumentoLocal`** — o rótulo do Projudi chega em
+ *   `descricao` ("Petição", "Despacho", "Certidão", "Ato Ordinatório");
+ * - nome e tipo do arquivo moram em `<outroParametro nome="NomeArquivo">` e
+ *   `nome="ArquivoTipo"`;
+ * - o teor vem por `xop:Include` em parte binária separada, nunca inline.
+ *
+ * O que continua em dívida: os BYTES não são captura versionada. A resposta
+ * real tem 501 KB e carrega petição de processo real com dado de parte — não
+ * entra no repositório sem anonimização, e anonimizar à mão recria o circuito
+ * fechado que o `datajud-payload-real` documenta como perigoso. O caminho para
+ * fechar isso é `npm run cli -- pecas <n> --capturar`, num processo escolhido
+ * para esse fim.
  */
 function xmlComDocumentos(opcoes: {
   readonly comConteudo: boolean;
@@ -111,8 +117,11 @@ function xmlComDocumentos(opcoes: {
       : '';
     return (
       `<ns2:documento idDocumento="${id}" tipoDocumento="57" ` +
-      `tipoDocumentoLocal="Petição Inicial" descricao="Petição inicial e documentos" ` +
-      `mimetype="application/pdf" dataHora="20260828145504" nivelSigilo="0" movimento="1">` +
+      `descricao="Petição" ` +
+      `mimetype="application/pdf" dataHora="20260828145504" nivelSigilo="0" ` +
+      `movimento="47660211" hash="243304207020356635178853978127995864704">` +
+      `<ns2:outroParametro nome="NomeArquivo" valor="peticaoinicial.pdf"/>` +
+      `<ns2:outroParametro nome="ArquivoTipo" valor="Petição"/>` +
       conteudo +
       `</ns2:documento>`
     );
@@ -218,6 +227,19 @@ describe('MniAdapter — envelope enviado', () => {
     );
   });
 
+  it('pede a linha do tempo ao listar peças, senão o Projudi não manda nenhuma', async () => {
+    const http = new HttpFalso(() =>
+      respostaMultipart(xmlComDocumentos({ comConteudo: false, quantidade: 1 })),
+    );
+    await new MniAdapter({ httpClient: http }).listarPecas(PROCESSO, CREDENCIAL);
+
+    // Medido no TJGO: com `movimentos=false` o mesmo processo responde
+    // `sucesso: true` com 4 KB e ZERO documentos; com `true`, 280 KB e 278.
+    // Sem esta linha o sistema mostra "nenhuma peça" num processo com 278 —
+    // e nada no log denuncia, porque o tribunal não reclama.
+    expect(http.enviados[0]).toContain('<tip:movimentos>true</tip:movimentos>');
+  });
+
   it('escapa caractere especial da senha em vez de gerar XML inválido', async () => {
     const http = new HttpFalso(() =>
       respostaMultipart(xmlComDocumentos({ comConteudo: false, quantidade: 1 })),
@@ -246,6 +268,24 @@ describe('MniAdapter — envelope enviado', () => {
     // Sem esse recorte, baixar uma peça arrastaria o processo inteiro pela rede.
     expect(http.enviados[0]).toContain('<tip:documento>doc-2</tip:documento>');
   });
+
+  it('pede a linha do tempo também ao baixar, senão não vem documento nenhum', async () => {
+    const http = new HttpFalso(() =>
+      respostaMultipart(xmlComDocumentos({ comConteudo: true, quantidade: 1 }), [
+        { id: 'doc-1@lexflow', bytes: Buffer.from('%PDF-um') },
+      ]),
+    );
+    await new MniAdapter({ httpClient: http }).obterConteudo(
+      PROCESSO,
+      'doc-1',
+      CREDENCIAL,
+    );
+
+    // Medido no TJGO pedindo UMA petição: com `movimentos=false` vêm 800 bytes
+    // e nenhum documento, mesmo com o id explícito; com `true`, 501 KB e o PDF
+    // como anexo MTOM. Vale para o download tanto quanto para a listagem.
+    expect(http.enviados[0]).toContain('<tip:movimentos>true</tip:movimentos>');
+  });
 });
 
 describe('MniAdapter — peças', () => {
@@ -261,7 +301,8 @@ describe('MniAdapter — peças', () => {
     );
 
     expect(pecas).toHaveLength(1);
-    expect(pecas[0]?.rotulo).toBe('Petição Inicial');
+    // O rótulo sai de `descricao`: o Projudi não manda `tipoDocumentoLocal`.
+    expect(pecas[0]?.rotulo).toBe('Petição');
     expect(pecas[0]?.origem).toBe('PARTE');
   });
 
@@ -281,7 +322,7 @@ describe('MniAdapter — peças', () => {
     expect(peca?.dataHora?.getDate()).toBe(28);
   });
 
-  it('marca a peça como sem teor quando o tribunal retém o arquivo', async () => {
+  it('marca a peça como "teor não veio junto" — o normal no MNI', async () => {
     const http = new HttpFalso(() =>
       respostaMultipart(xmlComDocumentos({ comConteudo: false, quantidade: 1 })),
     );
@@ -290,6 +331,8 @@ describe('MniAdapter — peças', () => {
       CREDENCIAL,
     );
 
+    // Não significa "o tribunal não liberou": na listagem do MNI o teor nunca
+    // vem junto, nem para quem tem procuração. Quem responde isso é o download.
     expect(peca?.conteudoDisponivel).toBe(false);
   });
 
@@ -309,7 +352,9 @@ describe('MniAdapter — peças', () => {
 
     expect(Buffer.from(conteudo.bytes).equals(pdf)).toBe(true);
     expect(conteudo.mimetype).toBe('application/pdf');
-    expect(conteudo.nomeArquivo).toBe(`${PROCESSO}-peca-doc-1.pdf`);
+    // O nome vem do `outroParametro NomeArquivo` do tribunal, não montado por
+    // nós: quem baixa trinta peças precisa distinguir os arquivos na pasta.
+    expect(conteudo.nomeArquivo).toBe('peticaoinicial.pdf');
   });
 
   it('distingue "não liberado" de "arquivo vazio" ao baixar', async () => {

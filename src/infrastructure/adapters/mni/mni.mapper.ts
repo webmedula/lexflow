@@ -116,7 +116,7 @@ export function extrairConteudoDoDocumento(
   conteudo: Registro,
   idPeca: string,
   anexos: ReadonlyMap<string, ParteMultipart>,
-): { readonly bytes: Uint8Array; readonly mimetype: string } | undefined {
+): ConteudoBruto | undefined {
   const processo = registro(conteudo['processo']);
   if (!processo) return undefined;
 
@@ -124,10 +124,36 @@ export function extrairConteudoDoDocumento(
     if (atributo(bruto, 'idDocumento') !== idPeca) continue;
     const bytes = bytesDoConteudo(bruto, anexos);
     if (!bytes) return undefined;
+    const nomeArquivo = parametroExtra(bruto, 'NomeArquivo');
     return {
       bytes,
       mimetype: atributo(bruto, 'mimetype') ?? 'application/octet-stream',
+      ...(nomeArquivo ? { nomeArquivo } : {}),
     };
+  }
+  return undefined;
+}
+
+interface ConteudoBruto {
+  readonly bytes: Uint8Array;
+  readonly mimetype: string;
+  /** Nome do arquivo na origem, quando o tribunal informa. */
+  readonly nomeArquivo?: string;
+}
+
+/**
+ * Lê um `<outroParametro nome="X" valor="Y"/>`.
+ *
+ * É o saco de gatos do MNI, e no Projudi é onde moram dois campos que a
+ * especificação não tem lugar fixo para guardar: `NomeArquivo`
+ * (`certidaosistemadigital.pdf`) e `ArquivoTipo` (`Despacho`, `Petição`).
+ * Verificado na resposta real do TJGO.
+ */
+function parametroExtra(bruto: unknown, nome: string): string | undefined {
+  const reg = registro(bruto);
+  if (!reg) return undefined;
+  for (const p of lista(reg['outroParametro'])) {
+    if (atributo(p, 'nome') === nome) return atributo(p, 'valor');
   }
   return undefined;
 }

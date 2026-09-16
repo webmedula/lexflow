@@ -149,20 +149,19 @@ async function main(): Promise<number> {
       } else if (pecas.length === 0) {
         console.log('Nenhuma peça devolvida pelo tribunal.');
       } else {
-        const comTeor = pecas.filter((p) => p.conteudoDisponivel).length;
-        console.log(`${pecas.length} peça(s); ${comTeor} com teor disponível\n`);
+        const daParte = pecas.filter((p) => p.origem === 'PARTE').length;
+        console.log(`${pecas.length} peça(s); ${daParte} juntada(s) pelas partes\n`);
         for (const peca of pecas) {
-          const teor = peca.conteudoDisponivel ? 'teor OK  ' : 'sem teor ';
           const data = formatarData(peca.dataHora);
-          console.log(`${teor} ${peca.origem.padEnd(12)} ${data}  ${peca.rotulo}`);
-        }
-        if (comTeor === 0) {
-          // O caso mais comum, e o que mais parece defeito sem esta linha.
+          const tipo = (peca.mimetype ?? '—').replace('application/', '');
           console.log(
-            '\nNenhuma peça veio com teor. Em geral significa que esta ' +
-              'credencial não está habilitada nos autos.',
+            `${peca.origem.padEnd(12)} ${data}  ${tipo.padEnd(6)}  ${peca.rotulo}`,
           );
         }
+        // NÃO se conta aqui "quantas têm teor": a listagem do MNI nunca traz o
+        // arquivo, então a contagem daria zero sempre e faria parecer que a
+        // credencial não vale nada. Para pegar o teor: `pecas <n> --capturar`,
+        // ou a rota de download.
       }
       return 0;
     }
