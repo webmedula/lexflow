@@ -3,11 +3,14 @@ import { z } from 'zod';
 import type { ServicoVigilanciaOab } from '../../../application/services/ServicoVigilanciaOab.js';
 import type { VigilanciaOab } from '../../../domain/entities/VigilanciaOab.js';
 import type { RepositorioNotificacao } from '../../../domain/ports/RepositorioNotificacao.js';
-import { OperacaoNaoSuportadaError } from '../../../domain/errors/index.js';
+import {
+  OperacaoNaoSuportadaError,
+  WorkspaceNaoResolvidoError,
+} from '../../../domain/errors/index.js';
 
 function workspaceDe(requisicao: FastifyRequest): string {
   const ws = requisicao.workspace;
-  if (!ws) throw new Error('rota de vigilância sem workspace resolvido');
+  if (!ws) throw new WorkspaceNaoResolvidoError();
   return ws;
 }
 
@@ -100,13 +103,14 @@ export function rotasDeVigilancia(
      * Varredura manual. 202 e não 200: uma varredura de várias inscrições leva
      * minutos, e segurar a conexão até o fim faria o proxy cortar antes.
      */
-    servidor.post('/v1/vigilancias/varrer', async (_req, resposta) => {
+    servidor.post('/v1/vigilancias/varrer', async (req, resposta) => {
       const s = exigirServico();
       if (s.emAndamento()) {
         void resposta.code(409);
         return { erro: 'VARREDURA_EM_ANDAMENTO', iniciada: false };
       }
-      void s.varrer();
+      // Escopada ao chamador, como `/v1/sincronizar` — pelo mesmo motivo.
+      void s.varrer({ workspace: workspaceDe(req) });
       void resposta.code(202);
       return { iniciada: true };
     });

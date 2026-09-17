@@ -144,16 +144,33 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
     });
   }
 
-  async listarParaSincronizar(limite: number): Promise<Acompanhamento[]> {
+  async listarParaSincronizar(
+    limite: number,
+    workspace?: string,
+  ): Promise<Acompanhamento[]> {
     // Nunca sincronizados primeiro, depois os mais antigos. Assim quem acabou
     // de ser adicionado recebe o primeiro retrato logo.
-    const linhas = this.db
-      .prepare(
-        `SELECT * FROM acompanhamentos
-          ORDER BY (sincronizado_em IS NULL) DESC, sincronizado_em ASC
-          LIMIT ?`,
-      )
-      .all(limite) as Linha[];
+    //
+    // Sem `workspace` é a varredura agendada, que precisa ver todo mundo. COM
+    // `workspace` é alguém clicando em "verificar agora", e aí só os processos
+    // dele — senão uma conta dispara consulta ao tribunal sobre a carteira
+    // alheia e gasta a cota compartilhada do CNJ em nome dos outros.
+    const linhas = workspace
+      ? (this.db
+          .prepare(
+            `SELECT * FROM acompanhamentos
+              WHERE workspace = ?
+              ORDER BY (sincronizado_em IS NULL) DESC, sincronizado_em ASC
+              LIMIT ?`,
+          )
+          .all(workspace, limite) as Linha[])
+      : (this.db
+          .prepare(
+            `SELECT * FROM acompanhamentos
+              ORDER BY (sincronizado_em IS NULL) DESC, sincronizado_em ASC
+              LIMIT ?`,
+          )
+          .all(limite) as Linha[]);
     return linhas.map((l) => this.paraAcompanhamento(l));
   }
 

@@ -87,7 +87,7 @@ src/
 ├── application/
 │   └── services/                # ProcessoSearchService, ServicoAcompanhamento,
 │                                #   ServicoVigilanciaOab, ServicoNotificacao,
-│                                #   ServicoPecas
+│                                #   ServicoPecas, ServicoContas
 ├── infrastructure/
 │   ├── adapters/
 │   │   ├── datajud/             # adapter + mapper + schemas + aliases
@@ -100,7 +100,8 @@ src/
 │   ├── logging/                 # ConsoleLogger
 │   ├── persistencia/            # serialização + SQLite (acompanhamentos, vigilâncias)
 │   ├── notificacao/             # EmailSmtpNotificador, LogNotificador
-│   ├── seguranca/               # cofre AES-256-GCM das credenciais de tribunal
+│   ├── seguranca/               # cofre AES-256-GCM das credenciais de tribunal,
+│   │                            #   senha (scrypt) e sessão (token + cookie)
 │   ├── agenda/                  # Agendador da varredura
 │   └── ratelimit/               # TokenBucketRateLimiter
 └── main/
@@ -110,9 +111,9 @@ src/
         ├── index.ts             # entrypoint do contêiner
         ├── servidor.ts          # montagem + listen + shutdown gracioso
         ├── erros.ts             # DomainError → status HTTP
-        ├── plugins/             # autenticação por chave de API
+        ├── plugins/             # autenticação: sessão (cookie) OU chave de API
         ├── ui/                  # console web (HTML como string, sem build)
-        └── rotas/               # processos, saúde, interface
+        └── rotas/               # processos, contas, saúde, interface
 tests/                           # espelha src/, + http/, integration/, helpers/
 ```
 
@@ -175,6 +176,10 @@ interface ProcessoProvider {
 | `CredencialTribunalAusenteError` | o workspace não cadastrou o acesso | 428; a pessoa precisa cadastrar |
 | `CredencialTribunalInvalidaError` | o tribunal recusou usuário/senha | 424; **não retentar** — marca a credencial como recusada |
 | `TeorNaoAutorizadoError` | respondeu e não liberou o arquivo | 403; em geral falta procuração nos autos |
+| `CredenciaisInvalidasError` | e-mail ou senha errados | 401; mensagem IDÊNTICA nos dois casos, de propósito |
+| `SessaoInvalidaError` | sessão ausente, expirada ou encerrada | 401; a pessoa entra de novo |
+| `EmailJaCadastradoError` | já existe conta com este e-mail | 409; o pedido é válido, o estado é que conflita |
+| `WorkspaceNaoResolvidoError` | requisição sem ambiente identificado | 401; só acontece com autenticação desligada |
 
 **A distinção que sustenta o produto:** "esse processo não existe" ≠ "não
 consegui ver esse processo". Colapsar as duas coisas faz o sistema dizer ao
@@ -406,9 +411,30 @@ Não são detalhes — moldam o código.
 - **O banco guarda o HASH do token de sessão, nunca o token.** Vazamento de
   banco não pode virar sessão aberta. E o token não volta no corpo da resposta:
   vive só no cookie HttpOnly, fora do alcance de qualquer script da página.
-- **Cadastro é fechado por código de convite**, que são as chaves de API. A
-  chave do CNJ é compartilhada nacionalmente: formulário aberto na internet
-  transforma o VPS em proxy gratuito para a cota alheia.
+- **Em HTTPS o cookie se chama `__Host-lexflow_sessao`.** O prefixo é uma regra
+  que o navegador aplica: só grava com `Secure`, `Path=/` e sem `Domain`. Sem
+  ele, quem controlasse um subdomínio plantaria um cookie de `Path` mais
+  específico, seria lido primeiro, e o advogado trabalharia dentro do ambiente
+  do atacante. É fixação de sessão que sobrevive a `HttpOnly` e a `SameSite`.
+- **Rota que dispara varredura é ESCOPADA a quem pediu.** A varredura global
+  existe e é a agendada. Deixar a rota HTTP disparar aquela permitia a qualquer
+  conta mandar o servidor consultar o tribunal sobre a carteira de todos os
+  assinantes, gravando nos dados deles — e nada do conteúdo alheio voltava na
+  resposta, que é o que faz esse tipo de falha passar despercebido. Toda rota
+  nova que varre, notifica ou sincroniza nasce com `workspace` no parâmetro.
+- **`trustProxy` conta UM salto, nunca `true`.** Com `true` o Fastify aceita a
+  cadeia inteira de `X-Forwarded-For`, que o cliente escreve: um IP novo por
+  requisição cai num balde novo de rate limit e anula o limite. Na rota de
+  login, que é pública e gasta scrypt, isso é força bruta sem teto.
+- **Cadastro é ABERTO**, por decisão de produto: o LexFlow é vendido a
+  advogados pelo Brasil, e convite não combina com isso. (Até a v0.13.x este
+  arquivo dizia o contrário — a regra estava escrita e o código não existia.)
+  O que protege a cota compartilhada do CNJ passa a ser o rate limiter do NOSSO
+  lado, dentro dos adapters, e não o número de contas. Duas consequências
+  aceitas conscientemente: o 409 do cadastro revela se um e-mail já é
+  assinante, e não há teto por conta no plano gratuito. Se o abuso aparecer, os
+  caminhos são confirmação por e-mail antes da primeira consulta e limite de
+  consultas por plano — não fechar o cadastro.
 - **"E-mail não encontrado" e "senha incorreta" são a MESMA resposta**, e a
   verificação gasta o mesmo tempo nos dois casos. Respostas diferentes
   transformam a tela de login num verificador de quem é cliente.
@@ -494,7 +520,9 @@ Toda entrega que muda comportamento: bump no `package.json` **e** entrada no
 `ProcessoSearchService` com fallback **e enriquecimento entre fontes**,
 `fundirProcessos`, acompanhamento com SQLite e varredura agendada, cache com
 TTL/LRU, rate limiter, config validada, CLI, API HTTP (Fastify) com chave de API
-e rate limit, **contas de usuário com senha e sessão**, **painel inicial**,
+e rate limit, **contas de assinante com senha, sessão em cookie e ambiente
+isolado por conta** (v0.14.0), **cadastro progressivo com trilha de liberação**,
+**painel inicial**,
 **identidade visual e tema claro**, **vigilância contínua por OAB**, **peças do processo via MNI com cofre de
 credenciais**,
 **triagem do que exige ação**,

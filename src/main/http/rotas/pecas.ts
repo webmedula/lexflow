@@ -1,11 +1,14 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { ServicoPecas } from '../../../application/services/ServicoPecas.js';
-import { OperacaoNaoSuportadaError } from '../../../domain/errors/index.js';
+import {
+  OperacaoNaoSuportadaError,
+  WorkspaceNaoResolvidoError,
+} from '../../../domain/errors/index.js';
 
 function workspaceDe(requisicao: FastifyRequest): string {
   const ws = requisicao.workspace;
-  if (!ws) throw new Error('rota de peças sem workspace resolvido');
+  if (!ws) throw new WorkspaceNaoResolvidoError();
   return ws;
 }
 

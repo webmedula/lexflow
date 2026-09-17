@@ -9,6 +9,106 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.14.0] — 2026-09-16
+
+**Cada advogado com o seu ambiente.**
+
+Até aqui, entrar no LexFlow era colar uma chave de API — o que serve para uma
+integração e não para uma pessoa. Agora há conta com e-mail e senha, e cada
+conta nasce com o próprio ambiente: processos, vigilâncias e acesso ao tribunal
+separados por assinante, na mesma instalação.
+
+### O cadastro é progressivo, e isso é a decisão central
+
+Pedir OAB e a senha do Projudi na primeira tela custaria a maior parte dos
+cadastros — é muita confiança para quem ainda não viu o sistema funcionar.
+Então:
+
+1. **Nome, e-mail e senha** — já consulta qualquer processo por número,
+   acompanha e recebe as atualizações.
+2. **OAB e UF** — o sistema passa a achar sozinho os processos no nome da
+   pessoa e a avisar de publicação nova.
+3. **Acesso ao tribunal** — as peças das partes: petição, contestação, laudo.
+
+A tela inicial mostra a trilha enquanto houver passo pendente, e cada passo diz
+o que DESTRAVA, não o que exige. A trilha some quando tudo está pronto:
+lembrete permanente vira ruído e ensina a ignorar a área mais importante da
+tela.
+
+### Adicionado
+
+- **Contas** (`POST /v1/contas`), **sessão** (`POST`/`DELETE /v1/sessoes`) e
+  **perfil** (`GET`/`PATCH /v1/eu`, `POST /v1/eu/senha`).
+- **Telas de entrar e criar conta**, aba **Minha conta** e a trilha de
+  liberação no topo das Atualizações.
+- `COOKIE_SECURE` na configuração — deixe `true` em produção; `false` apenas
+  para desenvolvimento em `http://localhost`, onde o navegador descarta cookie
+  `Secure` em silêncio.
+
+### Como a segurança foi montada
+
+- **Senha com scrypt do `node:crypto`**, parâmetros gravados junto do hash —
+  dá para encarecer no futuro sem invalidar senha de quem já é assinante. Sem
+  dependência nativa, pelo mesmo motivo que escolheu `node:sqlite`: Alpine.
+- **O banco guarda o HASH do token de sessão, nunca o token.** Vazamento do
+  banco não vira sessão aberta.
+- **O token não volta no corpo da resposta** — só no cookie `HttpOnly`. Se
+  voltasse, a tela poderia guardá-lo no `localStorage` e desfazer a proteção.
+- Em HTTPS o cookie se chama **`__Host-lexflow_sessao`**. O prefixo obriga o
+  navegador a recusar gravação por subdomínio, o que fecha a fixação de sessão
+  por subdomínio esquecido — ataque que sobrevive a `HttpOnly` e `SameSite`.
+- **"E-mail não encontrado" e "senha incorreta" são a MESMA resposta**, e a
+  verificação gasta o mesmo tempo nos dois casos, inclusive para e-mail
+  malformado. Respostas diferentes transformariam o login num verificador de
+  quem é cliente.
+- **Trocar a senha encerra as outras sessões.** Quem troca costuma estar
+  tirando alguém de dentro.
+- **Sessão tem precedência sobre chave de API.** Com as duas presentes vence a
+  pessoa; o contrário faria alguém ver a carteira da integração por baixo da
+  própria conta, conforme a aba.
+
+### Corrigido — achados de uma revisão de segurança
+
+Nenhum destes veio de relato de uso; todos vieram de uma revisão dirigida ao
+código novo. Os dois primeiros já existiam antes das contas.
+
+- **`POST /v1/sincronizar` e `POST /v1/vigilancias/varrer` eram GLOBAIS.**
+  Qualquer chamador autenticado disparava a varredura de TODOS os assinantes:
+  consulta ao tribunal sobre a carteira alheia, escrita nos dados deles e
+  gasto da cota compartilhada do CNJ em nome deles. Nada do conteúdo alheio
+  voltava na resposta, que é justamente o que fazia isso passar despercebido.
+  Agora as duas rotas são escopadas a quem pediu; a varredura agendada
+  continua global, e há teste para os dois lados.
+- **`trustProxy` aceitava a cadeia inteira de `X-Forwarded-For`**, que o
+  cliente escreve. Um IP diferente por requisição caía num balde novo de rate
+  limit e anulava o limite — na rota de login, que é pública e gasta scrypt,
+  isso é força bruta sem teto e consumo de memória ao mesmo tempo. Agora só o
+  salto que o nosso próprio proxy acrescenta é considerado.
+- **`?ultimosDias=x` virava 500.** `Number('x')` era NaN, `new Date(NaN)`
+  estourava `RangeError`, e uma query digitada errada acendia alarme de
+  produção.
+- **`LEXFLOW_AUTH_DISABLED=true` estava quebrado**: sem chave nem sessão as
+  rotas de dados não tinham ambiente e respondiam 500. O modo documentado agora
+  funciona, com um ambiente fixo.
+- **Servidor sem banco respondia 401 "sua sessão expirou"** nas rotas de conta,
+  mandando a pessoa fazer login num laço infinito. Agora responde 501.
+
+### Sabendo do risco
+
+- **O cadastro é aberto, por decisão de produto** — o LexFlow vai ser vendido a
+  advogados pelo Brasil, e formulário fechado por convite não combina com isso.
+  Duas consequências ficam registradas: qualquer pessoa pode descobrir se um
+  e-mail já é assinante (o 409 do cadastro denuncia), e a cota compartilhada do
+  CNJ passa a depender do limitador do nosso lado, não do número de contas.
+  Se o abuso aparecer, os caminhos são confirmação por e-mail antes da primeira
+  consulta e teto de consultas no plano gratuito.
+- **A varredura manual usa uma trava global.** Escopada, ela dura poucos
+  segundos, mas enquanto roda a varredura agendada responde 409. Aceitável
+  agora; vira trava por ambiente quando houver volume.
+- Continua de pé a dívida do fixture de sucesso do MNI.
+
+---
+
 ## [0.13.2] — 2026-09-16
 
 **O download das peças, fechado contra o tribunal de verdade.**

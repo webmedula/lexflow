@@ -38,7 +38,8 @@ function redesenharDetalhe(){
 var INTERNOS={12266:1,12265:1,581:1,60:1};
 var MARCOS={26:1,219:1,848:1,12548:1,12455:1,12444:1,14739:1,123:1,1051:1};
 
-var estado={aba:'novidades',chave:'',detalhe:null,facetas:{tribunais:[],classes:[]}};
+var estado={aba:'novidades',chave:'',detalhe:null,eu:null,trilha:null,
+  modoEntrada:'entrar',facetas:{tribunais:[],classes:[]}};
 
 /* ---------------- utilidades ---------------- */
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
@@ -61,7 +62,10 @@ function mascara(n){var d=String(n||'').replace(/\D/g,'');
 
 function api(caminho,opcoes){
   opcoes=opcoes||{};
-  var h={'x-api-key':estado.chave};
+  /* A sessão viaja em cookie HttpOnly, que o navegador manda sozinho por ser
+     a mesma origem. A chave só entra quando é ela que está autenticando —
+     mandar as duas faria o servidor ter que escolher a cada requisição. */
+  var h=estado.chave?{'x-api-key':estado.chave}:{};
   if(opcoes.body)h['content-type']='application/json';
   return fetch(caminho,{method:opcoes.method||'GET',headers:h,
     body:opcoes.body?JSON.stringify(opcoes.body):undefined})
@@ -73,7 +77,8 @@ function api(caminho,opcoes){
 }
 
 function explicar(e){
-  var m={401:'A chave não foi aceita. Confira se é a mesma configurada no servidor.',
+  var m={401:'Sua sessão expirou. Entre novamente.',
+    409:'Já existe uma conta com este e-mail.',
     400:'O formato do número CNJ ou da OAB não confere.',
     404:'Consultamos as fontes e nenhuma tem esse processo.',
     429:'Muitas consultas seguidas. Aguarde um instante.',
@@ -98,7 +103,7 @@ function vazio(icone,titulo,texto,acao){
 
 /* ---------------- chrome ---------------- */
 function pintarNav(){
-  ['novidades','processos','buscar','vigilancia','credenciais'].forEach(function(a){
+  ['novidades','processos','buscar','vigilancia','credenciais','conta'].forEach(function(a){
     var b=$('nav-'+a); if(b)b.classList.toggle('ativo',estado.aba===a&&!estado.detalhe)});
 }
 function atualizarBolha(){
@@ -121,7 +126,8 @@ function verNovidades(){
   var trib=window.__f_nv_trib||''; if(trib)q.push('tribunal='+encodeURIComponent(trib));
 
   api('/v1/novidades'+(q.length?'?'+q.join('&'):'')).then(function(r){
-    var h='<div class="titulo-secao"><div><h2>Atualizações</h2>'+
+    var h=blocoTrilha();
+    h+='<div class="titulo-secao"><div><h2>Atualizações</h2>'+
       '<div class="sub">'+r.total+' movimentação(ões) desde que você começou a acompanhar'+
       (r.naoVistas>0?' · '+r.naoVistas+' não lida(s)':'')+'</div></div><div>';
     if(r.naoVistas>0)h+='<button class="bt bt2" id="marcar">Marcar todas como lidas</button> ';
@@ -817,22 +823,207 @@ function ligarDownloadDePecas(numero){
 }
 
 /* ---------------- chave / arranque ---------------- */
-function telaChave(){
+/* ---------------- entrar, criar conta, perfil ----------------
+ *
+ * O cadastro é PROGRESSIVO, e essa é a decisão de produto que molda estas
+ * telas: nome, e-mail e senha bastam para entrar e já consultar processo.
+ * A OAB entra depois, quando ela destrava a vigilância; a senha do tribunal
+ * só quando a pessoa quer as peças.
+ *
+ * Pedir OAB e senha do Projudi na primeira tela custaria a maior parte dos
+ * cadastros — é muita confiança para quem ainda não viu o sistema funcionar.
+ */
+function telaEntrada(modo){
+  if(modo)estado.modoEntrada=modo;
+  var criar=estado.modoEntrada==='criar';
+  $('barra').classList.add('oculto');
   $('conteudo').innerHTML=
-    '<div class="titulo-secao"><div><h2>Conectar</h2>'+
-    '<div class="sub">Informe a chave de API configurada no servidor</div></div></div>'+
+    '<div class="titulo-secao"><div><h2>LexFlow</h2><div class="sub">'+
+    'Seus processos, suas publicações e as peças das partes — num lugar só.'+
+    '</div></div></div>'+
+    '<div class="cartao">'+
+      '<div class="chips" style="margin-bottom:16px">'+
+        '<button class="chip'+(criar?'':' on')+'" data-modo="entrar">Entrar</button>'+
+        '<button class="chip'+(criar?' on':'')+'" data-modo="criar">Criar conta</button>'+
+      '</div>'+
+      (criar?'<label class="rotulo" for="c-nome">Seu nome</label>'+
+        '<input id="c-nome" placeholder="Maria Silva" autocomplete="name">':'')+
+      '<label class="rotulo" for="c-email">E-mail</label>'+
+      '<input id="c-email" type="email" placeholder="voce@escritorio.com.br" autocomplete="username">'+
+      '<label class="rotulo" for="c-senha">Senha</label>'+
+      '<input id="c-senha" type="password" autocomplete="'+(criar?'new-password':'current-password')+'">'+
+      (criar?'<div class="nota">Pelo menos 10 caracteres. Uma frase que só você '+
+        'lembra protege mais do que trocar letra por símbolo.</div>':'')+
+      '<div id="c-erro"></div>'+
+      '<div style="margin-top:16px"><button class="bt" id="c-enviar">'+
+      (criar?'Criar conta e entrar':'Entrar')+'</button></div>'+
+    '</div>'+
+    '<div class="cartao"><div class="nota">Vai conectar uma integração (n8n, '+
+    'script)? <button class="link" id="c-chave">entrar com chave de API</button></div></div>';
+
+  document.querySelectorAll('[data-modo]').forEach(function(b){
+    b.addEventListener('click',function(){telaEntrada(b.getAttribute('data-modo'))})});
+  $('c-chave').addEventListener('click',telaChave);
+
+  var enviar=function(){
+    var email=$('c-email').value.trim(), senha=$('c-senha').value;
+    if(!email||!senha)return;
+    var botao=$('c-enviar'); botao.disabled=true;
+    $('c-erro').innerHTML='';
+    var corpo=criar?{nome:($('c-nome').value.trim()||email.split('@')[0]),email:email,senha:senha}
+                   :{email:email,senha:senha};
+    api(criar?'/v1/contas':'/v1/sessoes',{method:'POST',body:corpo})
+      .then(function(){
+        /* Sessão nova: qualquer chave guardada neste navegador para de valer,
+           senão o servidor receberia as duas e a pessoa veria a carteira
+           errada conforme a aba. */
+        estado.chave=''; try{localStorage.removeItem(CH)}catch(e){}
+        return carregarEu();
+      })
+      .then(function(){estado.aba='novidades';iniciar()})
+      .catch(function(e){
+        botao.disabled=false;
+        $('c-erro').innerHTML='<div class="nota" style="color:var(--erro);margin-top:10px">'+
+          esc(e.message||explicar(e))+'</div>';
+      });
+  };
+  $('c-enviar').addEventListener('click',enviar);
+  ['c-email','c-senha'].forEach(function(id){
+    $(id).addEventListener('keydown',function(e){if(e.key==='Enter')enviar()})});
+}
+
+/* A porta das integrações. Continua existindo porque n8n e script não têm
+   navegador para guardar cookie — e cada chave segue sendo seu próprio
+   ambiente, do mesmo jeito que era antes das contas. */
+function telaChave(){
+  $('barra').classList.add('oculto');
+  $('conteudo').innerHTML=
+    '<div class="titulo-secao"><div><h2>Entrar com chave de API</h2>'+
+    '<div class="sub">Para integrações. Pessoas entram com e-mail e senha.</div></div></div>'+
     '<div class="cartao"><label class="rotulo" for="k">Chave de API</label>'+
     '<input id="k" type="password" placeholder="cole a chave aqui" autocomplete="off">'+
     '<div class="nota">Fica guardada apenas neste navegador. É a mesma que está em '+
     'LEXFLOW_API_KEYS na configuração do servidor.</div>'+
-    '<div style="margin-top:14px"><button class="bt" id="entrar">Entrar</button></div></div>';
+    '<div style="margin-top:14px"><button class="bt" id="entrar">Entrar</button> '+
+    '<button class="bt bt2" id="voltar">Voltar</button></div></div>';
   var entrar=function(){
     var v=$('k').value.trim(); if(!v)return;
     estado.chave=v; try{localStorage.setItem(CH,v)}catch(e){}
+    estado.eu=null;estado.trilha=null;
     iniciar();
   };
   $('entrar').addEventListener('click',entrar);
+  $('voltar').addEventListener('click',function(){telaEntrada('entrar')});
   $('k').addEventListener('keydown',function(e){if(e.key==='Enter')entrar()});
+}
+
+function carregarEu(){
+  return api('/v1/eu').then(function(r){
+    estado.eu=r.usuario; estado.trilha=r.trilha; return true;
+  }).catch(function(){estado.eu=null;estado.trilha=null;return false});
+}
+
+/*
+ * A trilha de liberação.
+ *
+ * Fica no topo da tela inicial ENQUANTO houver passo pendente, e some sozinha
+ * quando tudo está pronto — lembrete permanente vira ruído e ensina a pessoa a
+ * ignorar a área mais importante da tela.
+ *
+ * Cada passo diz o que DESTRAVA, não o que exige. "Informe sua OAB" é
+ * burocracia; "para ser avisado de processo novo no seu nome" é motivo.
+ */
+function blocoTrilha(){
+  var t=estado.trilha;
+  if(!t||!estado.eu)return '';
+  if(t.oab&&t.tribunal)return '';
+
+  var passo=function(pronto,titulo,porque,botao,aba){
+    return '<div class="ev"><div class="dt">'+(pronto?'✓':'○')+'</div><div>'+
+      '<div class="tt">'+esc(titulo)+(pronto?' <span class="selo nv">pronto</span>':'')+'</div>'+
+      '<div class="cp">'+esc(porque)+'</div>'+
+      (pronto?'':'<button class="link" data-trilha="'+aba+'">'+esc(botao)+'</button>')+
+      '</div></div>';
+  };
+
+  return '<div class="cartao">'+
+    '<h3 class="sec">Falta pouco para o LexFlow trabalhar sozinho</h3>'+
+    passo(true,'Conta criada','Você já pode consultar qualquer processo por número.','','') +
+    passo(t.oab,'Informe sua OAB',
+      'Para o sistema achar sozinho os processos no seu nome e avisar de publicação nova.',
+      'Informar OAB','conta')+
+    passo(t.tribunal,'Cadastre seu acesso ao tribunal',
+      'Para baixar as peças das partes: petição, contestação, laudo. O diário nunca publica essas.',
+      'Cadastrar acesso','credenciais')+
+    '</div>';
+}
+function ligarTrilha(){
+  document.querySelectorAll('[data-trilha]').forEach(function(b){
+    b.addEventListener('click',function(){ir(b.getAttribute('data-trilha'))})});
+}
+
+function verConta(){
+  if(!estado.eu){
+    $('conteudo').innerHTML=vazio('👤','Você entrou com chave de API',
+      'Chave é o acesso de integração, e não tem perfil. Para ter conta com e-mail e senha, saia e crie uma.');
+    return;
+  }
+  var u=estado.eu;
+  $('conteudo').innerHTML=
+    '<div class="titulo-secao"><div><h2>Minha conta</h2>'+
+    '<div class="sub">'+esc(u.nome)+' · '+esc(u.email)+'</div></div></div>'+
+
+    '<div class="cartao"><h3 class="sec">Inscrição na OAB</h3>'+
+    '<div class="nota">É o que permite achar os processos no seu nome sem você '+
+    'digitar número nenhum, e ligar o aviso de publicação nova.</div>'+
+    '<div class="campo" style="margin-top:12px">'+
+      '<div><label class="rotulo" for="p-oab">Número</label>'+
+      '<input id="p-oab" placeholder="47383" value="'+esc(u.oab||'')+'" style="width:150px"></div>'+
+      '<div><label class="rotulo" for="p-uf">UF</label>'+
+      '<input id="p-uf" placeholder="GO" maxlength="2" value="'+esc(u.ufOab||'')+'" style="width:90px"></div>'+
+      '<div style="align-self:end"><button class="bt" id="p-salvar">Salvar</button></div>'+
+    '</div><div id="p-aviso"></div></div>'+
+
+    '<div class="cartao"><h3 class="sec">Trocar a senha</h3>'+
+    '<div class="nota">Trocar a senha encerra as sessões abertas em outros '+
+    'aparelhos. É de propósito: quem troca costuma estar tirando alguém de dentro.</div>'+
+    '<div class="campo" style="margin-top:12px">'+
+      '<div><label class="rotulo" for="s-atual">Senha atual</label>'+
+      '<input id="s-atual" type="password" autocomplete="current-password"></div>'+
+      '<div><label class="rotulo" for="s-nova">Senha nova</label>'+
+      '<input id="s-nova" type="password" autocomplete="new-password"></div>'+
+      '<div style="align-self:end"><button class="bt bt2" id="s-salvar">Trocar</button></div>'+
+    '</div><div id="s-aviso"></div></div>';
+
+  $('p-salvar').addEventListener('click',function(){
+    var oab=$('p-oab').value.trim(), uf=$('p-uf').value.trim().toUpperCase();
+    if(!oab||!uf){$('p-aviso').innerHTML='<div class="nota">Informe número e UF.</div>';return}
+    $('p-salvar').disabled=true;
+    api('/v1/eu',{method:'PATCH',body:{oab:oab,ufOab:uf}}).then(function(r){
+      estado.eu=r.usuario;estado.trilha=r.trilha;
+      $('p-salvar').disabled=false;
+      $('p-aviso').innerHTML='<div class="nota" style="color:var(--ok)">Salvo. '+
+        'A vigilância por OAB já pode ser ligada na aba Vigilância.</div>';
+    }).catch(function(e){
+      $('p-salvar').disabled=false;
+      $('p-aviso').innerHTML='<div class="nota" style="color:var(--erro)">'+esc(e.message)+'</div>';
+    });
+  });
+
+  $('s-salvar').addEventListener('click',function(){
+    var atual=$('s-atual').value, nova=$('s-nova').value;
+    if(!atual||!nova)return;
+    $('s-salvar').disabled=true;
+    api('/v1/eu/senha',{method:'POST',body:{senhaAtual:atual,senhaNova:nova}})
+      .then(function(){
+        $('s-salvar').disabled=false;$('s-atual').value='';$('s-nova').value='';
+        $('s-aviso').innerHTML='<div class="nota" style="color:var(--ok)">Senha trocada.</div>';
+      })
+      .catch(function(e){
+        $('s-salvar').disabled=false;
+        $('s-aviso').innerHTML='<div class="nota" style="color:var(--erro)">'+esc(e.message)+'</div>';
+      });
+  });
 }
 
 function carregarFacetas(){
@@ -955,30 +1146,52 @@ function render(){
   if(estado.aba==='processos')return verProcessos();
   if(estado.aba==='vigilancia')return verVigilancia();
   if(estado.aba==='credenciais')return verCredenciais();
+  if(estado.aba==='conta')return verConta();
   return verBuscar();
 }
 
 function iniciar(){
   $('barra').classList.remove('oculto');
+  var saudacao=$('saudacao');
+  if(saudacao)saudacao.textContent=estado.eu?estado.eu.nome.split(' ')[0]:'';
+  var navConta=$('nav-conta');
+  if(navConta)navConta.classList.toggle('oculto',!estado.eu);
   api('/v1/facetas').then(function(f){
     estado.facetas=f;
     atualizarBolha();
     pintarNav();
     render();
   }).catch(function(e){
-    if(e.status===401){estado.chave='';try{localStorage.removeItem(CH)}catch(x){}
-      $('barra').classList.add('oculto');telaChave();return}
+    if(e.status===401){
+      estado.chave='';try{localStorage.removeItem(CH)}catch(x){}
+      estado.eu=null;estado.trilha=null;
+      $('barra').classList.add('oculto');telaEntrada('entrar');return}
     $('conteudo').innerHTML=erroBloco(e);
   });
 }
 
-['novidades','processos','buscar','vigilancia','credenciais'].forEach(function(a){
+['novidades','processos','buscar','vigilancia','credenciais','conta'].forEach(function(a){
   var b=$('nav-'+a); if(b)b.addEventListener('click',function(){ir(a)})});
-$('sair').addEventListener('click',function(){
-  estado.chave='';try{localStorage.removeItem(CH)}catch(e){}
-  $('barra').classList.add('oculto');telaChave()});
 
-try{estado.chave=localStorage.getItem(CH)||''}catch(e){}
-if(estado.chave)iniciar(); else telaChave();
+$('sair').addEventListener('click',function(){
+  /* Sair é do servidor, não só do navegador: apagar o cookie localmente
+     deixaria a sessão VÁLIDA no banco, e um cookie copiado antes disso
+     continuaria abrindo a conta. */
+  var fim=function(){
+    estado.chave='';try{localStorage.removeItem(CH)}catch(e){}
+    estado.eu=null;estado.trilha=null;
+    $('barra').classList.add('oculto');telaEntrada('entrar');
+  };
+  api('/v1/sessoes',{method:'DELETE'}).then(fim,fim);
+});
+
+/* Ordem de tentativa: PRIMEIRO o cookie de sessão, depois a chave guardada.
+   É a mesma precedência do servidor — se as duas existirem neste navegador,
+   quem vale é a pessoa, e não a integração. */
+carregarEu().then(function(entrou){
+  if(entrou){iniciar();return}
+  try{estado.chave=localStorage.getItem(CH)||''}catch(e){}
+  if(estado.chave)iniciar(); else telaEntrada('entrar');
+});
 })();
 `;

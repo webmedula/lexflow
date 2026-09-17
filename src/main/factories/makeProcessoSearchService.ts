@@ -38,6 +38,10 @@ import { InMemoryCache } from '../../infrastructure/cache/InMemoryCache.js';
 import type { Config } from '../../infrastructure/config/env.js';
 import { pareceValorDeExemplo } from '../../infrastructure/config/placeholder.js';
 import { ConsoleLogger } from '../../infrastructure/logging/ConsoleLogger.js';
+import { ServicoContas } from '../../application/services/ServicoContas.js';
+import { RepositorioUsuariosSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioUsuariosSqlite.js';
+import { hashScrypt } from '../../infrastructure/seguranca/senha.js';
+import { DURACAO_SESSAO_MS, tokensDeSessao } from '../../infrastructure/seguranca/sessao.js';
 
 export interface Aplicacao {
   readonly buscarProcessoPorNumero: BuscarProcessoPorNumero;
@@ -52,6 +56,8 @@ export interface Aplicacao {
    * 501 com a instrução, em vez de existirem e falharem na primeira consulta.
    */
   readonly pecas: ServicoPecas | undefined;
+  /** Contas de assinante. Cada uma nasce com o próprio `workspace`. */
+  readonly contas: ServicoContas;
   readonly preferenciasNotificacao: RepositorioNotificacao;
   readonly agendador: Agendador;
   readonly agendadorVigilancia: Agendador | undefined;
@@ -120,6 +126,16 @@ export function montarAplicacao(config: Config): Aplicacao {
     logger,
     maximoPorVarredura: config.sincronizacao.maximoPorVarredura,
     pausaEntreConsultasMs: config.sincronizacao.pausaMs,
+  });
+
+  // Contas. O scrypt e o gerador de token entram como PORTA — é no composition
+  // root que a escolha concreta vive, e é o que deixa trocar scrypt por argon2
+  // no dia em que a imagem deixar de ser Alpine sem tocar em `application/`.
+  const contas = new ServicoContas({
+    repositorio: new RepositorioUsuariosSqlite(db),
+    senhas: hashScrypt,
+    tokens: tokensDeSessao,
+    duracaoSessaoMs: DURACAO_SESSAO_MS,
   });
 
   const preferenciasNotificacao = new RepositorioNotificacaoSqlite(db);
@@ -192,6 +208,7 @@ export function montarAplicacao(config: Config): Aplicacao {
     vigilancia,
     notificacao,
     pecas,
+    contas,
     preferenciasNotificacao,
     agendador,
     agendadorVigilancia,

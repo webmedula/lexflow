@@ -112,6 +112,48 @@ const ESQUEMA = [
      chave TEXT PRIMARY KEY,
      valor TEXT NOT NULL
    )`,
+
+  // A conta do assinante.
+  //
+  // `workspace` é gerado no cadastro e NUNCA muda: é a coluna que já separava
+  // os dados por chave de API, e agora separa por conta. UNIQUE porque dois
+  // assinantes com o mesmo workspace veriam os processos um do outro — é a
+  // única falha aqui que não daria erro nenhum, só mostraria a carteira errada.
+  //
+  // `email` é UNIQUE e guardado já em minúsculas (ver `normalizarEmail`). Sem
+  // normalizar antes, o UNIQUE do SQLite deixa passar `A@x.com` e `a@x.com`.
+  //
+  // `senha` guarda o hash scrypt COM os parâmetros — nunca a senha.
+  `CREATE TABLE IF NOT EXISTS usuarios (
+     id               TEXT PRIMARY KEY,
+     email            TEXT NOT NULL UNIQUE,
+     nome             TEXT NOT NULL,
+     senha            TEXT NOT NULL,
+     workspace        TEXT NOT NULL UNIQUE,
+     oab              TEXT,
+     uf_oab           TEXT,
+     criado_em        TEXT NOT NULL,
+     ultimo_acesso_em TEXT
+   )`,
+
+  // Sessões em DISCO, não em memória: o cache evapora no redeploy, e o LexFlow
+  // é redeployado com frequência. Sessão em cache desconectaria todo mundo a
+  // cada subida.
+  //
+  // A chave primária é o HASH do token. O token em si não existe no banco —
+  // vazamento da tabela não vira sessão aberta na conta de ninguém.
+  //
+  // ON DELETE CASCADE: apagar a conta apaga as sessões junto. Sem isso ficaria
+  // sessão órfã válida apontando para um usuário que não existe mais.
+  `CREATE TABLE IF NOT EXISTS sessoes (
+     hash_token  TEXT PRIMARY KEY,
+     usuario_id  TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+     criada_em   TEXT NOT NULL,
+     expira_em   TEXT NOT NULL
+   )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_sessoes_usuario ON sessoes(usuario_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_sessoes_expira ON sessoes(expira_em)`,
 ];
 
 export function abrirBanco(caminho: string): DatabaseSync {

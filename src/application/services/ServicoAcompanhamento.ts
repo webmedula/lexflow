@@ -140,7 +140,12 @@ export class ServicoAcompanhamento {
    * Reentrância bloqueada: se a varredura anterior ainda roda (e pode rodar por
    * meia hora), a nova é recusada em vez de duplicar consultas.
    */
-  async sincronizar(): Promise<ResultadoSincronizacao> {
+  /**
+   * @param opcoes `workspace` limita a varredura a um assinante. A varredura
+   *   AGENDADA chama sem ele, de propósito: ela é de todo mundo. A rota HTTP
+   *   sempre passa o do chamador.
+   */
+  async sincronizar(opcoes: { workspace?: string } = {}): Promise<ResultadoSincronizacao> {
     if (this.sincronizando) {
       throw new SincronizacaoEmAndamentoError();
     }
@@ -153,7 +158,7 @@ export class ServicoAcompanhamento {
     let falhas = 0;
 
     try {
-      const fila = await this.repo.listarParaSincronizar(this.maximo);
+      const fila = await this.repo.listarParaSincronizar(this.maximo, opcoes.workspace);
       this.log.info('varredura iniciada', { total: fila.length });
 
       for (const item of fila) {

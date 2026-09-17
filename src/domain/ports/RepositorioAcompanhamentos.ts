@@ -53,7 +53,15 @@ export interface RepositorioAcompanhamentos {
   ): Promise<AcompanhamentoResumido[]>;
 
   /** Todos os acompanhamentos de TODOS os workspaces, para a varredura. */
-  listarParaSincronizar(limite: number): Promise<Acompanhamento[]>;
+  /**
+   * Fila da varredura.
+   *
+   * @param workspace quando informado, limita a UM assinante. É o que separa a
+   *   varredura agendada (global, de todo mundo) do "verificar agora" disparado
+   *   por uma pessoa — sem isso, qualquer conta dispara consulta ao tribunal
+   *   sobre os processos de TODOS os outros assinantes.
+   */
+  listarParaSincronizar(limite: number, workspace?: string): Promise<Acompanhamento[]>;
 
   /** Grava o retrato novo e registra as movimentações inéditas. */
   registrarSincronizacao(

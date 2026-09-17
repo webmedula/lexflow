@@ -22,8 +22,14 @@ export interface RepositorioVigilancias {
 
   listar(workspace: string): Promise<VigilanciaOab[]>;
 
-  /** Vigilâncias ativas de TODOS os workspaces, para a varredura. */
-  listarParaVarrer(limite: number): Promise<VigilanciaOab[]>;
+  /**
+   * Vigilâncias ativas para a varredura.
+   *
+   * @param workspace quando informado, só as dele. Sem ele, todas — que é o
+   *   que a varredura agendada precisa, e o que a rota HTTP NÃO pode fazer:
+   *   senão uma conta manda o servidor varrer a inscrição de todos os outros.
+   */
+  listarParaVarrer(limite: number, workspace?: string): Promise<VigilanciaOab[]>;
 
   /**
    * Fecha uma varredura bem-sucedida.

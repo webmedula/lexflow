@@ -38,7 +38,8 @@ export function paginaConsole(versao: string): string {
       <button id="nav-buscar">Buscar</button>
       <button id="nav-vigilancia">Vigilância</button>
       <button id="nav-credenciais">Meus acessos</button>
-      <button id="sair" title="Esquecer a chave neste navegador">Sair</button>
+      <button id="nav-conta" class="oculto">Minha conta</button>
+      <button id="sair" title="Encerrar a sessão">Sair</button>
     </nav>
   </div>
 </div>

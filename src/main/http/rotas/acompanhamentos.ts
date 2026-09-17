@@ -1,3 +1,4 @@
+import { WorkspaceNaoResolvidoError } from '../../../domain/errors/index.js';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { SincronizacaoEmAndamentoError } from '../../../application/services/ServicoAcompanhamento.js';
 import type { ServicoAcompanhamento } from '../../../application/services/ServicoAcompanhamento.js';
@@ -11,8 +12,19 @@ import type { AcompanhamentoResumido } from '../../../domain/ports/RepositorioAc
  */
 function workspaceDe(requisicao: FastifyRequest): string {
   const ws = requisicao.workspace;
-  if (!ws) throw new Error('rota de acompanhamento sem workspace resolvido');
+  if (!ws) throw new WorkspaceNaoResolvidoError();
   return ws;
+}
+
+/**
+ * `?ultimosDias=x` chegava como `Number('x')` = NaN, virava `new Date(NaN)` e
+ * estourava `RangeError` — ou seja, 500 e alarme de produção por um parâmetro
+ * de query digitado errado.
+ */
+function diasValidos(bruto: string | undefined): number | undefined {
+  if (!bruto) return undefined;
+  const n = Number(bruto);
+  return Number.isInteger(n) && n > 0 && n <= 3650 ? n : undefined;
 }
 
 function resumoJson(a: AcompanhamentoResumido): Record<string, unknown> {
@@ -92,7 +104,9 @@ export function rotasDeAcompanhamento(
           ...(q.tribunal ? { tribunal: q.tribunal } : {}),
           ...(q.classe ? { classe: q.classe } : {}),
           ...(verdadeiro(q.comNovidade) ? { somenteComNovidade: true } : {}),
-          ...(q.ultimosDias ? { movimentadoNosUltimosDias: Number(q.ultimosDias) } : {}),
+            ...(diasValidos(q.ultimosDias) !== undefined
+            ? { movimentadoNosUltimosDias: diasValidos(q.ultimosDias) as number }
+            : {}),
           ...(q.ordem ? { ordem: q.ordem } : {}),
         });
         return { total: lista.length, acompanhamentos: lista.map(resumoJson) };
@@ -181,7 +195,7 @@ export function rotasDeAcompanhamento(
      * varredura pode levar meia hora, e segurar a conexão aberta por isso
      * levaria o proxy a cortar antes do fim.
      */
-    servidor.post('/v1/sincronizar', async (_req, resposta) => {
+    servidor.post('/v1/sincronizar', async (req, resposta) => {
       if (servico.emAndamento) {
         void resposta.code(409);
         return {
@@ -189,7 +203,12 @@ export function rotasDeAcompanhamento(
           mensagem: new SincronizacaoEmAndamentoError().message,
         };
       }
-      void servico.sincronizar().catch(() => {
+      // ESCOPADA ao chamador. A versão global existe e é a agendada — deixar
+      // a rota HTTP disparar aquela permitia a qualquer conta mandar o
+      // servidor consultar o tribunal sobre a carteira de TODOS os
+      // assinantes, gravando nos dados deles e gastando a cota do CNJ em
+      // nome deles.
+      void servico.sincronizar({ workspace: workspaceDe(req) }).catch(() => {
         /* já registrado no log pelo serviço */
       });
       void resposta.code(202);

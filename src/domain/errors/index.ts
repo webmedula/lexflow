@@ -178,3 +178,79 @@ export class TeorNaoAutorizadoError extends DomainError {
     );
   }
 }
+
+/** O texto informado não tem forma de e-mail. */
+export class EmailInvalidoError extends DomainError {
+  readonly codigo = 'EMAIL_INVALIDO';
+
+  constructor(readonly informado: string) {
+    // O e-mail NÃO entra na mensagem: ela vai para log, e endereço de pessoa
+    // em log é dado pessoal espalhado onde ninguém vai lembrar de apagar.
+    super('O e-mail informado não é válido.');
+  }
+}
+
+/** Já existe conta com este e-mail. */
+export class EmailJaCadastradoError extends DomainError {
+  readonly codigo = 'EMAIL_JA_CADASTRADO';
+
+  constructor() {
+    super(
+      'Já existe uma conta com este e-mail. Entre com a sua senha, ' +
+        'ou use outro endereço.',
+    );
+  }
+}
+
+/**
+ * E-mail desconhecido OU senha errada — deliberadamente indistinguíveis.
+ *
+ * Um erro para cada caso transformaria a tela de login num verificador de
+ * quem é cliente: bastaria testar endereços e ler a diferença das respostas
+ * para levantar a lista de assinantes. Por isso existe UM erro só, com UMA
+ * mensagem, e o serviço gasta o mesmo tempo nos dois caminhos.
+ */
+export class CredenciaisInvalidasError extends DomainError {
+  readonly codigo = 'CREDENCIAIS_INVALIDAS';
+
+  constructor() {
+    super('E-mail ou senha incorretos.');
+  }
+}
+
+/** A sessão não existe, expirou ou foi encerrada. */
+export class SessaoInvalidaError extends DomainError {
+  readonly codigo = 'SESSAO_INVALIDA';
+
+  constructor() {
+    super('Sua sessão expirou. Entre novamente.');
+  }
+}
+
+/** A senha escolhida é curta demais para proteger a conta. */
+export class SenhaFracaError extends DomainError {
+  readonly codigo = 'SENHA_FRACA';
+
+  constructor(readonly minimo: number) {
+    super(`A senha precisa ter pelo menos ${minimo} caracteres.`);
+  }
+}
+
+/**
+ * A requisição passou pela autenticação sem resolver um ambiente.
+ *
+ * Só acontece com `LEXFLOW_AUTH_DISABLED=true`, que é o modo de rede interna:
+ * não há chave nem sessão, então não há de quem sejam os dados. Antes disso
+ * virava `throw new Error` cru — 500, alarme de produção, e o modo documentado
+ * simplesmente quebrado.
+ */
+export class WorkspaceNaoResolvidoError extends DomainError {
+  readonly codigo = 'WORKSPACE_NAO_RESOLVIDO';
+
+  constructor() {
+    super(
+      'Não foi possível identificar de quem são os dados nesta requisição. ' +
+        'Entre com sua conta ou informe a chave de API.',
+    );
+  }
+}

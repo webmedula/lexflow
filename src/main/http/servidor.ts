@@ -14,6 +14,7 @@ import { rotasDeProcesso } from './rotas/processos.js';
 import { rotasDeAcompanhamento } from './rotas/acompanhamentos.js';
 import { rotasDeVigilancia } from './rotas/vigilancias.js';
 import { rotasDePecas } from './rotas/pecas.js';
+import { ROTA_CONTAS, ROTA_SESSOES, rotasDeContas } from './rotas/contas.js';
 
 /**
  * Monta o servidor HTTP sem subir porta nenhuma.
@@ -34,7 +35,18 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
     bodyLimit: config.http.bodyLimitBytes,
     // Atrás do Traefik do Easypanel, sem isso todo request parece vir do IP do
     // proxy — e o rate limit por IP vira rate limit global.
-    trustProxy: config.http.confiarNoProxy,
+    //
+    // UM salto, e não `true`. Com `true` o Fastify aceita a cadeia INTEIRA de
+    // X-Forwarded-For — e essa cadeia é escrita pelo cliente. Bastaria mandar
+    // um IP diferente a cada requisição para cair sempre num balde novo de
+    // rate limit e anular o limite; na rota de login, que é pública e gasta
+    // scrypt, isso é força bruta sem teto e consumo de memória do contêiner ao
+    // mesmo tempo.
+    //
+    // A função devolve `true` só para o salto 0: confia exclusivamente no IP
+    // que o nosso próprio proxy (o Traefik do Easypanel) acrescentou, e ignora
+    // tudo o que vier antes dele.
+    trustProxy: config.http.confiarNoProxy ? (_endereco, salto) => salto === 0 : false,
   });
 
   const log = app.logger.child({ camada: 'http' });
@@ -59,11 +71,23 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(autenticacao, {
     chaves: config.http.chavesDeApi,
     desativada: config.http.autenticacaoDesativada,
+    contas: app.contas,
     // O console entra aqui porque é HTML sem dado nenhum. Se ele exigisse
     // chave, o navegador cairia no mesmo 401 que a página existe para resolver.
-    rotasPublicas: [ROTA_HEALTH, ROTA_READY, ROTA_CONSOLE],
+    //
+    // Criar conta e entrar TÊM que ser públicas: são justamente as rotas de
+    // quem ainda não tem como se autenticar.
+    rotasPublicas: [ROTA_HEALTH, ROTA_READY, ROTA_CONSOLE, ROTA_CONTAS, ROTA_SESSOES],
   });
 
+  void servidor.register(
+    rotasDeContas(app.contas, app.pecas, {
+      // Cookie `Secure` exige HTTPS. Em produção o Traefik do Easypanel termina
+      // TLS, então vale; em desenvolvimento por http://localhost o navegador
+      // DESCARTARIA o cookie e o login pareceria não funcionar.
+      cookieSeguro: config.http.cookieSeguro,
+    }),
+  );
   void servidor.register(rotasDeSaude(app));
   void servidor.register(rotasDeInterface());
   void servidor.register(rotasDeProcesso(app));

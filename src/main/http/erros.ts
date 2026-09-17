@@ -1,16 +1,20 @@
 import { ZodError } from 'zod';
 import {
+  CredenciaisInvalidasError,
   CredencialTribunalAusenteError,
   CredencialTribunalInvalidaError,
   DomainError,
+  EmailJaCadastradoError,
   NumeroCNJInvalidoError,
   OabInvalidaError,
   OperacaoNaoSuportadaError,
   ProcessoNaoEncontradoError,
   ProviderIndisponivelError,
   RespostaInvalidaError,
+  SessaoInvalidaError,
   TeorNaoAutorizadoError,
   TodasAsFontesFalharamError,
+  WorkspaceNaoResolvidoError,
 } from '../../domain/errors/index.js';
 
 export interface RespostaDeErro {
@@ -61,6 +65,23 @@ export function mapearErro(erro: unknown): RespostaDeErro {
 
   if (erro instanceof NumeroCNJInvalidoError || erro instanceof OabInvalidaError) {
     return { status: 400, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 401 nos dois: é a autenticação DO LEXFLOW que falhou, e a ação é a mesma —
+  // entrar de novo. A mensagem de `CredenciaisInvalidasError` é propositalmente
+  // a mesma para e-mail inexistente e senha errada; ver o erro de domínio.
+  if (
+    erro instanceof CredenciaisInvalidasError ||
+    erro instanceof SessaoInvalidaError ||
+    erro instanceof WorkspaceNaoResolvidoError
+  ) {
+    return { status: 401, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 409: o pedido é válido, o estado do servidor é que conflita. 400 diria que
+  // o e-mail está malformado, que é outra correção.
+  if (erro instanceof EmailJaCadastradoError) {
+    return { status: 409, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 
   if (erro instanceof ProcessoNaoEncontradoError) {

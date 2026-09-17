@@ -119,7 +119,11 @@ export class ServicoVigilanciaOab {
    * pública e compartilhada por todo o país, e paralelismo aqui é o tipo de
    * coisa que faz o CNJ bloquear o IP de todo mundo que usa a chave.
    */
-  async varrer(): Promise<ResultadoVarredura> {
+  /**
+   * @param opcoes `workspace` limita a um assinante — é o que a rota HTTP
+   *   sempre passa. A varredura agendada chama sem ele.
+   */
+  async varrer(opcoes: { workspace?: string } = {}): Promise<ResultadoVarredura> {
     if (this.varrendo) {
       this.log.warn('varredura de OAB ignorada: outra em andamento');
       return {
@@ -138,7 +142,7 @@ export class ServicoVigilanciaOab {
     let varridas = 0;
 
     try {
-      const fila = await this.vigilancias.listarParaVarrer(this.maximo);
+      const fila = await this.vigilancias.listarParaVarrer(this.maximo, opcoes.workspace);
       if (fila.length === 0) {
         return { vigilanciasVarridas: 0, processosNovos: 0, novidades: 0, falhas: 0 };
       }

@@ -129,6 +129,15 @@ const schema = z.object({
   RATE_LIMIT_WINDOW_MS: inteiroPositivo(60_000),
   /** Confia em X-Forwarded-For. Ligado por padrão: atrás do Traefik do Easypanel. */
   HTTP_TRUST_PROXY: booleano.default('true'),
+  /**
+   * Marca `Secure` no cookie de sessão. Ligado por padrão, porque produção é
+   * HTTPS atrás do Traefik.
+   *
+   * Desligue APENAS para desenvolvimento em `http://localhost` — sem HTTPS o
+   * navegador descarta o cookie em silêncio, e o sintoma é "entrei e voltei
+   * para a tela de login", que não parece problema de configuração.
+   */
+  COOKIE_SECURE: booleano.default('true'),
   /** Origens liberadas para CORS, separadas por vírgula. Vazio = CORS desligado. */
   CORS_ORIGINS: z.string().default(''),
 });
@@ -194,6 +203,7 @@ export interface Config {
     readonly rateLimitMax: number;
     readonly rateLimitJanelaMs: number;
     readonly confiarNoProxy: boolean;
+    readonly cookieSeguro: boolean;
     readonly corsOrigins: readonly string[];
   };
 }
@@ -274,6 +284,7 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
       rateLimitMax: env.RATE_LIMIT_MAX,
       rateLimitJanelaMs: env.RATE_LIMIT_WINDOW_MS,
       confiarNoProxy: env.HTTP_TRUST_PROXY,
+      cookieSeguro: env.COOKIE_SECURE,
       corsOrigins: listaSeparadaPorVirgula(env.CORS_ORIGINS),
     },
   };

@@ -20,6 +20,29 @@ import { RepositorioAcompanhamentosSqlite } from '../../src/infrastructure/persi
 import { RepositorioNotificacaoSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioNotificacaoSqlite.js';
 import { RepositorioVigilanciasSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioVigilanciasSqlite.js';
 import type { Aplicacao } from '../../src/main/factories/makeProcessoSearchService.js';
+import { ServicoContas } from '../../src/application/services/ServicoContas.js';
+import { RepositorioUsuariosSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioUsuariosSqlite.js';
+import { tokensDeSessao } from '../../src/infrastructure/seguranca/sessao.js';
+import type { HashDeSenha } from '../../src/domain/ports/Criptografia.js';
+import { SenhaFracaError } from '../../src/domain/errors/index.js';
+
+/**
+ * Hash de senha BARATO, só para teste.
+ *
+ * O scrypt de produção gasta ~100ms por verificação de propósito. Numa suíte
+ * que cria dezenas de contas isso vira meio minuto de espera, e teste lento é
+ * teste que alguém para de rodar. A porta `HashDeSenha` existe justamente para
+ * esta troca — o que se verifica aqui é o COMPORTAMENTO das contas, e o scrypt
+ * de verdade tem a suíte dele.
+ */
+export const hashDeTeste: HashDeSenha = {
+  guardar: (senha) => {
+    if (senha.length < 10) throw new SenhaFracaError(10);
+    return `teste:${senha}`;
+  },
+  conferir: (senha, guardada) => guardada === `teste:${senha}`,
+  hashDeComparacao: 'teste:__ninguem__',
+};
 
 /** Notificador que guarda o que "enviou", para o teste conferir o conteúdo. */
 export class NotificadorEspiao implements Notificador {
@@ -38,6 +61,10 @@ export interface OpcoesAplicacaoDeTeste {
   readonly buscaOab?: BuscaPorOabComPeriodo;
   readonly notificador?: Notificador;
   readonly agora?: () => Date;
+  /** Troca o hash de senha — use para testar o scrypt de verdade. */
+  readonly senhas?: HashDeSenha;
+  /** Duração da sessão; passe um valor negativo para simular sessão vencida. */
+  readonly duracaoSessaoMs?: number;
   /** Fonte de peças. Sem ela, `pecas` fica indefinida e as rotas dão 501. */
   readonly provedorDePecas?: ProvedorDePecas;
 }
@@ -116,6 +143,12 @@ export function aplicacaoDeTeste(
     vigilancia,
     notificacao,
     pecas,
+    contas: new ServicoContas({
+      repositorio: new RepositorioUsuariosSqlite(db),
+      senhas: opcoes.senhas ?? hashDeTeste,
+      tokens: tokensDeSessao,
+      duracaoSessaoMs: opcoes.duracaoSessaoMs ?? 60 * 60 * 1000,
+    }),
     preferenciasNotificacao,
     agendador: parado(),
     agendadorVigilancia: undefined,

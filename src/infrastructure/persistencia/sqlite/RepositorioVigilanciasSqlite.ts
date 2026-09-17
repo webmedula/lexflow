@@ -89,17 +89,30 @@ export class RepositorioVigilanciasSqlite implements RepositorioVigilancias {
     return linhas.map(paraDominio);
   }
 
-  async listarParaVarrer(limite: number): Promise<VigilanciaOab[]> {
+  async listarParaVarrer(limite: number, workspace?: string): Promise<VigilanciaOab[]> {
     // Quem nunca foi varrido primeiro (varrida_em NULL ordena antes), depois a
     // mais antiga. Sem isso, uma vigilância recém-criada esperaria a fila
     // inteira antes da primeira carga.
-    const linhas = this.db
-      .prepare(
-        `SELECT * FROM vigilancias_oab WHERE ativa = 1
-         ORDER BY varrida_em IS NOT NULL, varrida_em ASC
-         LIMIT ?`,
-      )
-      .all(limite) as unknown as LinhaVigilancia[];
+    //
+    // Com `workspace`, só as dele — é a varredura manual. Sem, todas, que é a
+    // agendada.
+    const linhas = (
+      workspace
+        ? this.db
+            .prepare(
+              `SELECT * FROM vigilancias_oab WHERE ativa = 1 AND workspace = ?
+               ORDER BY varrida_em IS NOT NULL, varrida_em ASC
+               LIMIT ?`,
+            )
+            .all(workspace, limite)
+        : this.db
+            .prepare(
+              `SELECT * FROM vigilancias_oab WHERE ativa = 1
+               ORDER BY varrida_em IS NOT NULL, varrida_em ASC
+               LIMIT ?`,
+            )
+            .all(limite)
+    ) as unknown as LinhaVigilancia[];
     return linhas.map(paraDominio);
   }
 
