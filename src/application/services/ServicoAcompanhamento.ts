@@ -115,6 +115,10 @@ export class ServicoAcompanhamento {
     return this.repo.listarNovidades(workspace, filtro);
   }
 
+  async contarAcompanhamentos(workspace: string): Promise<number> {
+    return this.repo.contarAcompanhamentos(workspace);
+  }
+
   async contarNaoVistas(workspace: string): Promise<number> {
     return this.repo.contarNaoVistas(workspace);
   }

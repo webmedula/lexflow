@@ -127,8 +127,16 @@ function verNovidades(){
 
   api('/v1/novidades'+(q.length?'?'+q.join('&'):'')).then(function(r){
     var h=blocoTrilha();
+    /* O número de PROCESSOS entra no subtítulo, antes do de movimentações.
+       Esta tela mostra movimentação NOVA, e processo recém-adicionado não gera
+       nenhuma — a primeira sincronização é o retrato inicial. Sem este número,
+       a tela que a pessoa vê primeiro parece dizer que ela não tem nada, logo
+       depois de ela cadastrar três processos. Aconteceu num teste real: o dado
+       estava salvo e a interface convenceu o dono de que tinha sumido. */
+    var acomp=r.acompanhados||0;
     h+='<div class="titulo-secao"><div><h2>Atualizações</h2>'+
-      '<div class="sub">'+r.total+' movimentação(ões) desde que você começou a acompanhar'+
+      '<div class="sub">'+acomp+' processo(s) acompanhado(s) · '+
+      r.total+' movimentação(ões) desde que você começou'+
       (r.naoVistas>0?' · '+r.naoVistas+' não lida(s)':'')+'</div></div><div>';
     if(r.naoVistas>0)h+='<button class="bt bt2" id="marcar">Marcar todas como lidas</button> ';
     h+='<button class="bt bt2" id="sincronizar">Verificar agora</button></div></div>';
@@ -143,10 +151,19 @@ function verNovidades(){
        '</select></div></div>';
 
     if(!r.novidades.length){
-      h+=vazio('🔔','Nada novo por aqui',
-        r.total===0
-          ? 'Assim que um processo acompanhado tiver movimentação nova, ela aparece aqui. A verificação automática roda sozinha; você também pode disparar na hora.'
-          : 'Nenhuma atualização com os filtros atuais.');
+      /* Três estados diferentes, e confundi-los foi o defeito: "não tenho
+         processo", "tenho processos e nada mudou" e "o filtro escondeu". O
+         segundo é INFORMAÇÃO — silêncio verificado —, não ausência dela. */
+      h+=q.length
+        ? vazio('🔔','Nenhuma atualização com os filtros atuais',
+            'Ajuste os filtros acima para ver mais.')
+        : acomp===0
+          ? vazio('🔔','Você ainda não acompanha nenhum processo',
+              'Adicione um processo pelo número e o LexFlow passa a verificar sozinho, avisando quando houver movimentação nova.',
+              '<button class="bt" onclick="window.__lexflow_ir(\'buscar\')">Buscar processo</button>')
+          : vazio('✓','Nenhuma movimentação nova',
+              'Seus '+acomp+' processo(s) foram verificados e nada mudou desde a última consulta. Esta tela mostra só o que é NOVO — para ver a carteira inteira, abra Meus processos.',
+              '<button class="bt bt2" onclick="window.__lexflow_ir(\'processos\')">Ver meus processos</button>');
     }else{
       h+='<div class="cartao">';
       r.novidades.forEach(function(n){
@@ -230,6 +247,19 @@ function verProcessos(){
       '<div class="compacto"><button class="chip'+(f.novidade?' on':'')+'" id="f-nv">Com novidade</button></div>'+
       '</div>';
 
+    /* Filtro ativo que esconde processo PRECISA se anunciar.
+       Estes filtros vivem numa variável global da página: sobrevivem a trocar
+       de aba e só somem quando a página recarrega. Foi assim que um filtro
+       esquecido fez a carteira parecer ter um processo em vez de três — e só
+       sair e entrar de novo "resolveu", o que é o pior tipo de conserto,
+       porque não ensina nada e deixa a desconfiança. */
+    var totalReal=(r.totalSemFiltro===undefined?r.total:r.totalSemFiltro);
+    if(r.total<totalReal){
+      h+='<div class="aviso" style="margin-bottom:12px">Mostrando <b>'+r.total+
+        '</b> de <b>'+totalReal+'</b> processos — há filtro ativo. '+
+        '<button class="link" id="limpar-f">limpar filtros</button></div>';
+    }
+
     if(!r.acompanhamentos.length){
       h+=vazio('📁',
         (q.length?'Nenhum processo com esses filtros':'Você ainda não acompanha nenhum processo'),
@@ -255,8 +285,16 @@ function verProcessos(){
     alvo.innerHTML=h;
 
     $('ir-buscar').addEventListener('click',function(){ir('buscar')});
-    var setF=function(k,v){window.__f_pr=Object.assign({},window.__f_pr,
-      k==='reset'?{}:(function(o){o[k]=v;return o})({}));verProcessos()};
+    /* ATENÇÃO ao ramo de reset: a versão anterior fazia
+       Object.assign({}, __f_pr, {}) — que MANTÉM tudo, em vez de limpar. O
+       botão de limpar filtros existia e não limpava nada. */
+    var setF=function(k,v){
+      if(k==='reset'){window.__f_pr={}}
+      else{var o={};o[k]=v;window.__f_pr=Object.assign({},window.__f_pr,o)}
+      verProcessos();
+    };
+    var lf=$('limpar-f');
+    if(lf)lf.addEventListener('click',function(){setF('reset')});
     $('f-trib').addEventListener('change',function(){setF('tribunal',this.value)});
     $('f-cls').addEventListener('change',function(){setF('classe',this.value)});
     $('f-dias').addEventListener('change',function(){setF('dias',this.value)});

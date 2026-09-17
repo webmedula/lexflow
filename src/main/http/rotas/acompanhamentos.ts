@@ -109,7 +109,15 @@ export function rotasDeAcompanhamento(
             : {}),
           ...(q.ordem ? { ordem: q.ordem } : {}),
         });
-        return { total: lista.length, acompanhamentos: lista.map(resumoJson) };
+        return {
+          total: lista.length,
+          // O total SEM filtro vai junto, sempre. É o que permite a tela dizer
+          // "mostrando 1 de 3" em vez de mostrar 1 e calar sobre os outros 2 —
+          // que foi como um filtro esquecido convenceu o dono do produto de que
+          // o sistema tinha perdido processos.
+          totalSemFiltro: await servico.contarAcompanhamentos(workspaceDe(req)),
+          acompanhamentos: lista.map(resumoJson),
+        };
       },
     );
 
@@ -173,6 +181,16 @@ export function rotasDeAcompanhamento(
       return {
         total: lista.length,
         naoVistas: await servico.contarNaoVistas(ws),
+        // Quantos processos o assinante acompanha.
+        //
+        // Vai JUNTO das novidades porque a tela inicial mostra movimentação
+        // NOVA, e um processo recém-adicionado não gera nenhuma — a primeira
+        // sincronização é o retrato inicial, não novidade. Sem este número, a
+        // tela que a pessoa vê primeiro parece dizer que ela não tem nada,
+        // logo depois de ela ter cadastrado três processos. Foi exatamente o
+        // que aconteceu num teste real: o dado estava salvo, e a interface
+        // convenceu o dono de que tinha sumido.
+        acompanhados: await servico.contarAcompanhamentos(ws),
         novidades: lista.map(novidadeJson),
       };
     });

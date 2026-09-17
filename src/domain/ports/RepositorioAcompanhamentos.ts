@@ -77,6 +77,15 @@ export interface RepositorioAcompanhamentos {
 
   contarNaoVistas(workspace: string): Promise<number>;
 
+  /**
+   * Quantos processos o assinante acompanha.
+   *
+   * Existe como COUNT próprio, e não como `listar().length`, porque a tela
+   * inicial pede esse número a cada abertura — e `listar` desserializa o JSON
+   * do processo de cada linha, que é dezenas de KB por processo.
+   */
+  contarAcompanhamentos(workspace: string): Promise<number>;
+
   /** Marca como lidas. Sem `numero`, marca todas do workspace. */
   marcarComoVistas(workspace: string, numero?: string): Promise<number>;
 

@@ -445,3 +445,169 @@ describe('Contas — troca de senha', () => {
     expect(nova.statusCode).toBe(200);
   });
 });
+
+/**
+ * A tela inicial mostra movimentação NOVA, e um processo recém-adicionado não
+ * gera nenhuma — a primeira sincronização é o retrato inicial, de propósito.
+ *
+ * Isso enganou o dono do produto num teste real: ele cadastrou três processos,
+ * abriu a tela inicial, viu um item e concluiu que só um tinha sido salvo. O
+ * banco tinha os três. O defeito não era perda de dado; era a tela não dizer
+ * quantos processos existem.
+ */
+describe('Tela inicial — quantos processos a pessoa acompanha', () => {
+  let servidor: FastifyInstance;
+  let cookie: string;
+
+  beforeEach(async () => {
+    servidor = montar().servidor;
+    cookie = cookieDe(
+      await servidor.inject({
+        method: 'POST',
+        url: '/v1/contas',
+        payload: { nome: 'Maria', email: 'maria@escritorio.com.br', senha: SENHA },
+      }),
+    );
+  });
+  afterEach(async () => {
+    await servidor.close();
+  });
+
+  it('conta zero numa conta nova', async () => {
+    const r = await servidor.inject({
+      method: 'GET',
+      url: '/v1/novidades',
+      headers: { cookie },
+    });
+    expect(r.json().acompanhados).toBe(0);
+  });
+
+  it('conta os processos acompanhados mesmo sem nenhuma novidade', async () => {
+    for (const numero of [
+      '0311517-22.2015.8.09.0051',
+      '5818922-04.2026.8.09.0011',
+      '1234567-47.2023.8.26.0100',
+    ]) {
+      await servidor.inject({
+        method: 'POST',
+        url: '/v1/acompanhamentos',
+        headers: { cookie },
+        payload: { numero },
+      });
+    }
+
+    const r = await servidor.inject({
+      method: 'GET',
+      url: '/v1/novidades',
+      headers: { cookie },
+    });
+
+    // Zero novidades E três processos ao mesmo tempo: é exatamente o estado
+    // que a tela precisa saber distinguir de "você não tem nada".
+    expect(r.json().novidades).toHaveLength(0);
+    expect(r.json().acompanhados).toBe(3);
+  });
+
+  it('não conta os processos de outro assinante', async () => {
+    const outro = cookieDe(
+      await servidor.inject({
+        method: 'POST',
+        url: '/v1/contas',
+        payload: { nome: 'Bruno', email: 'bruno@b.com.br', senha: SENHA },
+      }),
+    );
+    await servidor.inject({
+      method: 'POST',
+      url: '/v1/acompanhamentos',
+      headers: { cookie: outro },
+      payload: { numero: '0311517-22.2015.8.09.0051' },
+    });
+
+    const r = await servidor.inject({
+      method: 'GET',
+      url: '/v1/novidades',
+      headers: { cookie },
+    });
+    expect(r.json().acompanhados).toBe(0);
+  });
+});
+
+/**
+ * Os filtros da tela de processos vivem numa variável global da página:
+ * sobrevivem a trocar de aba e só somem quando a página recarrega. Um filtro
+ * esquecido fez a carteira parecer ter um processo em vez de três, e "sair e
+ * entrar de novo" resolveu — que é o pior tipo de conserto, porque não explica
+ * nada e deixa a desconfiança de pé.
+ *
+ * A defesa é o servidor dizer SEMPRE o total real, para a tela nunca poder
+ * mostrar um subconjunto calada.
+ */
+describe('Listagem de processos — o total real vai junto', () => {
+  let servidor: FastifyInstance;
+  let cookie: string;
+
+  beforeEach(async () => {
+    servidor = montar().servidor;
+    cookie = cookieDe(
+      await servidor.inject({
+        method: 'POST',
+        url: '/v1/contas',
+        payload: { nome: 'Maria', email: 'maria@escritorio.com.br', senha: SENHA },
+      }),
+    );
+    for (const numero of [
+      '0311517-22.2015.8.09.0051',
+      '5818922-04.2026.8.09.0011',
+      '1234567-47.2023.8.26.0100',
+    ]) {
+      await servidor.inject({
+        method: 'POST',
+        url: '/v1/acompanhamentos',
+        headers: { cookie },
+        payload: { numero },
+      });
+    }
+  });
+  afterEach(async () => {
+    await servidor.close();
+  });
+
+  it('sem filtro, os dois totais coincidem', async () => {
+    const r = await servidor.inject({
+      method: 'GET',
+      url: '/v1/acompanhamentos',
+      headers: { cookie },
+    });
+    expect(r.json().total).toBe(3);
+    expect(r.json().totalSemFiltro).toBe(3);
+  });
+
+  it('com filtro, o total real continua aparecendo', async () => {
+    const r = await servidor.inject({
+      method: 'GET',
+      url: '/v1/acompanhamentos?texto=0311517',
+      headers: { cookie },
+    });
+
+    // É esta diferença que a tela usa para dizer "mostrando 1 de 3" em vez de
+    // mostrar um e calar sobre os outros dois.
+    expect(r.json().total).toBe(1);
+    expect(r.json().totalSemFiltro).toBe(3);
+  });
+
+  it('o total real é o do assinante, não o do servidor', async () => {
+    const outro = cookieDe(
+      await servidor.inject({
+        method: 'POST',
+        url: '/v1/contas',
+        payload: { nome: 'Bruno', email: 'bruno@b.com.br', senha: SENHA },
+      }),
+    );
+    const r = await servidor.inject({
+      method: 'GET',
+      url: '/v1/acompanhamentos',
+      headers: { cookie: outro },
+    });
+    expect(r.json().totalSemFiltro).toBe(0);
+  });
+});

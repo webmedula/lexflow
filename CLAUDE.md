@@ -481,6 +481,12 @@ Não são detalhes — moldam o código.
   opcional: avisar quando há novidade **e avisar quando não conseguimos
   verificar**. Nunca entregue a primeira sem a segunda — trocaria uma incerteza
   conhecida por falsa segurança.
+- **Toda listagem filtrável devolve o total SEM filtro junto do filtrado**, e
+  toda tela que esconde linha diz quantas escondeu. Os filtros do console vivem
+  em variável global da página: sobrevivem a trocar de aba e só somem quando a
+  página recarrega. Um filtro esquecido fez a carteira parecer ter um processo
+  em vez de três, e "sair e entrar" resolveu — conserto que não explica nada e
+  deixa a desconfiança. O custo da prevenção é um COUNT.
 - **Triagem ordena, nunca esconde.** `exigeAcao === false` serve para destacar o
   que importa, jamais para filtrar andamento fora da tela. Sumir com um ato
   porque a expressão regular não reconheceu o verbo é exatamente como se perde

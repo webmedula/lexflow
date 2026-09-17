@@ -9,6 +9,84 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.14.2] — 2026-09-17
+
+**Um filtro esquecido, e a carteira parecia ter um processo em vez de três.**
+
+A v0.14.1 tratou metade do problema — a tela inicial não dizia quantos
+processos existem. Mas o relato seguinte foi decisivo: *"eu saí e entrei e
+apareceram os processos"*. Sair e entrar recarrega a página, e recarregar a
+página apaga as variáveis globais onde os filtros da tela de processos moram.
+
+Ou seja: havia um filtro ativo. Ele sobrevivia a trocar de aba, a abrir
+processo, a voltar — só morria com um recarregamento. E a tela mostrava o
+subconjunto sem dizer que era um subconjunto.
+
+"Sair e entrar resolveu" é o pior tipo de conserto: não explica nada e deixa a
+desconfiança de pé para a próxima vez que algo parecer estranho.
+
+### Corrigido
+
+- **O botão de limpar filtros não limpava.** `Object.assign({}, filtros, {})`
+  mantém tudo — o ramo de reset construía um objeto vazio e mesclava, o que é
+  uma operação nula. Estava ali desde que a tela existe, aparentando funcionar.
+- **`GET /v1/acompanhamentos` passa a devolver `totalSemFiltro`.** O total real
+  da carteira acompanha toda listagem, sempre.
+- **A tela avisa quando está escondendo algo**: "Mostrando 1 de 3 processos —
+  há filtro ativo", com o botão de limpar ao lado. Interface que mostra um
+  subconjunto calada é como se perde a confiança no dado.
+
+### A regra que fica
+
+Toda listagem filtrável devolve o total **sem filtro** junto do filtrado, e
+toda tela que esconde linha diz quantas escondeu. Vale para processos,
+novidades e o que vier — o custo é um COUNT, e o preço de não fazer foi o dono
+do produto achando que o sistema tinha perdido os dados dele.
+
+---
+
+## [0.14.1] — 2026-09-17
+
+**A tela inicial convenceu o dono de que o sistema tinha perdido dados.**
+
+Ele cadastrou três processos numa conta nova, abriu o LexFlow, viu **um** item e
+concluiu que só um tinha sido salvo. O banco tinha os três, íntegros, com
+tribunal, classe e retrato completo. A consulta que a tela faz devolvia os três.
+
+O que acontecia: a tela inicial mostra movimentação **nova**, e processo
+recém-adicionado não gera nenhuma — a primeira sincronização é o retrato
+inicial, e transformá-la em novidade encheria o feed de dezenas de avisos
+falsos no primeiro dia. Dos três processos, só um tinha sido varrido uma
+segunda vez pelo agendador; só ele tinha novidade; só ele aparecia.
+
+Nada estava quebrado, e era esse o problema: a interface não dava como
+distinguir "não tenho processo" de "tenho processos e nada mudou". Perda de
+confiança no dado é mais cara do que perda de dado — a segunda se conserta.
+
+### Corrigido
+
+- `GET /v1/novidades` passa a devolver **`acompanhados`**, a contagem de
+  processos do assinante (COUNT próprio, não `listar().length`, que
+  desserializaria dezenas de KB de JSON por linha a cada abertura da tela).
+- A tela inicial mostra esse número no subtítulo, **antes** do de movimentações.
+- O estado vazio virou três estados, que antes eram dois e se confundiam:
+  - nenhum processo → convite para adicionar o primeiro;
+  - processos sem movimentação nova → **"Seus N processos foram verificados e
+    nada mudou"**, com atalho para Meus processos. Silêncio verificado é
+    informação, não ausência dela — é a mesma regra que obriga a notificação a
+    avisar quando NÃO conseguimos verificar;
+  - filtro ativo escondendo tudo → dizer que é o filtro.
+
+### Verificado com o tribunal, não deduzido
+
+O MNI do TJGO entrega peça **somente onde o advogado está habilitado nos
+autos**. Medido com a mesma credencial em dois processos: no dele, 278
+documentos e PDF baixando; no de outro advogado, sem acesso às peças. O
+controle é do tribunal, e o LexFlow não precisa — nem deve — replicá-lo.
+Para a venda: "as peças dos **seus** processos".
+
+---
+
 ## [0.14.0] — 2026-09-16
 
 **Cada advogado com o seu ambiente.**

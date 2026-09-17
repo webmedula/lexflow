@@ -49,6 +49,13 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
     return criado;
   }
 
+  async contarAcompanhamentos(workspace: string): Promise<number> {
+    const linha = this.db
+      .prepare('SELECT COUNT(*) AS n FROM acompanhamentos WHERE workspace = ?')
+      .get(workspace) as unknown as { n: number };
+    return Number(linha.n);
+  }
+
   async deixarDeAcompanhar(workspace: string, numero: string): Promise<boolean> {
     const r = this.db
       .prepare('DELETE FROM acompanhamentos WHERE workspace = ? AND numero = ?')
