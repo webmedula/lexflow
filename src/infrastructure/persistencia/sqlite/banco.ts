@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { paraBusca } from '../normalizacaoBusca.js';
 
 /**
  * Banco embutido, via `node:sqlite`.
@@ -31,6 +32,14 @@ const ESQUEMA = [
      tribunal        TEXT,
      classe          TEXT,
      ultima_mov_data TEXT,
+     -- Nomes das partes, em MAIÚSCULAS, separados por " | ".
+     --
+     -- Desnormalizado pelo mesmo motivo de tribunal e classe: o filtro "quais
+     -- processos são do meu cliente X" é o que o advogado mais faz numa
+     -- carteira grande, e resolvê-lo com json_each sobre o processo inteiro
+     -- significaria desserializar ~100 KB por linha a cada tecla digitada.
+     -- Numa carteira de 2.000 processos isso é 200 MB de JSON por busca.
+     partes_texto    TEXT,
      PRIMARY KEY (workspace, numero)
    )`,
   `CREATE INDEX IF NOT EXISTS idx_acomp_ws_mov
@@ -172,6 +181,84 @@ export function abrirBanco(caminho: string): DatabaseSync {
   db.exec('PRAGMA busy_timeout = 5000');
 
   for (const ddl of ESQUEMA) db.exec(ddl);
+  migrarColunas(db);
+  preencherPartesTexto(db);
 
   return db;
+}
+
+/**
+ * Colunas acrescentadas depois que a tabela já existia em produção.
+ *
+ * `CREATE TABLE IF NOT EXISTS` não resolve isto: num banco que já tem a tabela,
+ * ele não faz nada, e a coluna nova nunca aparece. E `ALTER TABLE ADD COLUMN`
+ * estoura se a coluna já está lá — então a checagem no `PRAGMA table_info`
+ * precede a alteração. Sem os dois passos, ou o deploy quebra ou a coluna
+ * simplesmente não existe, e o sintoma aparece como "o filtro não acha nada".
+ */
+const COLUNAS_ACRESCENTADAS: ReadonlyArray<{
+  readonly tabela: string;
+  readonly coluna: string;
+  readonly tipo: string;
+}> = [{ tabela: 'acompanhamentos', coluna: 'partes_texto', tipo: 'TEXT' }];
+
+function migrarColunas(db: DatabaseSync): void {
+  for (const { tabela, coluna, tipo } of COLUNAS_ACRESCENTADAS) {
+    const colunas = db.prepare(`PRAGMA table_info(${tabela})`).all() as Array<{
+      name: string;
+    }>;
+    if (colunas.some((c) => c.name === coluna)) continue;
+    db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${tipo}`);
+  }
+}
+
+/**
+ * Retrocarga das partes nos processos já guardados.
+ *
+ * Por que retrocarregar em vez de esperar a próxima varredura: sem isso o
+ * filtro por parte encontraria apenas os processos sincronizados DEPOIS da
+ * atualização, e ficaria calado sobre os outros. Mostrar subconjunto em
+ * silêncio é justamente o que este projeto já pagou caro para aprender.
+ *
+ * **Por que em JavaScript e não em SQL puro**, que era a primeira versão: o
+ * `upper()` do SQLite é ASCII-only. `upper('José')` devolve `JOSé`. A
+ * retrocarga em SQL gravaria uma forma e as sincronizações seguintes outra, e o
+ * filtro acharia uns nomes e não outros — sem erro nenhum. A normalização mora
+ * em `paraBusca`, e é a MESMA usada na gravação e na consulta.
+ *
+ * Só toca linhas sem o campo, então na segunda subida não faz trabalho nenhum.
+ * Numa carteira grande isso é uma passada única, no arranque, e não por
+ * requisição.
+ */
+function preencherPartesTexto(db: DatabaseSync): void {
+  const pendentes = db
+    .prepare(
+      `SELECT workspace, numero, processo FROM acompanhamentos
+        WHERE partes_texto IS NULL AND processo IS NOT NULL`,
+    )
+    .all() as Array<{ workspace: string; numero: string; processo: string }>;
+  if (pendentes.length === 0) return;
+
+  const gravar = db.prepare(
+    'UPDATE acompanhamentos SET partes_texto = ? WHERE workspace = ? AND numero = ?',
+  );
+
+  for (const linha of pendentes) {
+    let nomes: string[] = [];
+    try {
+      const bruto = JSON.parse(linha.processo) as { partes?: Array<{ nome?: string }> };
+      nomes = (bruto.partes ?? [])
+        .map((p) => (p.nome ?? '').trim())
+        .filter((n) => n.length > 0);
+    } catch {
+      // Linha com JSON corrompido não derruba o arranque do servidor inteiro.
+      // Ela fica sem o campo e volta a ser candidata na próxima subida — e a
+      // próxima sincronização do processo resolve de vez.
+      continue;
+    }
+    // Grava string vazia, e não NULL, para um processo que realmente não tem
+    // parte: NULL o traria de volta nesta consulta a cada arranque, para
+    // sempre.
+    gravar.run(nomes.length > 0 ? paraBusca(nomes.join(' | ')) : '', linha.workspace, linha.numero);
+  }
 }

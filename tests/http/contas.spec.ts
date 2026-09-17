@@ -5,7 +5,7 @@ import type { Config } from '../../src/infrastructure/config/env.js';
 import { construirServidor } from '../../src/main/http/servidor.js';
 import { aplicacaoDeTeste } from '../helpers/aplicacao.js';
 import type { OpcoesAplicacaoDeTeste } from '../helpers/aplicacao.js';
-import { ProviderFalso } from '../helpers/fabricas.js';
+import { ProviderFalso, umProcesso } from '../helpers/fabricas.js';
 import type { Aplicacao } from '../../src/main/factories/makeProcessoSearchService.js';
 
 const CHAVE = 'chave-de-teste-1234567890';
@@ -609,5 +609,114 @@ describe('Listagem de processos — o total real vai junto', () => {
       headers: { cookie: outro },
     });
     expect(r.json().totalSemFiltro).toBe(0);
+  });
+});
+
+/**
+ * O filtro por PARTE é o que o advogado mais usa numa carteira grande: "quais
+ * destes são do meu cliente X". Vive numa coluna desnormalizada, e não num
+ * json_extract por linha, porque o segundo desserializaria ~100 KB de processo
+ * por linha a cada tecla digitada.
+ */
+describe('Meus processos — filtro por parte', () => {
+  let servidor: FastifyInstance;
+  let cookie: string;
+  const CLIENTE = 'CONDOMINIO SUNSQUARE';
+
+  beforeEach(async () => {
+    // Provider próprio: o processo padrão das fábricas não tem partes, e sem
+    // partes não há o que filtrar. Aqui o dublê devolve o cliente de verdade.
+    const app = aplicacaoDeTeste([
+      new ProviderFalso({
+        nome: 'falso',
+        porNumero: async () =>
+          umProcesso({
+            partes: [
+              { nome: CLIENTE, polo: 'ATIVO', tipoPessoa: 'JURIDICA', advogados: [] },
+              { nome: 'Outra Parte Qualquer', polo: 'PASSIVO', tipoPessoa: 'FISICA', advogados: [] },
+            ],
+          }),
+      }),
+    ]);
+    servidor = construirServidor(app, config());
+    cookie = cookieDe(
+      await servidor.inject({
+        method: 'POST',
+        url: '/v1/contas',
+        payload: { nome: 'Maria', email: 'maria@escritorio.com.br', senha: SENHA },
+      }),
+    );
+    await servidor.inject({
+      method: 'POST',
+      url: '/v1/acompanhamentos',
+      headers: { cookie },
+      payload: { numero: '0311517-22.2015.8.09.0051' },
+    });
+  });
+  afterEach(async () => {
+    await servidor.close();
+  });
+
+  async function lista(query = ''): Promise<{
+    total: number;
+    totalSemFiltro: number;
+    acompanhamentos: Array<{ partes: Array<{ nome: string; polo: string }> }>;
+  }> {
+    const r = await servidor.inject({
+      method: 'GET',
+      url: `/v1/acompanhamentos${query}`,
+      headers: { cookie },
+    });
+    return r.json();
+  }
+
+  it('devolve as partes no resumo da lista', async () => {
+    // Sem isto, achar os processos de um cliente exige abrir um por um.
+    const r = await lista();
+    expect(Array.isArray(r.acompanhamentos[0]?.partes)).toBe(true);
+    expect(r.acompanhamentos[0]?.partes.length).toBeGreaterThan(0);
+    expect(r.acompanhamentos[0]?.partes[0]).toHaveProperty('nome');
+    expect(r.acompanhamentos[0]?.partes[0]).toHaveProperty('polo');
+  });
+
+  it('acha a parte ignorando a caixa', async () => {
+    // O tribunal grava "CONDOMINIO SUNSQUARE" e o advogado digita "sunsquare".
+    // Sem normalizar as duas pontas, o filtro não acha e parece que o cliente
+    // não tem processo.
+    expect((await lista('?parte=sunsquare')).total).toBe(1);
+    expect((await lista('?parte=SunSquare')).total).toBe(1);
+  });
+
+  it('acha por trecho do meio do nome', async () => {
+    // Ninguém digita a razão social inteira.
+    expect((await lista('?parte=SQUARE')).total).toBe(1);
+  });
+
+  it('acha também a outra parte, não só a do polo ativo', async () => {
+    expect((await lista('?parte=outra parte')).total).toBe(1);
+  });
+
+  it('não acha quem não é parte', async () => {
+    const r = await lista('?parte=empresa-que-nao-existe-nos-autos');
+    expect(r.total).toBe(0);
+    // O total real continua aparecendo: a tela nunca mostra recorte calada.
+    expect(r.totalSemFiltro).toBe(1);
+  });
+
+  it('o filtro por parte respeita o isolamento entre contas', async () => {
+    const outro = cookieDe(
+      await servidor.inject({
+        method: 'POST',
+        url: '/v1/contas',
+        payload: { nome: 'Bruno', email: 'bruno@b.com.br', senha: SENHA },
+      }),
+    );
+
+    const r = await servidor.inject({
+      method: 'GET',
+      url: `/v1/acompanhamentos?parte=${encodeURIComponent(CLIENTE)}`,
+      headers: { cookie: outro },
+    });
+    expect(r.json().total).toBe(0);
   });
 });

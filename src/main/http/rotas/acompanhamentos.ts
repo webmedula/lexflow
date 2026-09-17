@@ -38,6 +38,16 @@ function resumoJson(a: AcompanhamentoResumido): Record<string, unknown> {
     assunto: p?.assunto,
     vara: p?.vara,
     segredoJustica: p?.segredoJustica ?? false,
+    // As PARTES entram no resumo da lista.
+    //
+    // Sem elas, achar "os processos do cliente X" obriga a abrir um por um —
+    // e numa carteira de centenas isso é o trabalho que o sistema existe para
+    // fazer. Só nome e polo: advogados de cada parte ficam para a tela do
+    // processo, senão a listagem cresce sem que a lista mostre isso.
+    partes: (p?.partes ?? []).map((parte) => ({
+      nome: parte.nome,
+      polo: parte.polo,
+    })),
     totalMovimentacoes: p?.movimentacoes.length ?? 0,
     ultimaMovimentacao: a.ultimaMovimentacao
       ? { data: a.ultimaMovimentacao.data.toISOString(), titulo: a.ultimaMovimentacao.titulo }
@@ -76,6 +86,8 @@ function novidadeJson(n: Novidade): Record<string, unknown> {
 interface QueryLista {
   texto?: string;
   tribunal?: string;
+  /** Nome de uma parte. Filtro próprio, não é o mesmo que `texto` — ver a porta. */
+  parte?: string;
   classe?: string;
   comNovidade?: string;
   ultimosDias?: string;
@@ -102,9 +114,10 @@ export function rotasDeAcompanhamento(
         const lista = await servico.listar(workspaceDe(req), {
           ...(q.texto ? { texto: q.texto } : {}),
           ...(q.tribunal ? { tribunal: q.tribunal } : {}),
+          ...(q.parte ? { parte: q.parte } : {}),
           ...(q.classe ? { classe: q.classe } : {}),
           ...(verdadeiro(q.comNovidade) ? { somenteComNovidade: true } : {}),
-            ...(diasValidos(q.ultimosDias) !== undefined
+          ...(diasValidos(q.ultimosDias) !== undefined
             ? { movimentadoNosUltimosDias: diasValidos(q.ultimosDias) as number }
             : {}),
           ...(q.ordem ? { ordem: q.ordem } : {}),

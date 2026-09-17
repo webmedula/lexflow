@@ -190,6 +190,14 @@ function verNovidades(){
       window.__f_nv_trib=this.value;verNovidades()});
     alvo.querySelectorAll('[data-abrir]').forEach(function(el){
       el.addEventListener('click',function(){abrir(el.getAttribute('data-abrir'))})});
+
+    /* A tela é redesenhada a cada filtro, o que apaga o foco — quem estava
+       digitando perderia o campo no meio da palavra. Devolver o cursor ao fim
+       do texto é o que faz a busca parecer instantânea em vez de truncada. */
+    if(f.__focado){
+      var fc=$(f.__focado);
+      if(fc){fc.focus();fc.setSelectionRange(fc.value.length,fc.value.length)}
+    }
   }).catch(function(e){alvo.innerHTML=erroBloco(e)});
 }
 
@@ -222,6 +230,7 @@ function verProcessos(){
   var q=[];
   if(f.texto)q.push('texto='+encodeURIComponent(f.texto));
   if(f.tribunal)q.push('tribunal='+encodeURIComponent(f.tribunal));
+  if(f.parte)q.push('parte='+encodeURIComponent(f.parte));
   if(f.classe)q.push('classe='+encodeURIComponent(f.classe));
   if(f.novidade)q.push('comNovidade=true');
   if(f.dias)q.push('ultimosDias='+f.dias);
@@ -232,16 +241,29 @@ function verProcessos(){
       '<div class="sub">'+r.total+' acompanhado(s)</div></div>'+
       '<button class="bt" id="ir-buscar">Adicionar processo</button></div>';
 
+    /* Os rótulos existem porque sem eles a barra vira uma fileira de caixas
+       mudas: quem abre a tela não sabe que aquele "Tribunal" é um filtro e não
+       o tribunal do primeiro processo. Numa carteira de centenas, filtro que
+       não se anuncia é filtro que ninguém usa. */
     h+='<div class="filtros">'+
-      '<div style="flex:2 1 220px"><input id="f-txt" placeholder="Buscar por número, apelido, vara…" value="'+esc(f.texto||'')+'"></div>'+
-      '<div><select id="f-trib"><option value="">Tribunal</option>'+
+      '<div style="flex:2 1 200px"><label class="rotulo" for="f-parte">Parte</label>'+
+        '<input id="f-parte" placeholder="nome do cliente ou da outra parte" '+
+        'value="'+esc(f.parte||'')+'"></div>'+
+      '<div style="flex:2 1 200px"><label class="rotulo" for="f-txt">Busca livre</label>'+
+        '<input id="f-txt" placeholder="número, apelido, vara, texto do ato…" '+
+        'value="'+esc(f.texto||'')+'"></div>'+
+      '<div><label class="rotulo" for="f-trib">Tribunal</label>'+
+        '<select id="f-trib"><option value="">Todos</option>'+
         estado.facetas.tribunais.map(function(t){return '<option'+(f.tribunal===t?' selected':'')+'>'+esc(t)+'</option>'}).join('')+'</select></div>'+
-      '<div><select id="f-cls"><option value="">Classe</option>'+
-        estado.facetas.classes.map(function(c){return '<option'+(f.classe===c?' selected':'')+'>'+esc(c)+'</option>'}).join('')+'</select></div>'+
-      '<div><select id="f-dias"><option value="">Qualquer período</option>'+
+      '<div><label class="rotulo" for="f-cls">Classe</label>'+
+        '<select id="f-cls"><option value="">Todas</option>'+
+        estado.facetas.classes.map(function(c){return '<option value="'+esc(c)+'"'+(f.classe===c?' selected':'')+'>'+esc(titulo(c))+'</option>'}).join('')+'</select></div>'+
+      '<div><label class="rotulo" for="f-dias">Movimentado em</label>'+
+        '<select id="f-dias"><option value="">Qualquer período</option>'+
         [['7','Últimos 7 dias'],['30','Últimos 30 dias'],['90','Últimos 90 dias'],['365','Último ano']]
           .map(function(o){return '<option value="'+o[0]+'"'+(f.dias===o[0]?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select></div>'+
-      '<div><select id="f-ord">'+
+      '<div><label class="rotulo" for="f-ord">Ordenar por</label>'+
+        '<select id="f-ord">'+
         [['MOVIMENTACAO_RECENTE','Movimentação recente'],['ADICIONADO_RECENTE','Adicionado recente'],['NUMERO','Número']]
           .map(function(o){return '<option value="'+o[0]+'"'+(f.ordem===o[0]?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select></div>'+
       '<div class="compacto"><button class="chip'+(f.novidade?' on':'')+'" id="f-nv">Com novidade</button></div>'+
@@ -268,6 +290,14 @@ function verProcessos(){
         q.length?'':'<button class="bt" onclick="window.__lexflow_ir(\'buscar\')">Buscar processo</button>');
     }else{
       r.acompanhamentos.forEach(function(a){
+        /* Até quatro partes por linha, com o polo em palavra. A carteira é o
+           lugar onde o advogado procura "os processos do cliente X", e sem os
+           nomes ele abre um por um — o trabalho que o sistema existe para
+           fazer. O resto vira "+N" e fica na tela do processo. */
+        var partes=(a.partes||[]).slice(0,4).map(function(x){
+          return '<span class="selo'+(x.polo==='ATIVO'?' nv':'')+'">'+
+            esc(rotuloPolo(x.polo))+'</span> '+esc(x.nome)}).join(' · ');
+        var resto=(a.partes||[]).length-4;
         h+='<button class="item'+(a.novidadesNaoVistas>0?' novo':'')+'" data-abrir="'+esc(a.numero)+'">'+
           '<div class="lin1"><span class="n">'+esc(a.numero)+'</span>'+
           (a.apelido?'<span class="ap">'+esc(a.apelido)+'</span>':'')+
@@ -275,7 +305,9 @@ function verProcessos(){
           (a.segredoJustica?'<span class="selo al">segredo</span>':'')+
           (a.erro?'<span class="selo al">erro</span>':'')+'</div>'+
           '<div class="lin2">'+esc(a.tribunal||'—')+' · '+
-            esc(titulo(a.classe)||'classe não informada')+'</div>'+
+            esc(titulo(a.classe)||'classe não informada')+
+            (a.vara?' · '+esc(a.vara):'')+'</div>'+
+          (partes?'<div class="lin3">'+partes+(resto>0?' · <span class="cp">+'+resto+'</span>':'')+'</div>':'')+
           '<div class="lin3">'+
             (a.ultimaMovimentacao
               ? esc(a.ultimaMovimentacao.titulo)+' · '+dt(a.ultimaMovimentacao.data)+' ('+humano(a.ultimaMovimentacao.data)+')'
@@ -291,7 +323,13 @@ function verProcessos(){
        botão de limpar filtros existia e não limpava nada. */
     var setF=function(k,v){
       if(k==='reset'){window.__f_pr={}}
-      else{var o={};o[k]=v;window.__f_pr=Object.assign({},window.__f_pr,o)}
+      else{
+        var o={};o[k]=v;
+        // Guarda quem tem o foco para devolvê-lo depois do redesenho.
+        var ativo=document.activeElement;
+        o.__focado=(ativo&&(ativo.id==='f-txt'||ativo.id==='f-parte'))?ativo.id:null;
+        window.__f_pr=Object.assign({},window.__f_pr,o);
+      }
       verProcessos();
     };
     var lf=$('limpar-f');
@@ -301,10 +339,27 @@ function verProcessos(){
     $('f-dias').addEventListener('change',function(){setF('dias',this.value)});
     $('f-ord').addEventListener('change',function(){setF('ordem',this.value)});
     $('f-nv').addEventListener('click',function(){setF('novidade',!f.novidade)});
-    var t; $('f-txt').addEventListener('input',function(){
-      var v=this.value;clearTimeout(t);t=setTimeout(function(){setF('texto',v)},350)});
+    /* Os dois campos de texto esperam 350ms antes de consultar: cada tecla
+       dispararia uma ida ao banco e um redesenho, e o cursor saltaria. */
+    var t;
+    var comAtraso=function(campo,chave){
+      var el=$(campo); if(!el)return;
+      el.addEventListener('input',function(){
+        var v=this.value;clearTimeout(t);
+        t=setTimeout(function(){setF(chave,v)},350)});
+    };
+    comAtraso('f-txt','texto');
+    comAtraso('f-parte','parte');
     alvo.querySelectorAll('[data-abrir]').forEach(function(el){
       el.addEventListener('click',function(){abrir(el.getAttribute('data-abrir'))})});
+
+    /* A tela é redesenhada a cada filtro, o que apaga o foco — quem estava
+       digitando perderia o campo no meio da palavra. Devolver o cursor ao fim
+       do texto é o que faz a busca parecer instantânea em vez de truncada. */
+    if(f.__focado){
+      var fc=$(f.__focado);
+      if(fc){fc.focus();fc.setSelectionRange(fc.value.length,fc.value.length)}
+    }
   }).catch(function(e){alvo.innerHTML=erroBloco(e)});
 }
 

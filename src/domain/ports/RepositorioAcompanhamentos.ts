@@ -8,6 +8,15 @@ export interface FiltroAcompanhamentos {
   readonly texto?: string;
   readonly tribunal?: string;
   readonly classe?: string;
+  /**
+   * Nome (ou parte do nome) de uma PARTE do processo.
+   *
+   * Separado de `texto` porque responde outra pergunta. `texto` varre o JSON
+   * inteiro e casa com qualquer menção — inclusive dentro de um despacho, o
+   * que traz processo em que o cliente é só citado. Este casa apenas com quem
+   * consta como parte, e é o filtro de "quais processos são do cliente X".
+   */
+  readonly parte?: string;
   /** Só os que têm novidade não lida. */
   readonly somenteComNovidade?: boolean;
   /** Última movimentação nos últimos N dias. */

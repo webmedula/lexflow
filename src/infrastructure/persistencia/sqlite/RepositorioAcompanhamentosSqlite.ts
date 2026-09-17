@@ -12,6 +12,7 @@ import type {
   RepositorioAcompanhamentos,
 } from '../../../domain/ports/RepositorioAcompanhamentos.js';
 import type { ProcessoSerializado } from '../processoSerializacao.js';
+import { paraBusca } from '../normalizacaoBusca.js';
 import { reidratarProcesso, serializarProcesso } from '../processoSerializacao.js';
 
 type Linha = Record<string, unknown>;
@@ -93,6 +94,15 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
       cond.push('a.classe = ?');
       args.push(filtro.classe);
     }
+    if (filtro.parte) {
+      // `paraBusca` nas DUAS pontas — a mesma função que gravou a coluna. O
+      // advogado digita "sunsquare" e o tribunal gravou "CONDOMINIO
+      // SUNSQUARE"; digita "jose" e está gravado "JOSÉ". Divergir aqui faria o
+      // filtro achar uns nomes e não outros, sem erro nenhum.
+      cond.push('a.partes_texto LIKE ?');
+      args.push(`%${paraBusca(filtro.parte)}%`);
+    }
+
     if (filtro.texto) {
       // O JSON do processo entra na busca livre para pegar vara e assunto sem
       // desnormalizar mais colunas. Volume por workspace é pequeno.
@@ -200,7 +210,8 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
         .prepare(
           `UPDATE acompanhamentos
               SET processo = ?, sincronizado_em = ?, erro = NULL,
-                  tribunal = ?, classe = ?, ultima_mov_data = ?
+                  tribunal = ?, classe = ?, ultima_mov_data = ?,
+                  partes_texto = ?
             WHERE workspace = ? AND numero = ?`,
         )
         .run(
@@ -209,6 +220,7 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
           processo.tribunal,
           processo.classe ?? null,
           ultima,
+          textoDasPartes(processo),
           workspace,
           numero,
         );
@@ -357,4 +369,18 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
       ...(processo ? { processo } : {}),
     };
   }
+}
+
+/**
+ * Nomes das partes num só texto, em maiúsculas, para a coluna desnormalizada.
+ *
+ * Normalizado na GRAVAÇÃO, e não só na consulta: o `LIKE` do SQLite é
+ * insensível a caixa apenas para ASCII, e nome brasileiro tem acento. Ver
+ * `paraBusca` para o porquê de dobrar o acento também.
+ */
+function textoDasPartes(processo: Processo): string {
+  const nomes = processo.partes.map((p) => p.nome.trim()).filter(Boolean);
+  // String vazia, não NULL: NULL faria a retrocarga do arranque revisitar
+  // este processo para sempre.
+  return nomes.length > 0 ? paraBusca(nomes.join(' | ')) : '';
 }

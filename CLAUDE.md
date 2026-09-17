@@ -481,6 +481,19 @@ Não são detalhes — moldam o código.
   opcional: avisar quando há novidade **e avisar quando não conseguimos
   verificar**. Nunca entregue a primeira sem a segunda — trocaria uma incerteza
   conhecida por falsa segurança.
+- **O `upper()` do SQLite é ASCII-only.** `upper('José')` devolve `JOSé` —
+  medido, não suposto. Normalização de texto para busca vive em
+  `infrastructure/persistencia/normalizacaoBusca.ts` e é a MESMA na gravação,
+  na retrocarga e na consulta. Divergir faz o filtro achar uns nomes e não
+  outros, sem erro em lugar nenhum. E dobre o acento: ninguém digita acento
+  numa busca.
+- **Coluna nova em tabela que já existe exige migração explícita.**
+  `CREATE TABLE IF NOT EXISTS` não acrescenta coluna, e `ALTER TABLE ADD
+  COLUMN` estoura se ela já está lá — a checagem no `PRAGMA table_info` precede
+  a alteração (ver `migrarColunas` em `sqlite/banco.ts`). Coluna derivada de
+  dado já guardado precisa de RETROCARGA no arranque: sem ela o filtro novo
+  enxerga só o que foi sincronizado depois da atualização, e fica calado sobre
+  o resto.
 - **Toda listagem filtrável devolve o total SEM filtro junto do filtrado**, e
   toda tela que esconde linha diz quantas escondeu. Os filtros do console vivem
   em variável global da página: sobrevivem a trocar de aba e só somem quando a

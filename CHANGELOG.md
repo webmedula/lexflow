@@ -9,6 +9,71 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.16.0] — 2026-09-17
+
+**A carteira agora mostra as partes, e filtra por cliente em SQL.**
+
+A v0.15.0 fez isso na busca por OAB, onde a lista está em memória. Aqui é
+outra história: a carteira mora no banco, pode ter milhares de processos, e o
+filtro precisa acontecer em SQL. Alguns advogados têm carteira grande, e achar
+"os processos do cliente X" rolando a tela não é achar.
+
+### Adicionado
+
+- **As partes em cada linha de "Meus processos"** — nome e polo em palavra
+  (`autor`, `réu`, `outra parte`), até quatro por linha, o resto como `+N`.
+- **Campo "Parte"**, com filtro no servidor: `GET /v1/acompanhamentos?parte=`.
+- **A vara na linha**, junto de tribunal e classe.
+- **Rótulos na barra de filtros.** Eram seis caixas mudas em fila; na tela do
+  dono do produto elas apareceram como "TribunalTJGOTRT18", indistinguíveis de
+  conteúdo. Filtro que não se anuncia é filtro que ninguém usa.
+- O foco volta para o campo depois de cada filtragem, com o cursor no fim —
+  antes a tela era redesenhada e quem digitava perdia o campo no meio da
+  palavra.
+
+### A coluna nova, e a primeira migração de coluna do projeto
+
+`partes_texto` guarda os nomes das partes normalizados. Desnormalizada pelo
+mesmo motivo de `tribunal` e `classe`: resolver o filtro com `json_each` sobre
+o processo inteiro desserializaria ~100 KB por linha **a cada tecla digitada**.
+Numa carteira de 2.000 processos, 200 MB de JSON por busca.
+
+Foi também a primeira coluna acrescentada a uma tabela que já existe em
+produção, e isso exigiu migração de verdade: `CREATE TABLE IF NOT EXISTS` não
+acrescenta coluna nenhuma num banco que já tem a tabela, e `ALTER TABLE ADD
+COLUMN` estoura se a coluna já está lá. A checagem no `PRAGMA table_info`
+precede a alteração.
+
+Há **retrocarga no arranque**: sem ela o filtro acharia apenas os processos
+sincronizados depois da atualização e ficaria calado sobre os outros — o erro
+que a v0.14.2 já custou. Ela tolera JSON corrompido numa linha sem derrubar a
+subida do servidor, e marca com texto vazio o processo que realmente não tem
+parte, para ele sair da fila em vez de voltar a cada arranque.
+
+### O `upper()` do SQLite é ASCII-only, e isso quase passou
+
+A primeira retrocarga era SQL puro, elegante, com `group_concat` e
+`json_each`. O teste reprovou: `upper('José')` devolve **`JOSé`** — o "é" fica
+intacto. A retrocarga gravaria uma forma e as sincronizações seguintes outra, e
+o advogado que buscasse "josé" acharia metade dos processos, sem erro nenhum em
+lugar nenhum.
+
+A correção virou `paraBusca`, num módulo próprio usado nos **três** pontos que
+precisam concordar — gravação, retrocarga e consulta. Ela também dobra o
+acento, porque ninguém digita acento numa busca: quem procura "José Antônio"
+escreve "jose antonio", e um filtro que exige o acento correto parece dizer que
+o cliente não tem processo.
+
+### Nota sobre os dois campos de busca
+
+`Parte` e `Busca livre` respondem perguntas diferentes, e é de propósito.
+`Busca livre` varre o JSON inteiro e casa com qualquer menção — inclusive
+dentro de um despacho, trazendo processo em que o cliente é apenas citado.
+`Parte` casa somente com quem consta como parte. O primeiro é útil; o segundo
+é preciso.
+
+---
+
 ## [0.15.0] — 2026-09-17
 
 **As partes já vinham na resposta e eram jogadas fora.**
