@@ -156,3 +156,81 @@ describe('console — peças e acessos de tribunal', () => {
     expect(html).toContain('publicados no diário');
   });
 });
+
+/**
+ * A busca por OAB já recebia as partes e as descartava. Uma carteira de 130
+ * processos sem mostrar quem é a parte obriga o advogado a abrir um por um
+ * para achar os do cliente X — que é justamente o trabalho que ele esperava
+ * que o sistema fizesse.
+ *
+ * Aqui se verifica o CONSOLE, que é uma string servida pelo servidor: o que dá
+ * para afirmar é que o código está na página e que as funções puras dele fazem
+ * o que dizem. Comportamento de clique exigiria navegador, e não temos um na
+ * suíte.
+ */
+describe('console — resultado da busca por OAB', () => {
+  let servidor: FastifyInstance;
+
+  beforeEach(() => {
+    servidor = montar();
+  });
+  afterEach(async () => {
+    await servidor.close();
+  });
+
+  async function pagina(): Promise<string> {
+    return (await servidor.inject({ method: 'GET', url: '/' })).body;
+  }
+
+  it('desenha o resultado por função própria, e não dentro do fetch', async () => {
+    // Separar o desenho da busca é o que permite refiltrar sem reconsultar o
+    // DJEN: uma ida à rede por tecla digitada seria inaceitável.
+    expect(await pagina()).toContain('function desenharBuscaOab');
+  });
+
+  it('tem o campo de filtro por parte', async () => {
+    const html = await pagina();
+    expect(html).toContain('Filtrar por parte, classe ou número');
+  });
+
+  it('guarda o resultado no estado do console, não em variável global', async () => {
+    // Filtro em variável global sobrevive a trocar de aba e só morre com
+    // recarregamento — foi assim que um filtro esquecido fez a carteira
+    // parecer ter um processo em vez de três.
+    const html = await pagina();
+    expect(html).toContain('estado.buscaOab');
+    expect(html).not.toContain('window.__oab');
+  });
+
+  it('anuncia quando o filtro está escondendo processos', async () => {
+    expect(await pagina()).toContain('Mostrando <b>');
+  });
+
+  it('traduz o polo para palavra de advogado', async () => {
+    const html = await pagina();
+    expect(html).toContain('function rotuloPolo');
+    expect(html).toContain("ATIVO:'autor'");
+  });
+
+  it('normaliza a CAIXA ALTA que o DJEN manda, com acento minúsculo', async () => {
+    const html = await pagina();
+    const fonte = /function titulo\(texto\)\{[\s\S]*?\n\}/.exec(html);
+    expect(fonte).not.toBeNull();
+
+    const titulo = new Function(`${fonte?.[0]}; return titulo;`)() as (
+      t: string,
+    ) => string;
+
+    // O DJEN manda caixa alta com os acentuados em minúscula: chega
+    // literalmente "AçãO TRABALHISTA". Exigir 100% de maiúsculas deixaria
+    // passar exatamente o caso que motivou a função.
+    expect(titulo('AçãO TRABALHISTA - RITO ORDINáRIO')).toBe(
+      'Ação Trabalhista - Rito Ordinário',
+    );
+    expect(titulo('CUMPRIMENTO DE SENTENçA')).toBe('Cumprimento de Sentença');
+    expect(titulo('EMBARGOS à EXECUçãO FISCAL')).toBe('Embargos à Execução Fiscal');
+    // Texto já escrito normalmente passa intacto — normalizar de novo estragaria.
+    expect(titulo('Execução Fiscal')).toBe('Execução Fiscal');
+    expect(titulo('')).toBe('');
+  });
+});

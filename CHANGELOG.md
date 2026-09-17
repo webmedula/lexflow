@@ -9,6 +9,69 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.15.0] — 2026-09-17
+
+**As partes já vinham na resposta e eram jogadas fora.**
+
+Uma busca por OAB devolveu 130 processos. A pergunta do dono foi imediata: *"em
+quais deles esse advogado representa o Condomínio Sunsquare?"* — e a resposta
+já estava na tela, invisível. O DJEN manda os destinatários de cada intimação,
+o mapper os consolida em `partes`, a rota devolve tudo, e a lista desenhava
+apenas número, tribunal, classe e último andamento.
+
+Carteira de 130 processos sem mostrar quem é a parte obriga o advogado a abrir
+um por um para achar os do cliente X. É exatamente o trabalho que ele esperava
+que o sistema fizesse.
+
+### Adicionado — tela de resultado da busca por OAB
+
+- **As partes em cada linha**, com o polo em palavra de advogado: `autor`,
+  `réu`, `outra parte`. `OUTROS` não virou "terceiro": a fonte não disse isso,
+  e ali pode estar o MP, um assistente ou um perito.
+- **Filtro por parte, classe ou número**, aplicado **localmente** sobre a lista
+  já em mãos. Refazer a consulta a cada letra digitada gastaria uma ida ao DJEN
+  por tecla.
+- **Filtro por tribunal**, montado a partir dos tribunais que apareceram.
+- **"Mostrando X de Y"** sempre que houver recorte, com botão de limpar — a
+  regra que ficou do filtro fantasma da v0.14.2.
+
+### Corrigido — a CAIXA ALTA do DJEN
+
+A tela mostrava `AçãO TRABALHISTA - RITO ORDINáRIO`. Não é defeito de
+codificação: o DJEN manda caixa alta com os caracteres acentuados em
+minúscula, e é assim que chega. Agora a exibição normaliza para
+`Ação Trabalhista - Rito Ordinário`, com as preposições em minúscula.
+
+O detalhe que fez a primeira tentativa falhar: testar "está todo em maiúsculas"
+nunca dá verdadeiro nesse texto, justamente por causa dos acentos. O corte é
+**70% de maiúsculas entre as letras**, o que reconhece o caso real e deixa
+intacto o texto escrito normalmente. O dado guardado continua como veio, como
+manda a regra do projeto — a normalização é só da camada de exibição.
+
+### Decisão de estado
+
+O filtro vive em `estado.buscaOab`, e **não** numa variável global da página:
+nasce com a busca e morre com ela. Foi a lição da v0.14.2, onde um filtro em
+variável global sobreviveu a trocar de aba e só morreu com o recarregamento —
+convencendo o dono de que o sistema tinha perdido processos.
+
+### O que isso NÃO resolve
+
+Busca por **CNPJ** continua fora. O DJEN dá nome e polo da parte, sem
+documento, e nem informa se é pessoa física ou jurídica. O MNI dá
+`numeroDocumentoPrincipal` e `tipoPessoa` — e hoje esse dado chega e é
+descartado, porque o `MniAdapter` só produz `Peca`. Aproveitá-lo é trabalho
+pequeno, limitado ao TJGO, e depende de uma decisão: o MNI devolve **CPF
+completo**, sem máscara, e guardar documento de pessoa física de quem não é
+cliente do assinante muda o perfil de risco do LexFlow na LGPD. A recomendação
+registrada é guardar CNPJ e descartar CPF na entrada.
+
+Também não muda o teto da fonte: o DJEN lista como partes os destinatários das
+intimações **publicadas**. Processo em que o cliente não foi intimado na janela
+consultada pode não trazer o nome. O resultado do filtro é piso, não teto.
+
+---
+
 ## [0.14.2] — 2026-09-17
 
 **Um filtro esquecido, e a carteira parecia ter um processo em vez de três.**

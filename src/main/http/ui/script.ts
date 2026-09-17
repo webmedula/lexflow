@@ -274,7 +274,8 @@ function verProcessos(){
           (a.novidadesNaoVistas>0?'<span class="selo nv">'+a.novidadesNaoVistas+' nova(s)</span>':'')+
           (a.segredoJustica?'<span class="selo al">segredo</span>':'')+
           (a.erro?'<span class="selo al">erro</span>':'')+'</div>'+
-          '<div class="lin2">'+esc(a.tribunal||'—')+' · '+esc(a.classe||'classe não informada')+'</div>'+
+          '<div class="lin2">'+esc(a.tribunal||'—')+' · '+
+            esc(titulo(a.classe)||'classe não informada')+'</div>'+
           '<div class="lin3">'+
             (a.ultimaMovimentacao
               ? esc(a.ultimaMovimentacao.titulo)+' · '+dt(a.ultimaMovimentacao.data)+' ('+humano(a.ultimaMovimentacao.data)+')'
@@ -347,6 +348,137 @@ function espera(on){
   else{clearInterval(cron);$('cron').textContent='';$('espera').classList.add('oculto')}
 }
 
+/**
+ * Resultado da busca por OAB, com as PARTES à vista e filtro por cliente.
+ *
+ * As partes já vinham na resposta e eram descartadas — o DJEN manda os
+ * destinatários de cada intimação, e o mapper os consolida em partes. Uma
+ * carteira de 130 processos sem mostrar quem é a parte obriga o advogado a
+ * abrir um por um para achar os do cliente X, que é o trabalho que ele queria
+ * que o sistema fizesse.
+ *
+ * O filtro é LOCAL, sobre a lista já em mãos: refazer a consulta a cada letra
+ * digitada gastaria uma ida ao DJEN por tecla.
+ */
+function desenharBuscaOab(){
+  var b=estado.buscaOab; if(!b)return;
+  var alvo=$('res'); if(!alvo)return;
+
+  var termo=(b.texto||'').trim().toUpperCase();
+  var digitos=termo.replace(/\D/g,'');
+  var lista=b.lista.filter(function(p){
+    if(b.tribunal&&p.tribunal!==b.tribunal)return false;
+    if(!termo)return true;
+    if(digitos&&String(p.numero||'').replace(/\D/g,'').indexOf(digitos)>=0)return true;
+    if(String(p.classe||'').toUpperCase().indexOf(termo)>=0)return true;
+    /* As partes entram na busca livre: é o caso de uso que motivou a tela —
+       "em quais destes eu represento o Condomínio X". */
+    return (p.partes||[]).some(function(x){
+      return String(x.nome||'').toUpperCase().indexOf(termo)>=0});
+  });
+
+  var tribunais=[];
+  b.lista.forEach(function(p){
+    if(p.tribunal&&tribunais.indexOf(p.tribunal)<0)tribunais.push(p.tribunal)});
+  tribunais.sort();
+
+  var h='<div class="titulo-secao"><div><h2>'+b.lista.length+' processo(s)</h2>'+
+    '<div class="sub">Vieram das publicações do diário oficial. Processo sem '+
+    'publicação recente não aparece aqui.</div></div>'+
+    '<button class="bt bt2" id="bt-lote">Acompanhar todos</button></div>';
+
+  h+='<div class="filtros">'+
+    '<div style="flex:2 1 240px"><input id="o-txt" placeholder="Filtrar por parte, classe ou número" '+
+      'value="'+esc(b.texto||'')+'"></div>'+
+    '<div><select id="o-trib"><option value="">Todos os tribunais</option>'+
+      tribunais.map(function(t){
+        return '<option'+(b.tribunal===t?' selected':'')+'>'+esc(t)+'</option>'}).join('')+
+    '</select></div>'+
+    ((b.texto||b.tribunal)?'<div class="compacto"><button class="chip" id="o-limpar">limpar</button></div>':'')+
+    '</div>';
+
+  /* Mostrando X de Y, sempre que houver recorte. A tela nunca mostra um
+     subconjunto calada — a regra que ficou do filtro fantasma. */
+  if(lista.length<b.lista.length){
+    h+='<div class="aviso" style="margin-bottom:12px">Mostrando <b>'+lista.length+
+      '</b> de <b>'+b.lista.length+'</b> processos.</div>';
+  }
+
+  if(!lista.length){
+    h+=vazio('🔍','Nenhum processo com esse filtro',
+      'Nenhum dos '+b.lista.length+' processos tem parte, classe ou número com esse texto.');
+  }else{
+    lista.forEach(function(p){
+      var um=(p.movimentacoes&&p.movimentacoes[0])||null;
+      var partes=(p.partes||[]).slice(0,4).map(function(x){
+        return '<span class="selo'+(x.polo==='ATIVO'?' nv':'')+'">'+
+          esc(rotuloPolo(x.polo))+'</span> '+esc(x.nome)}).join(' · ');
+      var resto=(p.partes||[]).length-4;
+      h+='<button class="item" data-num="'+esc(p.numero)+'">'+
+        '<div class="lin1"><span class="n">'+esc(p.numero)+'</span>'+
+        '<span class="selo">'+esc(p.tribunal||'—')+'</span></div>'+
+        '<div class="lin2">'+esc(titulo(p.classe)||'classe não informada')+'</div>'+
+        (partes?'<div class="lin3">'+partes+(resto>0?' · <span class="cp">+'+resto+'</span>':'')+'</div>':
+          '<div class="lin3"><span class="cp">partes não informadas nesta publicação</span></div>')+
+        (um?'<div class="lin3"><span class="cp">'+esc(um.titulo)+' · '+dt(um.data)+'</span></div>':'')+
+        '</button>';
+    });
+  }
+
+  alvo.innerHTML=h;
+
+  ligarAcompanharLote(lista.map(function(p){return p.numero}));
+  var t;
+  $('o-txt').addEventListener('input',function(){
+    var v=this.value;clearTimeout(t);
+    t=setTimeout(function(){estado.buscaOab.texto=v;desenharBuscaOab();
+      var c=$('o-txt'); if(c){c.focus();c.setSelectionRange(v.length,v.length)}},250)});
+  $('o-trib').addEventListener('change',function(){
+    estado.buscaOab.tribunal=this.value;desenharBuscaOab()});
+  var lp=$('o-limpar');
+  if(lp)lp.addEventListener('click',function(){
+    estado.buscaOab.texto='';estado.buscaOab.tribunal='';desenharBuscaOab()});
+  alvo.querySelectorAll('[data-num]').forEach(function(el){
+    el.addEventListener('click',function(){
+      $('modo').value='numero';$('modo').dispatchEvent(new Event('change'));
+      $('numero').value=el.getAttribute('data-num');executarBusca()})});
+}
+
+/** AT/PA do DJEN em palavra, que é como o advogado fala. */
+function rotuloPolo(polo){
+  /* O enum do domínio é ATIVO | PASSIVO | OUTROS. "OUTROS" não vira "terceiro"
+     porque a fonte não disse isso — pode ser MP, assistente, perito. */
+  var m={ATIVO:'autor',PASSIVO:'réu',OUTROS:'outra parte'};
+  return m[polo]||'parte';
+}
+
+/**
+ * O DJEN manda classe e nome em CAIXA ALTA com acento minúsculo — sai
+ * "AçãO TRABALHISTA" na tela. Normalizar é da camada de exibição; o dado
+ * guardado continua como veio, conforme a regra do projeto.
+ */
+function titulo(texto){
+  if(!texto)return '';
+  var t=String(texto);
+  var letras=t.replace(/[^A-Za-zÁÉÍÓÚÂÊÔÃÕÀÇáéíóúâêôãõàç]/g,'');
+  if(!letras)return t;
+  var altas=letras.replace(/[^A-ZÁÉÍÓÚÂÊÔÃÕÀÇ]/g,'').length;
+  /* O corte é 70%, e não "tudo maiúsculo": o DJEN manda CAIXA ALTA com os
+     acentuados em minúscula — chega literalmente "AçãO TRABALHISTA". Exigir
+     100% de maiúsculas deixaria passar justamente o caso que motivou isto.
+     Texto escrito normalmente fica abaixo de 70% e passa intacto. */
+  if(altas/letras.length<0.7)return t;
+
+  var miudas={de:1,da:1,do:1,das:1,dos:1,e:1,em:1,no:1,na:1,a:1,o:1,ao:1,'à':1,por:1,com:1};
+  return t.toLowerCase().replace(/([A-Za-zÁÉÍÓÚÂÊÔÃÕÀÇáéíóúâêôãõàç]+)/g,
+    function(palavra,_p,pos){
+      /* Preposição minúscula, menos na primeira posição: "Cumprimento de
+         Sentença" se lê melhor do que "Cumprimento De Sentença". */
+      if(pos>0&&miudas[palavra])return palavra;
+      return palavra.charAt(0).toUpperCase()+palavra.slice(1);
+    });
+}
+
 function executarBusca(){
   var porOab=$('modo').value==='oab', url;
   if(porOab){
@@ -365,23 +497,14 @@ function executarBusca(){
     if(porOab){
       var l=b.processos||[];
       if(!l.length){$('res').innerHTML=vazio('🔍','Nenhum processo','Essa OAB não retornou processos nas fontes configuradas.');return}
-      var h='<div class="titulo-secao"><h2>'+l.length+' processo(s)</h2>'+
-        '<button class="bt bt2" id="bt-lote">Acompanhar todos</button></div>'+
-        '<div class="nota" style="margin:-4px 0 12px">Vieram das publicações do '+
-        'diário oficial. Processo sem publicação recente não aparece aqui.</div>';
-      l.forEach(function(p){
-        var um=(p.movimentacoes&&p.movimentacoes[0])||null;
-        h+='<button class="item" data-num="'+esc(p.numero)+'"><div class="lin1">'+
-          '<span class="n">'+esc(p.numero)+'</span></div>'+
-          '<div class="lin2">'+esc(p.tribunal||'')+' · '+esc(p.classe||'')+'</div>'+
-          (um?'<div class="lin3">'+esc(um.titulo)+' · '+dt(um.data)+'</div>':'')+'</button>';
-      });
-      $('res').innerHTML=h;
-      ligarAcompanharLote(l.map(function(p){return p.numero}));
-      $('res').querySelectorAll('[data-num]').forEach(function(el){
-        el.addEventListener('click',function(){
-          $('modo').value='numero';$('modo').dispatchEvent(new Event('change'));
-          $('numero').value=el.getAttribute('data-num');executarBusca()})});
+      /* O resultado fica no estado do console, e NÃO numa variável global da
+         página.
+         Filtro em variável global sobrevive a trocar de aba e só morre com
+         recarregamento — foi assim que um filtro esquecido fez a carteira
+         parecer ter um processo em vez de três. Aqui ele nasce com a busca e
+         morre com ela. */
+      estado.buscaOab={lista:l,texto:'',tribunal:''};
+      desenharBuscaOab();
       return;
     }
     $('res').innerHTML=processoHtml(b,null,{buscaAvulsa:true});
