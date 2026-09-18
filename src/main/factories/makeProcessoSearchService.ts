@@ -61,6 +61,16 @@ export interface Aplicacao {
   /** Contas de assinante. Cada uma nasce com o próprio `workspace`. */
   readonly contas: ServicoContas;
   readonly preferenciasNotificacao: RepositorioNotificacao;
+  /**
+   * O canal de saída cru, exposto para DIAGNÓSTICO.
+   *
+   * O `ServicoNotificacao` acima é o que decide QUANDO avisar; este é por onde
+   * a mensagem sai. Quem precisa dele é o comando `email` do CLI, que existe
+   * para responder "o SMTP está configurado certo?" sem disparar uma
+   * recuperação de senha de verdade — que é a única outra forma de descobrir,
+   * e envolve gastar um link e mexer numa conta.
+   */
+  readonly notificador: Notificador;
   readonly agendador: Agendador;
   readonly agendadorVigilancia: Agendador | undefined;
   /** `undefined` com backup desligado ou banco em memória (testes). */
@@ -280,6 +290,7 @@ export function montarAplicacao(config: Config): Aplicacao {
     pecas,
     contas,
     preferenciasNotificacao,
+    notificador,
     agendador,
     agendadorVigilancia,
     agendadorBackup,

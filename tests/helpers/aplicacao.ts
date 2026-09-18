@@ -174,6 +174,7 @@ export function aplicacaoDeTeste(
         : {}),
     }),
     preferenciasNotificacao,
+    notificador: opcoes.notificador ?? new NotificadorEspiao(),
     agendador: parado(),
     agendadorVigilancia: undefined,
     agendadorBackup: undefined,

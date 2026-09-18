@@ -32,6 +32,7 @@ Processo Vivo — consulta de processos judiciais
   npm run cli -- pecas <numero-cnj> [--json] [--capturar <arquivo>]
   npm run cli -- saude
   npm run cli -- backup [--manter 7]
+  npm run cli -- email <destinatario>
 
 Exemplos:
   npm run cli -- processo 1234567-47.2023.8.26.0100
@@ -40,6 +41,7 @@ Exemplos:
   npm run cli -- pecas 5818922-04.2026.8.09.0011
   npm run cli -- saude
   npm run cli -- backup
+  npm run cli -- email eu@meudominio.com.br
 
 O comando "pecas" lê a credencial do ambiente, NÃO do banco:
   MNI_ID_CONSULTANTE     CPF do advogado (só dígitos)
@@ -201,6 +203,82 @@ async function main(): Promise<number> {
         if (motivo) console.log(`        ${motivo}`);
       }
       return diagnostico.some((d) => d.saudavel) ? 0 : 2;
+    }
+
+    /**
+     * Manda uma mensagem de teste e diz, em português, o que está faltando.
+     *
+     * Existe porque até aqui a única forma de saber se o SMTP estava certo era
+     * pedir uma recuperação de senha de verdade — que gasta um link, mexe numa
+     * conta e, por decisão de segurança, responde a MESMA coisa tendo enviado
+     * ou não. Ou seja: a funcionalidade desenhada para não contar nada a um
+     * curioso também não contava nada a quem está configurando o servidor.
+     *
+     * Aqui é o contrário: barulhento e específico de propósito.
+     */
+    case 'email': {
+      const destino = args[0];
+      if (!destino) {
+        console.error('Informe o destinatário. Ex.: email eu@meudominio.com.br');
+        return 1;
+      }
+
+      const urlBase = config.http.urlBase;
+      console.log(`remetente ..... ${config.notificacao.remetente || '(vazio)'}`);
+      console.log(
+        `servidor ...... ${config.notificacao.smtpHost || '(vazio)'}:` +
+          `${config.notificacao.smtpPorta}` +
+          ` (${config.notificacao.smtpSeguro ? 'TLS direto' : 'STARTTLS'})`,
+      );
+      console.log(`endereço base . ${urlBase || '(vazio)'}`);
+      console.log(`canal ......... ${app.notificador.nome}\n`);
+
+      // A condição é a MESMA do composition root — host e remetente definidos —,
+      // e não o nome do canal. Comparar com uma string mágica já quebrou uma vez
+      // aqui: o notificador se chama `email-smtp`, não `smtp`, e o comando
+      // recusava uma configuração perfeitamente válida.
+      const entrega =
+        Boolean(config.notificacao.smtpHost) && Boolean(config.notificacao.remetente);
+      if (!entrega || !app.notificador.habilitado) {
+        console.error(
+          'SMTP não configurado: nada sai deste servidor.\n' +
+            'Defina SMTP_HOST e SMTP_FROM. Sem os dois, o sistema escreve no log\n' +
+            'o que teria enviado — útil para desenvolver, inútil para o assinante.',
+        );
+        return 2;
+      }
+
+      const ok = await app.notificador.enviar({
+        para: destino,
+        assunto: 'Processo Vivo — teste de configuração',
+        texto:
+          'Esta é uma mensagem de teste do Processo Vivo.\n\n' +
+          'Se ela chegou, o envio está funcionando: a recuperação de senha e os\n' +
+          'avisos de movimentação vão sair por este mesmo caminho.\n\n' +
+          'Confira também se ela NÃO caiu no spam. Aviso de prazo que cai em spam\n' +
+          'é pior do que aviso que não sai: o advogado não recebe e não desconfia.\n',
+      });
+
+      if (!ok) {
+        console.error(
+          'O envio FALHOU. O motivo está no log acima, vindo do servidor de e-mail.\n' +
+            'Causas comuns: senha errada, porta bloqueada na saída do VPS,\n' +
+            'ou SMTP_SECURE trocado (true só na porta 465; em 587 é false).',
+        );
+        return 2;
+      }
+
+      console.log(`Enviado para ${destino}. Confira a caixa de entrada E o spam.`);
+      if (!urlBase) {
+        console.log(
+          '\nATENÇÃO: PROCESSOVIVO_URL_BASE está vazia, então a recuperação de\n' +
+            'senha continua desligada mesmo com o SMTP funcionando — um link\n' +
+            'relativo num e-mail não leva a lugar nenhum.',
+        );
+        return 2;
+      }
+      console.log('\nRecuperação de senha: LIGADA.');
+      return 0;
     }
 
     default:

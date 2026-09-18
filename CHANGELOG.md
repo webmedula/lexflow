@@ -9,6 +9,53 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.19.0] — 2026-09-18
+
+**`npm run cli -- email <destinatario>`: testar o envio sem gastar um link.**
+
+Até aqui, a única forma de saber se o SMTP estava certo era pedir uma
+recuperação de senha de verdade. E ela é, por decisão de segurança, a pior
+ferramenta de diagnóstico possível: responde exatamente a mesma coisa tendo
+enviado ou não, justamente para não contar nada a um curioso. O efeito colateral
+é que também não contava nada a quem estava configurando o servidor.
+
+O comando novo é o contrário: barulhento e específico.
+
+```
+remetente ..... contato@processovivo.com.br
+servidor ...... processovivo.com.br:587 (STARTTLS)
+endereço base . https://app.processovivo.com.br
+canal ......... email-smtp
+
+Enviado para eu@exemplo.com.br. Confira a caixa de entrada E o spam.
+
+Recuperação de senha: LIGADA.
+```
+
+Ele imprime a configuração que está valendo, envia de fato, e separa os três
+estados que antes se confundiam: SMTP ausente (código 2, com o que definir),
+envio recusado pelo servidor de e-mail (código 2, com as causas comuns), e envio
+aceito. Também avisa quando o SMTP funciona mas `PROCESSOVIVO_URL_BASE` está
+vazia — caso em que a recuperação continua desligada, porque link relativo em
+e-mail não leva a lugar nenhum.
+
+### Adicionado
+
+- Comando `email` no CLI.
+- `Aplicacao.notificador` — o canal de saída cru, exposto para diagnóstico. O
+  `ServicoNotificacao` decide QUANDO avisar; este é por onde a mensagem sai.
+
+### Detalhe que já quebrou uma vez
+
+A checagem de "o SMTP está configurado?" usa a mesma condição do composition
+root — host e remetente definidos —, e **não** o nome do canal. A primeira
+versão comparava com a string `'smtp'`, e o notificador se chama `email-smtp`:
+o comando recusava uma configuração perfeitamente válida. Comparar com string
+mágica o que já existe como condição é assim que se escreve um diagnóstico que
+mente.
+
+---
+
 ## [0.18.2] — 2026-09-18
 
 **Conserta a aba Atualizações, que quebrava com "f is not defined".**

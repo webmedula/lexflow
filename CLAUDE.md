@@ -248,6 +248,7 @@ npm run cli -- processo 1234567-47.2023.8.26.0100
 npm run cli -- processo 12345674720238260100 --json
 npm run cli -- oab 234567 SP
 npm run cli -- saude
+npm run cli -- email eu@meudominio.com.br   # testa o SMTP de verdade
 
 npm test                 # suíte completa (Vitest)
 npm run test:watch       # modo watch
