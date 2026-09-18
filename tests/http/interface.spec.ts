@@ -8,11 +8,11 @@ const CHAVE = 'chave-de-teste-1234567890';
 
 function montar(): FastifyInstance {
   const config = carregarConfig({
-    LEXFLOW_DB_PATH: ':memory:',
-    LEXFLOW_PROVIDER_CHAIN: 'mock-crawler-tjsp',
+    PROCESSOVIVO_DB_PATH: ':memory:',
+    PROCESSOVIVO_PROVIDER_CHAIN: 'mock-crawler-tjsp',
     MOCK_CRAWLER_LATENCY_MS: '0',
     LOG_LEVEL: 'silent',
-    LEXFLOW_API_KEYS: CHAVE,
+    PROCESSOVIVO_API_KEYS: CHAVE,
   } as NodeJS.ProcessEnv);
   return construirServidor(montarAplicacao(config), config);
 }
@@ -34,7 +34,7 @@ describe('console web', () => {
 
     expect(r.statusCode).toBe(200);
     expect(r.headers['content-type']).toContain('text/html');
-    expect(r.body).toContain('<title>LexFlow</title>');
+    expect(r.body).toContain('<title>Processo Vivo</title>');
   });
 
   it('mostra a versão em execução', async () => {

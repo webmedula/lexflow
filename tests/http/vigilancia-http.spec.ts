@@ -30,8 +30,8 @@ const buscaComUmProcesso: BuscaPorOabComPeriodo = {
 function montar(comVigilancia: boolean): FastifyInstance {
   const config = carregarConfig({
     LOG_LEVEL: 'silent',
-    LEXFLOW_API_KEYS: `${CHAVE_A},${CHAVE_B}`,
-    LEXFLOW_DB_PATH: ':memory:',
+    PROCESSOVIVO_API_KEYS: `${CHAVE_A},${CHAVE_B}`,
+    PROCESSOVIVO_DB_PATH: ':memory:',
   } as NodeJS.ProcessEnv);
   return construirServidor(
     aplicacaoDeTeste(

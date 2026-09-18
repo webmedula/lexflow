@@ -101,7 +101,7 @@ describe('banco — retrocarga tolerante', () => {
    * fechamento. É a diferença entre testar o caminho e testar a intenção.
    */
   it('retrocarrega de verdade ao reabrir um banco com dados antigos', () => {
-    const arquivo = join(mkdtempSync(join(tmpdir(), 'lexflow-')), 'teste.db');
+    const arquivo = join(mkdtempSync(join(tmpdir(), 'processovivo-')), 'teste.db');
     try {
       const primeiro = abrirBanco(arquivo);
       primeiro
@@ -135,7 +135,7 @@ describe('banco — retrocarga tolerante', () => {
   it('processo sem parte fica com texto vazio, para sair da fila', () => {
     // NULL o traria de volta à retrocarga a cada arranque, para sempre —
     // trabalho inútil que cresce junto com a base.
-    const arquivo = join(mkdtempSync(join(tmpdir(), 'lexflow-')), 'teste.db');
+    const arquivo = join(mkdtempSync(join(tmpdir(), 'processovivo-')), 'teste.db');
     try {
       const primeiro = abrirBanco(arquivo);
       primeiro

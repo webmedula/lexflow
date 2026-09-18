@@ -37,8 +37,8 @@ export function rotasDeProcesso(app: Aplicacao): FastifyPluginAsync {
         // Cabeçalho de procedência: quem consome consegue saber se o dado veio
         // ao vivo do tribunal ou do cache — informação que importa quando a
         // resposta vira base de contagem de prazo.
-        resposta.header('x-lexflow-fonte', processo.procedencia.provider);
-        resposta.header('x-lexflow-cache', String(processo.procedencia.deCache));
+        resposta.header('x-processovivo-fonte', processo.procedencia.provider);
+        resposta.header('x-processovivo-cache', String(processo.procedencia.deCache));
 
         return processo.toJSON();
       },

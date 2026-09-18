@@ -51,11 +51,24 @@ export const TAMANHO_MINIMO_SENHA = 10;
  */
 const TAMANHO_MAXIMO_SENHA = 200;
 
-/** @throws {SenhaFracaError} */
-export function guardarSenha(senha: string): string {
+/**
+ * Confere o tamanho e nada mais. Custo desprezível, de propósito.
+ *
+ * `guardarSenha` chama esta antes de gastar o scrypt, então a regra vive num
+ * lugar só; e quem precisa recusar cedo — a redefinição de senha, antes de
+ * consumir o link — chama esta sozinha.
+ *
+ * @throws {SenhaFracaError}
+ */
+export function validarSenha(senha: string): void {
   if (senha.length < TAMANHO_MINIMO_SENHA || senha.length > TAMANHO_MAXIMO_SENHA) {
     throw new SenhaFracaError(TAMANHO_MINIMO_SENHA);
   }
+}
+
+/** @throws {SenhaFracaError} */
+export function guardarSenha(senha: string): string {
+  validarSenha(senha);
 
   const sal = randomBytes(TAMANHO_SAL);
   const derivada = scryptSync(senha.normalize('NFKC'), sal, TAMANHO_CHAVE, {
@@ -123,6 +136,7 @@ export const HASH_DE_COMPARACAO = guardarSenha('senha-que-nunca-sera-usada-por-n
 
 /** A porta `HashDeSenha` implementada com o scrypt acima. */
 export const hashScrypt: HashDeSenha = {
+  validar: validarSenha,
   guardar: guardarSenha,
   conferir: conferirSenha,
   hashDeComparacao: HASH_DE_COMPARACAO,

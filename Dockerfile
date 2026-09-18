@@ -44,7 +44,7 @@ WORKDIR /app
 ENV NODE_ENV=production \
     HTTP_HOST=0.0.0.0 \
     HTTP_PORT=3000 \
-    LEXFLOW_DB_PATH=/dados/lexflow.db
+    PROCESSOVIVO_DB_PATH=/dados/processovivo.db
 
 # `--init` no docker run resolveria isso, mas o Easypanel não expõe essa flag.
 # O tini garante que SIGTERM chegue ao Node em vez de morrer no PID 1, que é o

@@ -4,7 +4,7 @@ import type { Processo } from './Processo.js';
 /**
  * Um processo que alguém pediu para acompanhar.
  *
- * É o que transforma o LexFlow de "consulta avulsa" em produto de assinatura:
+ * É o que transforma o Processo Vivo de "consulta avulsa" em produto de assinatura:
  * o advogado não quer perguntar pelo processo todo dia, quer ser avisado quando
  * algo acontece nele.
  */
@@ -41,7 +41,7 @@ export interface Novidade {
   readonly titulo: string;
   readonly codigoTpu?: number;
   readonly conteudo?: string;
-  /** Quando o LexFlow percebeu. */
+  /** Quando o Processo Vivo percebeu. */
   readonly detectadaEm: Date;
   /** Quando o usuário leu. Ausente = ainda não vista. */
   readonly vistaEm?: Date;

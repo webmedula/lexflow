@@ -18,14 +18,14 @@ function configDeTeste(extra: Record<string, string> = {}): Config {
   return carregarConfig({
     // Banco EM MEMÓRIA, e não o caminho padrão em disco: o Vitest roda os
     // arquivos de teste em paralelo, e dois deles abrindo o mesmo
-    // ./dados/lexflow.db disputam o arquivo — o sintoma é
+    // ./dados/processovivo.db disputam o arquivo — o sintoma é
     // "database is locked" num teste que não fala de banco nenhum, e que passa
     // ou falha conforme o número de núcleos da máquina.
-    LEXFLOW_DB_PATH: ':memory:',
-    LEXFLOW_PROVIDER_CHAIN: 'mock-crawler-tjsp',
+    PROCESSOVIVO_DB_PATH: ':memory:',
+    PROCESSOVIVO_PROVIDER_CHAIN: 'mock-crawler-tjsp',
     MOCK_CRAWLER_LATENCY_MS: '0',
     LOG_LEVEL: 'silent',
-    LEXFLOW_API_KEYS: CHAVE,
+    PROCESSOVIVO_API_KEYS: CHAVE,
     CACHE_ENABLED: 'false',
     ...extra,
   } as NodeJS.ProcessEnv);
@@ -98,7 +98,7 @@ describe('API — autenticação', () => {
   });
 
   it('permite desativar a autenticação explicitamente', async () => {
-    const aberto = montar({ LEXFLOW_API_KEYS: '', LEXFLOW_AUTH_DISABLED: 'true' });
+    const aberto = montar({ PROCESSOVIVO_API_KEYS: '', PROCESSOVIVO_AUTH_DISABLED: 'true' });
     const r = await aberto.inject({
       method: 'GET',
       url: `/v1/processos/${NUMERO_TJSP_A}`,
@@ -150,8 +150,8 @@ describe('API — consulta de processo', () => {
       headers: auth,
     });
 
-    expect(r.headers['x-lexflow-fonte']).toBe('mock-crawler-tjsp');
-    expect(r.headers['x-lexflow-cache']).toBe('false');
+    expect(r.headers['x-processovivo-fonte']).toBe('mock-crawler-tjsp');
+    expect(r.headers['x-processovivo-cache']).toBe('false');
   });
 
   it('400 para número CNJ com dígito verificador inválido', async () => {

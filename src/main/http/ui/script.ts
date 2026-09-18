@@ -8,8 +8,8 @@
 export const SCRIPT = String.raw`
 (function(){
 var $=function(i){return document.getElementById(i)};
-var CH='lexflow.chave', VER='lexflow.verinternos';
-var FILTRO_MOV='lexflow.filtroMov';
+var CH='processovivo.chave', VER='processovivo.verinternos';
+var FILTRO_MOV='processovivo.filtroMov';
 /** Textos completos dos andamentos exibidos, para o botão "ler o ato inteiro". */
 var janelaTextos=[];
 
@@ -39,7 +39,11 @@ var INTERNOS={12266:1,12265:1,581:1,60:1};
 var MARCOS={26:1,219:1,848:1,12548:1,12455:1,12444:1,14739:1,123:1,1051:1};
 
 var estado={aba:'novidades',chave:'',detalhe:null,eu:null,trilha:null,
-  modoEntrada:'entrar',facetas:{tribunais:[],classes:[]}};
+  modoEntrada:'entrar',facetas:{tribunais:[],classes:[]},
+  /* null = ainda não perguntamos ao servidor se ele consegue enviar e-mail.
+     O link "esqueci minha senha" só aparece quando a resposta for true —
+     oferecer e não enviar deixaria a pessoa esperando mensagem que não vem. */
+  recuperacaoDisponivel:null};
 
 /* ---------------- utilidades ---------------- */
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
@@ -85,7 +89,7 @@ function explicar(e){
     403:'O tribunal respondeu e não liberou este arquivo. Em geral significa que o acesso cadastrado não está habilitado nos autos.',
     424:'O tribunal recusou o acesso cadastrado. Atualize usuário e senha em "Meus acessos".',
     428:'Falta cadastrar o acesso do advogado no tribunal, em "Meus acessos".',
-    501:'Nenhuma fonte configurada faz essa busca. Verifique LEXFLOW_PROVIDER_CHAIN — a busca por OAB vem do DJEN.',
+    501:'Nenhuma fonte configurada faz essa busca. Verifique PROCESSOVIVO_PROVIDER_CHAIN — a busca por OAB vem do DJEN.',
     502:'As fontes externas falharam. Em geral é o CNJ lento ou fora do ar.',
     503:'Fonte temporariamente indisponível.'};
   return m[e.status]||e.message||'Erro inesperado.';
@@ -115,7 +119,7 @@ function atualizarBolha(){
 }
 
 function ir(aba){estado.aba=aba;estado.detalhe=null;pintarNav();render()}
-window.__lexflow_ir=ir;
+window.__processovivo_ir=ir;
 
 /* ---------------- aba: novidades ---------------- */
 function verNovidades(){
@@ -159,11 +163,11 @@ function verNovidades(){
             'Ajuste os filtros acima para ver mais.')
         : acomp===0
           ? vazio('🔔','Você ainda não acompanha nenhum processo',
-              'Adicione um processo pelo número e o LexFlow passa a verificar sozinho, avisando quando houver movimentação nova.',
-              '<button class="bt" onclick="window.__lexflow_ir(\'buscar\')">Buscar processo</button>')
+              'Adicione um processo pelo número e o Processo Vivo passa a verificar sozinho, avisando quando houver movimentação nova.',
+              '<button class="bt" onclick="window.__processovivo_ir(\'buscar\')">Buscar processo</button>')
           : vazio('✓','Nenhuma movimentação nova',
               'Seus '+acomp+' processo(s) foram verificados e nada mudou desde a última consulta. Esta tela mostra só o que é NOVO — para ver a carteira inteira, abra Meus processos.',
-              '<button class="bt bt2" onclick="window.__lexflow_ir(\'processos\')">Ver meus processos</button>');
+              '<button class="bt bt2" onclick="window.__processovivo_ir(\'processos\')">Ver meus processos</button>');
     }else{
       h+='<div class="cartao">';
       r.novidades.forEach(function(n){
@@ -286,8 +290,8 @@ function verProcessos(){
       h+=vazio('📁',
         (q.length?'Nenhum processo com esses filtros':'Você ainda não acompanha nenhum processo'),
         (q.length?'Ajuste os filtros para ver mais.'
-          :'Busque um processo pelo número e clique em acompanhar. A partir daí o LexFlow verifica sozinho e avisa quando houver movimentação nova.'),
-        q.length?'':'<button class="bt" onclick="window.__lexflow_ir(\'buscar\')">Buscar processo</button>');
+          :'Busque um processo pelo número e clique em acompanhar. A partir daí o Processo Vivo verifica sozinho e avisa quando houver movimentação nova.'),
+        q.length?'':'<button class="bt" onclick="window.__processovivo_ir(\'buscar\')">Buscar processo</button>');
     }else{
       r.acompanhamentos.forEach(function(a){
         /* Até quatro partes por linha, com o polo em palavra. A carteira é o
@@ -638,7 +642,7 @@ function abrir(numero){
     alvo.innerHTML=erroBloco(e);
   });
 }
-window.__lexflow_abrir=abrir;
+window.__processovivo_abrir=abrir;
 
 function ligarBotoesDetalhe(numero,acompanhado){
   var b=$('acompanhar');
@@ -1054,7 +1058,7 @@ function telaEntrada(modo){
   var criar=estado.modoEntrada==='criar';
   $('barra').classList.add('oculto');
   $('conteudo').innerHTML=
-    '<div class="titulo-secao"><div><h2>LexFlow</h2><div class="sub">'+
+    '<div class="titulo-secao"><div><h2>Processo Vivo</h2><div class="sub">'+
     'Seus processos, suas publicações e as peças das partes — num lugar só.'+
     '</div></div></div>'+
     '<div class="cartao">'+
@@ -1073,6 +1077,7 @@ function telaEntrada(modo){
       '<div id="c-erro"></div>'+
       '<div style="margin-top:16px"><button class="bt" id="c-enviar">'+
       (criar?'Criar conta e entrar':'Entrar')+'</button></div>'+
+      (criar?'':'<div id="c-esqueci" class="nota" style="margin-top:12px"></div>')+
     '</div>'+
     '<div class="cartao"><div class="nota">Vai conectar uma integração (n8n, '+
     'script)? <button class="link" id="c-chave">entrar com chave de API</button></div></div>';
@@ -1106,6 +1111,137 @@ function telaEntrada(modo){
   $('c-enviar').addEventListener('click',enviar);
   ['c-email','c-senha'].forEach(function(id){
     $(id).addEventListener('keydown',function(e){if(e.key==='Enter')enviar()})});
+  if(!criar)desenharEsqueci();
+}
+
+/* Pergunta ao servidor se ele consegue mandar e-mail, e só então desenha o
+   link. A resposta é sobre a INSTALAÇÃO, não sobre nenhuma conta — nenhum
+   e-mail é enviado nesta chamada, então não há o que um curioso descubra. */
+function desenharEsqueci(){
+  var pintar=function(){
+    var alvo=$('c-esqueci');
+    if(!alvo||estado.recuperacaoDisponivel!==true)return;
+    alvo.innerHTML='Esqueceu a senha? '+
+      '<button class="link" id="c-recuperar">receber um link por e-mail</button>';
+    $('c-recuperar').addEventListener('click',function(){telaRecuperar()});
+  };
+  if(estado.recuperacaoDisponivel!==null){pintar();return}
+  api('/v1/senha/recuperar').then(function(r){
+    estado.recuperacaoDisponivel=r.disponivel===true;pintar();
+  }).catch(function(){estado.recuperacaoDisponivel=false});
+}
+
+/* Pedir o link.
+ *
+ * A confirmação é a MESMA para e-mail cadastrado e não cadastrado, e é o
+ * próprio servidor que devolve o texto. Uma tela que dissesse "não encontramos
+ * esta conta" seria um verificador de quem é assinante do Processo Vivo aberto na
+ * internet, e sem nem precisar de senha para consultar. */
+function telaRecuperar(){
+  $('barra').classList.add('oculto');
+  $('conteudo').innerHTML=
+    '<div class="titulo-secao"><div><h2>Recuperar acesso</h2><div class="sub">'+
+    'Enviamos um link para você escolher uma senha nova.</div></div></div>'+
+    '<div class="cartao">'+
+      '<label class="rotulo" for="r-email">E-mail da conta</label>'+
+      '<input id="r-email" type="email" placeholder="voce@escritorio.com.br" autocomplete="username">'+
+      '<div id="r-aviso"></div>'+
+      '<div style="margin-top:16px"><button class="bt" id="r-enviar">Enviar link</button> '+
+      '<button class="bt bt2" id="r-voltar">Voltar</button></div>'+
+    '</div>';
+
+  var enviar=function(){
+    var email=$('r-email').value.trim();
+    if(!email)return;
+    var botao=$('r-enviar'); botao.disabled=true;
+    api('/v1/senha/recuperar',{method:'POST',body:{email:email}})
+      .then(function(r){
+        $('conteudo').innerHTML=
+          '<div class="titulo-secao"><div><h2>Confira seu e-mail</h2></div></div>'+
+          '<div class="cartao"><p>'+esc(r.mensagem)+'</p>'+
+          '<div class="nota">O link vale uma hora e serve uma vez só. '+
+          'Se não chegar em alguns minutos, tente de novo.</div>'+
+          '<div style="margin-top:16px"><button class="bt bt2" id="r-ok">'+
+          'Voltar ao início</button></div></div>';
+        $('r-ok').addEventListener('click',function(){telaEntrada('entrar')});
+      })
+      .catch(function(e){
+        botao.disabled=false;
+        $('r-aviso').innerHTML='<div class="nota" style="color:var(--erro);margin-top:10px">'+
+          esc(e.message||explicar(e))+'</div>';
+      });
+  };
+  $('r-enviar').addEventListener('click',enviar);
+  $('r-voltar').addEventListener('click',function(){telaEntrada('entrar')});
+  $('r-email').addEventListener('keydown',function(e){if(e.key==='Enter')enviar()});
+}
+
+/* Escolher a senha nova, vindo do link do e-mail.
+ *
+ * O token chega por "?recuperar=" e é APAGADO da barra de endereço antes de
+ * qualquer coisa (ver o arranque, no fim do arquivo): na URL ele iria parar no
+ * histórico, num favorito, numa captura de tela e no cabeçalho "Referer" de
+ * toda requisição externa que a página fizesse. */
+function telaRedefinir(token){
+  $('barra').classList.add('oculto');
+  $('conteudo').innerHTML=
+    '<div class="titulo-secao"><div><h2>Escolher nova senha</h2><div class="sub">'+
+    'Ao confirmar, todas as sessões abertas nesta conta são encerradas.'+
+    '</div></div></div>'+
+    '<div class="cartao">'+
+      '<label class="rotulo" for="n-senha">Nova senha</label>'+
+      '<input id="n-senha" type="password" autocomplete="new-password">'+
+      '<label class="rotulo" for="n-senha2">Repita a nova senha</label>'+
+      '<input id="n-senha2" type="password" autocomplete="new-password">'+
+      '<div class="nota">Pelo menos 10 caracteres. Uma frase que só você lembra '+
+      'protege mais do que trocar letra por símbolo.</div>'+
+      '<div id="n-erro"></div>'+
+      '<div style="margin-top:16px"><button class="bt" id="n-enviar">'+
+      'Salvar e entrar</button></div>'+
+    '</div>';
+
+  var aviso=function(texto,acao){
+    $('n-erro').innerHTML='<div class="nota" style="color:var(--erro);margin-top:10px">'+
+      esc(texto)+'</div>'+(acao||'');
+  };
+
+  var enviar=function(){
+    var a=$('n-senha').value, b=$('n-senha2').value;
+    if(!a||!b)return;
+    /* Conferir aqui, e não só no servidor: um erro de digitação trocaria a
+       senha para algo que a pessoa não sabe — e o link já teria sido gasto. */
+    if(a!==b){aviso('As duas senhas não são iguais.');return}
+    var botao=$('n-enviar'); botao.disabled=true;
+    $('n-erro').innerHTML='';
+    api('/v1/senha/redefinir',{method:'POST',body:{token:token,senhaNova:a}})
+      .then(function(){
+        estado.chave=''; try{localStorage.removeItem(CH)}catch(e){}
+        return carregarEu();
+      })
+      .then(function(){estado.aba='novidades';iniciar()})
+      .catch(function(e){
+        botao.disabled=false;
+        if(e.status===401){
+          /* Inválido, expirado e já usado dão a MESMA resposta do servidor, de
+             propósito. A tela repete esse silêncio e oferece a única saída
+             útil: pedir outro link. */
+          aviso('Este link não vale mais. Ele expira em uma hora e só pode ser '+
+            'usado uma vez.',
+            '<div style="margin-top:12px"><button class="bt" id="n-novo">'+
+            'Pedir um link novo</button></div>');
+          var novo=$('n-novo');
+          if(novo)novo.addEventListener('click',function(){telaRecuperar()});
+          return;
+        }
+        /* A mensagem do servidor vem primeiro: em senha curta ela diz o
+           mínimo exato, e "explicar" cairia no texto genérico de 400, que
+           fala de número CNJ e não tem nada a ver com esta tela. */
+        aviso(e.message||explicar(e));
+      });
+  };
+  $('n-enviar').addEventListener('click',enviar);
+  ['n-senha','n-senha2'].forEach(function(id){
+    $(id).addEventListener('keydown',function(e){if(e.key==='Enter')enviar()})});
 }
 
 /* A porta das integrações. Continua existindo porque n8n e script não têm
@@ -1119,7 +1255,7 @@ function telaChave(){
     '<div class="cartao"><label class="rotulo" for="k">Chave de API</label>'+
     '<input id="k" type="password" placeholder="cole a chave aqui" autocomplete="off">'+
     '<div class="nota">Fica guardada apenas neste navegador. É a mesma que está em '+
-    'LEXFLOW_API_KEYS na configuração do servidor.</div>'+
+    'PROCESSOVIVO_API_KEYS na configuração do servidor.</div>'+
     '<div style="margin-top:14px"><button class="bt" id="entrar">Entrar</button> '+
     '<button class="bt bt2" id="voltar">Voltar</button></div></div>';
   var entrar=function(){
@@ -1163,7 +1299,7 @@ function blocoTrilha(){
   };
 
   return '<div class="cartao">'+
-    '<h3 class="sec">Falta pouco para o LexFlow trabalhar sozinho</h3>'+
+    '<h3 class="sec">Falta pouco para o Processo Vivo trabalhar sozinho</h3>'+
     passo(true,'Conta criada','Você já pode consultar qualquer processo por número.','','') +
     passo(t.oab,'Informe sua OAB',
       'Para o sistema achar sozinho os processos no seu nome e avisar de publicação nova.',
@@ -1401,13 +1537,42 @@ $('sair').addEventListener('click',function(){
   api('/v1/sessoes',{method:'DELETE'}).then(fim,fim);
 });
 
-/* Ordem de tentativa: PRIMEIRO o cookie de sessão, depois a chave guardada.
-   É a mesma precedência do servidor — se as duas existirem neste navegador,
-   quem vale é a pessoa, e não a integração. */
-carregarEu().then(function(entrou){
-  if(entrou){iniciar();return}
-  try{estado.chave=localStorage.getItem(CH)||''}catch(e){}
-  if(estado.chave)iniciar(); else telaEntrada('entrar');
-});
+/* O token de recuperação, se veio na URL, é lido e APAGADO da barra de
+   endereço antes de qualquer outra coisa.
+
+   Não é preciosismo: na URL ele entra no histórico do navegador, pode ser
+   salvo num favorito, aparece em captura de tela e viaja no cabeçalho
+   "Referer" de toda requisição que a página fizer para fora. "replaceState"
+   troca a entrada atual do histórico em vez de acrescentar outra — com
+   "pushState" o botão "voltar" traria o token de volta.
+
+   O token continua vivo na variável, que é o suficiente para a tela funcionar
+   e some quando a aba fecha. */
+var tokenRecuperacao='';
+try{
+  var busca=new URLSearchParams(location.search);
+  tokenRecuperacao=busca.get('recuperar')||'';
+  if(tokenRecuperacao){
+    busca.delete('recuperar');
+    var resto=busca.toString();
+    history.replaceState(null,'',location.pathname+(resto?'?'+resto:''));
+  }
+}catch(e){}
+
+/* Ordem de tentativa: PRIMEIRO o link de recuperação, depois o cookie de
+   sessão, depois a chave guardada. A recuperação vem na frente de propósito:
+   quem clicou no link do e-mail pode estar justamente tirando alguém de dentro
+   da conta, e cair na carteira por causa de um cookie antigo esconderia a
+   única coisa que a pessoa veio fazer. A mesma precedência do servidor vale
+   para o resto — entre cookie e chave, quem vale é a pessoa. */
+if(tokenRecuperacao){
+  telaRedefinir(tokenRecuperacao);
+}else{
+  carregarEu().then(function(entrou){
+    if(entrou){iniciar();return}
+    try{estado.chave=localStorage.getItem(CH)||''}catch(e){}
+    if(estado.chave)iniciar(); else telaEntrada('entrar');
+  });
+}
 })();
 `;

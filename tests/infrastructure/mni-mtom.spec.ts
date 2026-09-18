@@ -61,7 +61,7 @@ describe('MTOM — resposta real do MNI/TJGO', () => {
 
 describe('MTOM — anexos binários', () => {
   const BOUNDARY = 'limite-de-teste';
-  const CONTENT_TYPE = `multipart/related; boundary="${BOUNDARY}"; start="<raiz@lexflow>"`;
+  const CONTENT_TYPE = `multipart/related; boundary="${BOUNDARY}"; start="<raiz@processovivo>"`;
 
   /**
    * PDF mínimo com bytes que NÃO são UTF-8 válido (0xFF, 0xFE, 0x00). São eles
@@ -74,12 +74,12 @@ describe('MTOM — anexos binários', () => {
     const partes = [
       `--${BOUNDARY}\r\n`,
       'Content-Type: application/xop+xml\r\n',
-      'Content-ID: <raiz@lexflow>\r\n\r\n',
+      'Content-ID: <raiz@processovivo>\r\n\r\n',
       '<xml/>\r\n',
       `--${BOUNDARY}\r\n`,
       'Content-Type: application/pdf\r\n',
       'Content-Transfer-Encoding: binary\r\n',
-      'Content-ID: <peca-1@lexflow>\r\n\r\n',
+      'Content-ID: <peca-1@processovivo>\r\n\r\n',
     ].join('');
 
     return new Uint8Array(
@@ -93,7 +93,7 @@ describe('MTOM — anexos binários', () => {
 
   it('devolve os bytes do anexo sem alterar um único byte', () => {
     const { anexos } = lerRespostaSoap(CONTENT_TYPE, montarMultipart());
-    const bytes = resolverReferencia('cid:peca-1@lexflow', anexos);
+    const bytes = resolverReferencia('cid:peca-1@processovivo', anexos);
 
     expect(bytes).toBeDefined();
     expect(Buffer.from(bytes as Uint8Array).equals(BINARIO)).toBe(true);
@@ -101,7 +101,7 @@ describe('MTOM — anexos binários', () => {
 
   it('não deixa o CRLF do delimitador colado no fim do arquivo', () => {
     const { anexos } = lerRespostaSoap(CONTENT_TYPE, montarMultipart());
-    const bytes = resolverReferencia('cid:peca-1@lexflow', anexos) as Uint8Array;
+    const bytes = resolverReferencia('cid:peca-1@processovivo', anexos) as Uint8Array;
 
     expect(bytes.length).toBe(BINARIO.length);
   });
@@ -109,9 +109,9 @@ describe('MTOM — anexos binários', () => {
   it('decodifica anexo enviado em base64', () => {
     const corpo = Buffer.concat([
       Buffer.from(
-        `--${BOUNDARY}\r\nContent-ID: <raiz@lexflow>\r\n\r\n<xml/>\r\n` +
+        `--${BOUNDARY}\r\nContent-ID: <raiz@processovivo>\r\n\r\n<xml/>\r\n` +
           `--${BOUNDARY}\r\nContent-Transfer-Encoding: base64\r\n` +
-          `Content-ID: <b64@lexflow>\r\n\r\n`,
+          `Content-ID: <b64@processovivo>\r\n\r\n`,
         'ascii',
       ),
       Buffer.from(BINARIO.toString('base64'), 'ascii'),
@@ -119,7 +119,7 @@ describe('MTOM — anexos binários', () => {
     ]);
 
     const { anexos } = lerRespostaSoap(CONTENT_TYPE, new Uint8Array(corpo));
-    const bytes = resolverReferencia('cid:b64@lexflow', anexos) as Uint8Array;
+    const bytes = resolverReferencia('cid:b64@processovivo', anexos) as Uint8Array;
 
     expect(Buffer.from(bytes).equals(BINARIO)).toBe(true);
   });
@@ -128,6 +128,6 @@ describe('MTOM — anexos binários', () => {
     const { anexos } = lerRespostaSoap(CONTENT_TYPE, montarMultipart());
     // Referência quebrada é dado corrompido, não arquivo vazio — e os dois
     // casos não podem virar o mesmo valor.
-    expect(resolverReferencia('cid:nao-existe@lexflow', anexos)).toBeUndefined();
+    expect(resolverReferencia('cid:nao-existe@processovivo', anexos)).toBeUndefined();
   });
 });

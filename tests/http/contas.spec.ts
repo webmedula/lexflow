@@ -13,9 +13,9 @@ const SENHA = 'uma-senha-boa-o-bastante';
 
 function config(): Config {
   return carregarConfig({
-    LEXFLOW_PROVIDER_CHAIN: 'mock-crawler-tjsp',
+    PROCESSOVIVO_PROVIDER_CHAIN: 'mock-crawler-tjsp',
     LOG_LEVEL: 'silent',
-    LEXFLOW_API_KEYS: CHAVE,
+    PROCESSOVIVO_API_KEYS: CHAVE,
     CACHE_ENABLED: 'false',
     // Sem HTTPS no teste; com `Secure` o cookie não voltaria.
     COOKIE_SECURE: 'false',
@@ -62,7 +62,7 @@ describe('Contas — cadastro', () => {
     expect(r.json().usuario.email).toBe('maria@escritorio.com.br');
     // Cadastro que exige login logo depois é atrito puro: a pessoa acabou de
     // provar que sabe a senha.
-    expect(cookieDe(r)).toContain('lexflow_sessao=');
+    expect(cookieDe(r)).toContain('processovivo_sessao=');
   });
 
   it('não devolve senha nem hash em lugar nenhum da resposta', async () => {
@@ -144,7 +144,7 @@ describe('Contas — entrar e sair', () => {
   it('entra com e-mail e senha corretos', async () => {
     const r = await entrar('maria@escritorio.com.br', SENHA);
     expect(r.statusCode).toBe(200);
-    expect(cookieDe(r)).toContain('lexflow_sessao=');
+    expect(cookieDe(r)).toContain('processovivo_sessao=');
   });
 
   it('responde igual para e-mail inexistente e para senha errada', async () => {
@@ -218,7 +218,7 @@ describe('Contas — entrar e sair', () => {
     const r = await servidor.inject({
       method: 'GET',
       url: '/v1/eu',
-      headers: { cookie: 'lexflow_sessao=token-que-eu-inventei-agora' },
+      headers: { cookie: 'processovivo_sessao=token-que-eu-inventei-agora' },
     });
     expect(r.statusCode).toBe(401);
   });

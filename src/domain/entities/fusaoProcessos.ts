@@ -5,7 +5,7 @@ import { Processo } from './Processo.js';
 /**
  * Funde o retrato de um mesmo processo vindo de duas fontes.
  *
- * É o coração da tese híbrida do LexFlow, e existe porque nenhuma fonte
+ * É o coração da tese híbrida do Processo Vivo, e existe porque nenhuma fonte
  * brasileira sozinha entrega um processo inteiro:
  *
  *   DataJud  → metadados (classe, assunto, distribuição) e a linha do tempo

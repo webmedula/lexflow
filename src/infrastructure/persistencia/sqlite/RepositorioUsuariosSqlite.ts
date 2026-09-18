@@ -126,6 +126,14 @@ export class RepositorioUsuariosSqlite implements RepositorioUsuarios {
 
   async trocarSenha(id: string, senhaGuardada: SenhaGuardada): Promise<void> {
     this.db.prepare('UPDATE usuarios SET senha = ? WHERE id = ?').run(senhaGuardada, id);
+    // Qualquer link de recuperação pendente morre junto. Quem acabou de trocar
+    // a senha não quer um e-mail antigo servindo de porta dos fundos — e é
+    // justamente quem desconfia de invasão que troca a senha.
+    this.db
+      .prepare(
+        'UPDATE recuperacoes_senha SET usada_em = ? WHERE usuario_id = ? AND usada_em IS NULL',
+      )
+      .run(new Date().toISOString(), id);
   }
 
   async registrarAcesso(id: string): Promise<void> {
@@ -167,6 +175,58 @@ export class RepositorioUsuariosSqlite implements RepositorioUsuarios {
 
   async encerrarSessoesDe(usuarioId: string): Promise<void> {
     this.db.prepare('DELETE FROM sessoes WHERE usuario_id = ?').run(usuarioId);
+  }
+
+  async abrirRecuperacao(
+    hashDoToken: string,
+    usuarioId: string,
+    expiraEm: Date,
+  ): Promise<void> {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO recuperacoes_senha
+           (hash_token, usuario_id, criada_em, expira_em)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(hashDoToken, usuarioId, new Date().toISOString(), expiraEm.toISOString());
+  }
+
+  /**
+   * Confere e marca como usado NUMA TRANSAÇÃO SÓ.
+   *
+   * O `UPDATE ... WHERE usada_em IS NULL` seguido de `changes` é o que dá a
+   * garantia de uso único: duas requisições com o mesmo link disputam a mesma
+   * linha, e apenas uma vê `changes = 1`. Conferir e marcar em passos separados
+   * deixaria a segunda passar enquanto a primeira ainda não gravou.
+   */
+  async consumirRecuperacao(hashDoToken: string): Promise<Usuario | undefined> {
+    const agora = new Date().toISOString();
+    const r = this.db
+      .prepare(
+        `UPDATE recuperacoes_senha SET usada_em = ?
+          WHERE hash_token = ? AND usada_em IS NULL AND expira_em > ?`,
+      )
+      .run(agora, hashDoToken, agora);
+    if (Number(r.changes) !== 1) return undefined;
+
+    const linha = this.db
+      .prepare(
+        `SELECT u.* FROM recuperacoes_senha r
+           JOIN usuarios u ON u.id = r.usuario_id
+          WHERE r.hash_token = ?`,
+      )
+      .get(hashDoToken) as unknown as LinhaUsuario | undefined;
+    return linha ? paraUsuario(linha) : undefined;
+  }
+
+  async contarRecuperacoesRecentes(usuarioId: string, desde: Date): Promise<number> {
+    const r = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM recuperacoes_senha
+          WHERE usuario_id = ? AND criada_em >= ?`,
+      )
+      .get(usuarioId, desde.toISOString()) as unknown as { n: number };
+    return Number(r.n);
   }
 
   async limparSessoesExpiradas(): Promise<number> {

@@ -12,6 +12,8 @@ import { TAMANHO_MINIMO_SENHA } from '../../../infrastructure/seguranca/senha.js
 
 export const ROTA_CONTAS = '/v1/contas';
 export const ROTA_SESSOES = '/v1/sessoes';
+export const ROTA_RECUPERAR = '/v1/senha/recuperar';
+export const ROTA_REDEFINIR = '/v1/senha/redefinir';
 
 const corpoCadastro = z.object({
   nome: z.string().trim().min(2).max(120),
@@ -28,6 +30,15 @@ const corpoPerfil = z.object({
   nome: z.string().trim().min(2).max(120).optional(),
   oab: z.string().trim().min(1).max(20).optional(),
   ufOab: z.string().trim().length(2).optional(),
+});
+
+const corpoPedidoRecuperacao = z.object({
+  email: z.string().trim().min(1).max(200),
+});
+
+const corpoRedefinicao = z.object({
+  token: z.string().min(10).max(200),
+  senhaNova: z.string().min(TAMANHO_MINIMO_SENHA).max(200),
 });
 
 const corpoTrocaDeSenha = z.object({
@@ -136,6 +147,49 @@ export function rotasDeContas(
       const perfil = corpoPerfil.parse(req.body);
       const atualizado = await exigirServico().atualizarPerfil(usuario, perfil);
       return { usuario: atualizado.toJSON(), trilha: await trilhaDe(atualizado) };
+    });
+
+    /**
+     * Pede o link de recuperação.
+     *
+     * Responde **sempre 202 e sempre a mesma coisa** — conta existente,
+     * inexistente, e-mail malformado, limite estourado ou SMTP fora do ar. Esta
+     * rota é pública e não exige nada: qualquer diferença observável a
+     * transformaria no verificador de assinantes mais cômodo que existe, melhor
+     * até que o login, porque nem senha precisa.
+     */
+    /**
+     * A recuperação existe NESTE servidor?
+     *
+     * A tela de entrada pergunta antes de mostrar o "esqueci minha senha".
+     * Mostrar o link sempre e falhar depois seria pior do que não ter: quem
+     * perdeu a senha ficaria esperando um e-mail que nunca sai.
+     *
+     * Responde sobre o SERVIDOR, não sobre uma conta — nenhum e-mail entra
+     * aqui, então não há o que enumerar. E devolve `false` (não 501) com o
+     * servidor sem banco: o console só precisa saber se desenha o link.
+     */
+    servidor.get(ROTA_RECUPERAR, async () => {
+      return { disponivel: contas?.podeRecuperarSenha === true };
+    });
+
+    servidor.post(ROTA_RECUPERAR, async (req, resposta) => {
+      const { email } = corpoPedidoRecuperacao.parse(req.body);
+      await exigirServico().pedirRecuperacao(email);
+      void resposta.code(202);
+      return {
+        mensagem:
+          'Se houver uma conta com este e-mail, enviamos um link para redefinir ' +
+          'a senha. Confira também a caixa de spam.',
+      };
+    });
+
+    servidor.post(ROTA_REDEFINIR, async (req, resposta) => {
+      const { token, senhaNova } = corpoRedefinicao.parse(req.body);
+      const sessao = await exigirServico().redefinirSenha(token, senhaNova);
+      // Já entra: a pessoa acabou de provar que tem a caixa de e-mail dela e
+      // escolheu uma senha. Mandá-la para a tela de login seria atrito puro.
+      return responderSessao(resposta, sessao);
     });
 
     servidor.post('/v1/eu/senha', async (req, resposta) => {

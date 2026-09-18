@@ -12,8 +12,8 @@ const CHAVE_B = 'chave-workspace-b-1234567890';
 function montar(): FastifyInstance {
   const config = carregarConfig({
     LOG_LEVEL: 'silent',
-    LEXFLOW_API_KEYS: `${CHAVE_A},${CHAVE_B}`,
-    LEXFLOW_DB_PATH: ':memory:',
+    PROCESSOVIVO_API_KEYS: `${CHAVE_A},${CHAVE_B}`,
+    PROCESSOVIVO_DB_PATH: ':memory:',
   } as NodeJS.ProcessEnv);
   return construirServidor(
     aplicacaoDeTeste([new MockCrawlerAdapter({ latenciaMs: 0 })]),

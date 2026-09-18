@@ -1,6 +1,6 @@
 {
-  "name": "lexflow",
-  "version": "0.16.0",
+  "name": "processovivo",
+  "version": "0.18.0",
   "private": true,
   "description": "SaaS de consulta e acompanhamento de processos judiciais nos tribunais brasileiros",
   "type": "module",
@@ -8,11 +8,12 @@
     "node": ">=24.0.0"
   },
   "bin": {
-    "lexflow": "./dist/main/cli.js"
+    "processovivo": "./dist/main/cli.js"
   },
   "main": "./dist/main/http/index.js",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/main/http/index.ts",
+    "backup": "tsx src/main/cli.ts backup",
     "cli": "tsx --env-file-if-exists=.env src/main/cli.ts",
     "chave": "node scripts/gerar-chave.mjs",
     "build": "tsc -p tsconfig.build.json",

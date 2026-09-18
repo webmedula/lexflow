@@ -32,7 +32,7 @@ export const NOME_DATAJUD = 'datajud';
  * do país. Mesmo com `size: 0`, isso pede ao Elasticsearch que percorra e conte
  * o índice inteiro: a consulta mais cara possível, disparada a cada chamada de
  * `/ready`. Contra uma API pública compartilhada e sob carga, o resultado era
- * timeout — e o LexFlow concluía "fonte fora do ar" quando ela estava no ar,
+ * timeout — e o Processo Vivo concluía "fonte fora do ar" quando ela estava no ar,
  * só ocupada respondendo a uma pergunta que ninguém precisava fazer.
  *
  * Um health check tem uma pergunta só: "consigo falar com essa fonte e ela me

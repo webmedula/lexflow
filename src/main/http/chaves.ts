@@ -5,7 +5,7 @@ import { pareceValorDeExemplo } from '../../infrastructure/config/placeholder.js
  * Comprimento mínimo aceito para uma chave de API.
  *
  * 24 caracteres é o piso, não a recomendação — o script `npm run chave` gera 64
- * (32 bytes em hex, 256 bits). O piso existe para barrar `LEXFLOW_API_KEYS=123`
+ * (32 bytes em hex, 256 bits). O piso existe para barrar `PROCESSOVIVO_API_KEYS=123`
  * digitado às pressas em produção: chave fraca é PIOR do que nenhuma, porque
  * dá a sensação de proteção enquanto cai num ataque de dicionário em minutos.
  */
@@ -34,7 +34,7 @@ export function validarChavesDeApi(
   if (autenticacaoDesativada) {
     if (chaves.length > 0) {
       throw new ConfiguracaoDeChavesInvalidaError(
-        'LEXFLOW_AUTH_DISABLED=true com LEXFLOW_API_KEYS preenchida. ' +
+        'PROCESSOVIVO_AUTH_DISABLED=true com PROCESSOVIVO_API_KEYS preenchida. ' +
           'Escolha um dos dois: ou o serviço exige chave, ou roda aberto na rede interna. ' +
           'Manter as duas configuradas esconde qual delas está realmente valendo.',
       );
@@ -44,8 +44,8 @@ export function validarChavesDeApi(
 
   if (chaves.length === 0) {
     throw new ConfiguracaoDeChavesInvalidaError(
-      'LEXFLOW_API_KEYS não definida. Gere uma chave com `npm run chave` e ' +
-        'configure-a, ou declare LEXFLOW_AUTH_DISABLED=true se o serviço só ' +
+      'PROCESSOVIVO_API_KEYS não definida. Gere uma chave com `npm run chave` e ' +
+        'configure-a, ou declare PROCESSOVIVO_AUTH_DISABLED=true se o serviço só ' +
         'será acessível pela rede interna (sem domínio público).',
     );
   }
@@ -55,7 +55,7 @@ export function validarChavesDeApi(
   const exemplos = chaves.filter((c) => pareceValorDeExemplo(c));
   if (exemplos.length > 0) {
     throw new ConfiguracaoDeChavesInvalidaError(
-      `LEXFLOW_API_KEYS ainda contém o texto de exemplo (${exemplos.join(', ')}). ` +
+      `PROCESSOVIVO_API_KEYS ainda contém o texto de exemplo (${exemplos.join(', ')}). ` +
         'Gere uma chave real com `npm run chave` e substitua.',
     );
   }
@@ -63,7 +63,7 @@ export function validarChavesDeApi(
   const curtas = chaves.filter((c) => c.length < TAMANHO_MINIMO_CHAVE);
   if (curtas.length > 0) {
     throw new ConfiguracaoDeChavesInvalidaError(
-      `${curtas.length} chave(s) em LEXFLOW_API_KEYS têm menos de ` +
+      `${curtas.length} chave(s) em PROCESSOVIVO_API_KEYS têm menos de ` +
         `${TAMANHO_MINIMO_CHAVE} caracteres. Gere chaves fortes com \`npm run chave\`. ` +
         '(As chaves não são exibidas nesta mensagem de propósito.)',
     );
@@ -72,7 +72,7 @@ export function validarChavesDeApi(
   const unicas = new Set(chaves);
   if (unicas.size !== chaves.length) {
     throw new ConfiguracaoDeChavesInvalidaError(
-      'Há chaves repetidas em LEXFLOW_API_KEYS. Cada consumidor deve ter a ' +
+      'Há chaves repetidas em PROCESSOVIVO_API_KEYS. Cada consumidor deve ter a ' +
         'sua, senão revogar uma derruba as outras.',
     );
   }

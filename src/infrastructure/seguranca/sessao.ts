@@ -22,14 +22,14 @@ export const DURACAO_SESSAO_MS = 30 * 24 * 60 * 60 * 1000;
 /**
  * Dois nomes, e a diferença é uma defesa de verdade.
  *
- * Em produção (HTTPS) o cookie se chama `__Host-lexflow_sessao`. O prefixo
+ * Em produção (HTTPS) o cookie se chama `__Host-processovivo_sessao`. O prefixo
  * `__Host-` é uma regra que o NAVEGADOR aplica: ele só aceita gravar um cookie
  * assim se vier com `Secure`, com `Path=/` e **sem `Domain`**. O efeito é que
  * um subdomínio não consegue gravá-lo.
  *
  * Sem o prefixo, quem controlasse qualquer subdomínio do domínio de produção —
  * um subdomínio esquecido, um XSS em outro serviço da mesma zona — poderia
- * mandar `lexflow_sessao=<token dele>; Domain=.seudominio.com; Path=/v1`. O
+ * mandar `processovivo_sessao=<token dele>; Domain=.seudominio.com; Path=/v1`. O
  * navegador envia o cookie de Path mais específico PRIMEIRO, nós leríamos o
  * dele, e o advogado passaria a trabalhar dentro do ambiente do atacante, que
  * depois lê tudo que ele acompanhou. É fixação de sessão, e ela sobrevive a
@@ -38,8 +38,8 @@ export const DURACAO_SESSAO_MS = 30 * 24 * 60 * 60 * 1000;
  * Em desenvolvimento por HTTP o prefixo não pode ser usado (ele exige
  * `Secure`), então o nome simples fica valendo — e a leitura aceita os dois.
  */
-export const NOME_COOKIE = 'lexflow_sessao';
-export const NOME_COOKIE_SEGURO = '__Host-lexflow_sessao';
+export const NOME_COOKIE = 'processovivo_sessao';
+export const NOME_COOKIE_SEGURO = '__Host-processovivo_sessao';
 
 function nomeDoCookie(seguro: boolean): string {
   return seguro ? NOME_COOKIE_SEGURO : NOME_COOKIE;

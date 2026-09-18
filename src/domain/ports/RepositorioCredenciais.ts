@@ -19,7 +19,7 @@ export interface CredencialCadastrada {
  * PORTA de saída para a guarda das credenciais de tribunal.
  *
  * A senha do advogado no tribunal é o dado mais sensível que este sistema
- * guarda — mais do que a chave de API, que só dá acesso ao LexFlow. Ela abre o
+ * guarda — mais do que a chave de API, que só dá acesso ao Processo Vivo. Ela abre o
  * processo, permite peticionar em nome dele e, se vazar, o prejuízo é dele, não
  * nosso. Três consequências que a porta impõe a qualquer implementação:
  *

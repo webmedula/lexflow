@@ -65,7 +65,7 @@ export function rotasDeVigilancia(
         throw new OperacaoNaoSuportadaError(
           'vigilancia-oab',
           'vigiar',
-          'nenhuma fonte da cadeia busca por OAB — inclua "djen" em LEXFLOW_PROVIDER_CHAIN',
+          'nenhuma fonte da cadeia busca por OAB — inclua "djen" em PROCESSOVIVO_PROVIDER_CHAIN',
         );
       }
       return servico;

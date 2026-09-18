@@ -10,6 +10,20 @@
 
 export interface HashDeSenha {
   /**
+   * Confere se a senha SERVE, sem calcular hash nenhum.
+   *
+   * Separada de `guardar` por um motivo de custo, não de organização: `guardar`
+   * gasta ~50ms de CPU e 16 MB de memória, e bloqueia o event loop enquanto
+   * roda. Numa rota pública que recebe um token — redefinir senha —, fazer esse
+   * gasto ANTES de olhar o token entrega ao atacante 50ms de CPU por
+   * requisição, de graça. Com esta, o caminho fica: confere o formato de graça,
+   * confere o token, e só então paga o scrypt.
+   *
+   * @throws {SenhaFracaError}
+   */
+  validar(senha: string): void;
+
+  /**
    * Transforma a senha no texto que vai ao banco, com os parâmetros embutidos.
    * @throws {SenhaFracaError} quando a senha é curta demais para proteger algo.
    */

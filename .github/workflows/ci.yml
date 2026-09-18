@@ -31,4 +31,4 @@ jobs:
       # Descobrir que o build quebrou pelo log do Easypanel é caro: o serviço
       # fica fora enquanto você investiga.
       - name: Build da imagem Docker
-        run: docker build -t lexflow:ci .
+        run: docker build -t processovivo:ci .

@@ -9,6 +9,185 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.18.0] — 2026-09-17
+
+**O produto agora se chama Processo Vivo.**
+
+O domínio `processovivo.com.br` foi comprado, e o nome mudou em todo lugar:
+interface, e-mails, cookie de sessão, cabeçalhos HTTP, nomes de arquivo de
+backup, variáveis de ambiente, `package.json`, CLI e documentação.
+
+Feito AGORA, e não depois, por um motivo específico: três destas coisas ficam
+caras assim que houver o primeiro assinante. Trocar o nome do cookie desconecta
+todo mundo; trocar o caminho do banco exige mexer no arquivo dentro do volume; e
+trocar as variáveis de ambiente arrisca um deploy quebrado. Hoje não há
+assinante, então o custo é meia hora. Em um mês seria um aviso a clientes.
+
+### Mudou
+
+- `LexFlow` → `Processo Vivo` em toda a interface e em todos os e-mails.
+- Cookie de sessão: `lexflow_sessao` → `processovivo_sessao` (e
+  `__Host-lexflow_sessao` → `__Host-processovivo_sessao` em HTTPS). **Isto
+  desconecta todas as sessões abertas, uma vez.**
+- Cabeçalhos de procedência: `x-lexflow-fonte` e `x-lexflow-cache` →
+  `x-processovivo-fonte` e `x-processovivo-cache`.
+- Variáveis de ambiente: prefixo `LEXFLOW_` → `PROCESSOVIVO_`.
+- Arquivo do banco, por padrão: `lexflow.db` → `processovivo.db`.
+- Arquivos de backup: `lexflow-<data>.db` → `processovivo-<data>.db`.
+- `PROCESSOVIVO_URL_BASE` passa a apontar para `app.processovivo.com.br`: o
+  sistema vive no subdomínio e a raiz fica para a página de vendas. Os links dos
+  e-mails de recuperação valem uma hora — não podem apontar para um endereço que
+  ainda vai ser reformado.
+
+### Compatibilidade, de propósito
+
+- **As variáveis `LEXFLOW_*` continuam funcionando**, e o log avisa em `warn`
+  qual trocar. Com as duas definidas, vence a nova. Sem isso, uma variável
+  esquecida no painel derrubaria ou corromperia o deploy — e cada uma falharia
+  de um jeito diferente: sem a chave de API o processo nem sobe; sem a chave do
+  cofre as peças somem em silêncio; sem o caminho do banco o sistema abre um
+  arquivo NOVO e vazio ao lado do que tem os dados, e a carteira parece ter
+  evaporado.
+- **A poda de backup continua reconhecendo `lexflow-<data>.db`.** Sem isso, a
+  pasta guardaria as sete cópias novas MAIS todas as antigas, para sempre,
+  enchendo justamente o volume onde mora o banco.
+
+### Documentação
+
+- Nova seção no `DEPLOY.md`: **"Migrar uma instalação que era LexFlow"** — passo
+  a passo com os dois lugares onde dá para perder dados sem receber erro nenhum
+  (renomear o volume no Easypanel, e apontar o caminho do banco para um arquivo
+  que não existe).
+- A aba Domains agora documenta o app no subdomínio e explica por que a landing
+  não divide origem com a tela onde o advogado digita a senha.
+
+### Testes
+
+De 472 para 478. Os novos cobrem a compatibilidade das variáveis (nome antigo
+aceito, nome novo tendo precedência, variável vazia não contando como definida)
+e a poda das cópias de backup com o nome antigo.
+
+---
+
+## [0.17.0] — 2026-09-17
+
+**Backup do banco e recuperação de senha — o que faltava para vender.**
+
+Até aqui, duas coisas travavam a venda por motivos que não são técnicos: um
+assinante que esquecesse a senha só voltava se eu mexesse no banco dele, e o
+dia em que o volume do VPS falhasse seria o dia em que a carteira de todos os
+clientes deixaria de existir. Nenhuma das duas aparece numa demonstração, e as
+duas aparecem no primeiro problema real.
+
+### Adicionado
+
+- **Backup automático do banco**, ligado por padrão: uma cópia por dia, sete
+  guardadas, em `/dados/backups/`. `BACKUP_INTERVALO_HORAS` e `BACKUP_MANTER`
+  controlam; 0 desliga. Também sob demanda: `npm run cli -- backup`.
+- **Recuperação de senha por e-mail.** Link de uso único, válido por uma hora,
+  no máximo cinco pedidos por conta por hora. Quem redefine já entra, e todas
+  as sessões anteriores caem.
+- **Telas de "esqueci minha senha" e "escolher nova senha"** no console.
+- `GET /v1/senha/recuperar` diz se **esta instalação** consegue enviar e-mail.
+  É o que permite a interface esconder o link em vez de prometer o que não vai
+  cumprir.
+- **Seção 6 do DEPLOY.md**: procedimento de restauração passo a passo, custódia
+  da `PROCESSOVIVO_CREDENCIAL_CHAVE` e o que fazer para tirar a cópia do VPS.
+
+### Decisões que moldaram o código
+
+- **A cópia é feita com `VACUUM INTO`, não copiando o arquivo.** Em modo WAL,
+  uma escrita recente vive no `-wal` até o checkpoint: copiar o `.db` cru
+  devolveria um arquivo que abre, parece íntegro e está desatualizado. Há teste
+  que prova a diferença.
+- **Toda cópia é aberta e conferida** (`PRAGMA integrity_check` + contagem de
+  contas) antes de ser aceita; a que não passa é apagada. Backup que ninguém
+  abriu é suposição.
+- **O backup mora no mesmo volume do banco, e isso está escrito como limite, não
+  como recurso.** Protege contra erro de operação e arquivo corrompido; não
+  protege contra perder o volume. O CLI avisa isso em toda execução, por stderr.
+- **O pedido de recuperação responde sempre 202, com a mesma mensagem** — conta
+  existente, inexistente, e-mail malformado, limite estourado ou SMTP fora do
+  ar. Qualquer diferença observável transformaria uma rota pública e sem senha
+  no verificador de assinantes do Processo Vivo.
+- **Link inválido, vencido e já usado dão a mesma resposta.** Distinguir "já
+  usado" contaria a quem achou o e-mail meses depois que aquele link foi real.
+- **A senha nova é validada antes de o link ser consumido.** Do contrário um
+  erro de digitação queimaria o link, e o limite de cinco por hora transformaria
+  isso em ficar de fora da própria conta.
+- **O token sai da barra de endereço assim que a página carrega**
+  (`history.replaceState`). Na URL ele entraria no histórico, num favorito, numa
+  captura de tela e no cabeçalho `Referer` de toda requisição externa.
+- **Trocar a senha pelo painel mata os links de recuperação pendentes.** É
+  justamente quem desconfia de invasão que troca a senha.
+- **O endereço do link vem de `PROCESSOVIVO_URL_BASE`, nunca do cabeçalho `Host`.**
+  Senão bastaria mandar outro `Host` para o servidor enviar, com a nossa cara,
+  um link apontando para o endereço de quem atacou.
+- **Sem SMTP a funcionalidade não existe, e a interface não a oferece.** Aceitar
+  o pedido, dizer "enviamos um e-mail" e não enviar nada é pior do que não ter.
+
+### Testes
+
+De 446 para 472. Entre eles, um que **restaura de fato**: apaga o banco e os
+arquivos do WAL, copia o backup por cima e sobe pelo mesmo `abrirBanco` da
+produção, conferindo que as contas, os `workspace` e a carteira voltaram — e que
+o banco restaurado aceita escrita nova. Procedimento de restauração que ninguém
+executou é um palpite, e a hora de descobrir que ele não funciona não pode ser a
+hora em que o banco sumiu.
+
+### Achados de uma revisão de segurança adversarial, todos corrigidos
+
+Antes de fechar a versão, o fluxo inteiro foi revisado por um segundo par de
+olhos com a instrução de tentar quebrá-lo. Achou seis coisas. As duas primeiras
+eram graves e teriam ido para produção:
+
+- **O token de recuperação ia para o log de acesso.** O link é
+  `GET /?recuperar=<token>`, e o servidor registrava a URL inteira em nível
+  `info` — token válido, de uso único, com uma hora de vida, escrito no log do
+  contêiner, que costuma seguir para um coletor de terceiro. Agora o log guarda
+  só o caminho, sem query string, para toda rota: uma lista de parâmetros
+  proibidos envelheceria mal e a próxima rota com segredo na URL entraria calada.
+- **A recuperação se declarava disponível sem SMTP.** Sem `SMTP_HOST`, o sistema
+  cai no notificador de log, que se declara habilitado de propósito — certo para
+  a vigilância, desastroso aqui: o "envio" era um token que ninguém recebia, e a
+  pessoa via "confira seu e-mail", gastava o link e, após cinco tentativas,
+  ficava uma hora travada. O composition root agora só entrega o notificador à
+  recuperação quando ele entrega de verdade.
+- **O scrypt era pago antes de conferir o token** em `/v1/senha/redefinir`, que
+  é pública: ~50ms de CPU e 16 MB por requisição, de graça, para qualquer token
+  inventado. A ordem virou validar (de graça) → conferir o token → hash. A
+  porta `HashDeSenha` ganhou um `validar` justamente para separar as duas coisas.
+- **A poda de backups apagava arquivos que não eram dela.** O filtro era "começa
+  com `processovivo-` e termina em `.db`", e alcançava a cópia manual que alguém
+  guardou antes de uma migração. Agora só apaga o nome exato que ela própria
+  gera — e registra no log QUAIS apagou, não só quantas.
+- **Permissões da cópia**: 0700 na pasta, 0600 no arquivo. O backup é o banco
+  inteiro num volume que pode ser montado noutro lugar.
+- **`limparSessoesExpiradas` estava implementada, testada e nunca era chamada.**
+  Entrou de carona na varredura que já roda.
+
+Um sétimo ponto foi **documentado em vez de corrigido**: sobra uma diferença de
+tempo de ~0,14 ms entre pedir recuperação para um e-mail cadastrado e para um
+desconhecido. Está abaixo do jitter de qualquer rede, exigiria milhares de
+amostras por endereço contra um teto de 60 requisições por minuto, e o 409 do
+cadastro já revela o mesmo fato de graça por decisão de produto. O comentário no
+código agora diz isso, em vez de afirmar uma simetria que não existe.
+
+### Corrigido
+
+- **O envio do e-mail de recuperação não é mais aguardado dentro da
+  requisição.** Encontrado num teste de fumaça contra um SMTP inalcançável: com
+  `await`, o pedido de um e-mail cadastrado ficava pendurado até o timeout do
+  nodemailer, enquanto o de um endereço desconhecido voltava na hora. Status
+  igual, mensagem igual — e o relógio contando quem é assinante. A enumeração
+  que a rota inteira existe para impedir, entrando por outro canal. Agora os
+  dois caminhos voltam em milissegundos, e há teste com um notificador que
+  nunca responde.
+- `.env.example` ainda descrevia o cadastro como fechado por convite, regra que
+  deixou de valer na v0.14.0.
+
+---
+
 ## [0.16.0] — 2026-09-17
 
 **A carteira agora mostra as partes, e filtra por cliente em SQL.**
@@ -128,7 +307,7 @@ documento, e nem informa se é pessoa física ou jurídica. O MNI dá
 descartado, porque o `MniAdapter` só produz `Peca`. Aproveitá-lo é trabalho
 pequeno, limitado ao TJGO, e depende de uma decisão: o MNI devolve **CPF
 completo**, sem máscara, e guardar documento de pessoa física de quem não é
-cliente do assinante muda o perfil de risco do LexFlow na LGPD. A recomendação
+cliente do assinante muda o perfil de risco do Processo Vivo na LGPD. A recomendação
 registrada é guardar CNPJ e descartar CPF na entrada.
 
 Também não muda o teto da fonte: o DJEN lista como partes os destinatários das
@@ -177,7 +356,7 @@ do produto achando que o sistema tinha perdido os dados dele.
 
 **A tela inicial convenceu o dono de que o sistema tinha perdido dados.**
 
-Ele cadastrou três processos numa conta nova, abriu o LexFlow, viu **um** item e
+Ele cadastrou três processos numa conta nova, abriu o Processo Vivo, viu **um** item e
 concluiu que só um tinha sido salvo. O banco tinha os três, íntegros, com
 tribunal, classe e retrato completo. A consulta que a tela faz devolvia os três.
 
@@ -210,7 +389,7 @@ confiança no dado é mais cara do que perda de dado — a segunda se conserta.
 O MNI do TJGO entrega peça **somente onde o advogado está habilitado nos
 autos**. Medido com a mesma credencial em dois processos: no dele, 278
 documentos e PDF baixando; no de outro advogado, sem acesso às peças. O
-controle é do tribunal, e o LexFlow não precisa — nem deve — replicá-lo.
+controle é do tribunal, e o Processo Vivo não precisa — nem deve — replicá-lo.
 Para a venda: "as peças dos **seus** processos".
 
 ---
@@ -219,7 +398,7 @@ Para a venda: "as peças dos **seus** processos".
 
 **Cada advogado com o seu ambiente.**
 
-Até aqui, entrar no LexFlow era colar uma chave de API — o que serve para uma
+Até aqui, entrar no Processo Vivo era colar uma chave de API — o que serve para uma
 integração e não para uma pessoa. Agora há conta com e-mail e senha, e cada
 conta nasce com o próprio ambiente: processos, vigilâncias e acesso ao tribunal
 separados por assinante, na mesma instalação.
@@ -260,7 +439,7 @@ tela.
   banco não vira sessão aberta.
 - **O token não volta no corpo da resposta** — só no cookie `HttpOnly`. Se
   voltasse, a tela poderia guardá-lo no `localStorage` e desfazer a proteção.
-- Em HTTPS o cookie se chama **`__Host-lexflow_sessao`**. O prefixo obriga o
+- Em HTTPS o cookie se chama **`__Host-processovivo_sessao`**. O prefixo obriga o
   navegador a recusar gravação por subdomínio, o que fecha a fixação de sessão
   por subdomínio esquecido — ataque que sobrevive a `HttpOnly` e `SameSite`.
 - **"E-mail não encontrado" e "senha incorreta" são a MESMA resposta**, e a
@@ -293,7 +472,7 @@ código novo. Os dois primeiros já existiam antes das contas.
 - **`?ultimosDias=x` virava 500.** `Number('x')` era NaN, `new Date(NaN)`
   estourava `RangeError`, e uma query digitada errada acendia alarme de
   produção.
-- **`LEXFLOW_AUTH_DISABLED=true` estava quebrado**: sem chave nem sessão as
+- **`PROCESSOVIVO_AUTH_DISABLED=true` estava quebrado**: sem chave nem sessão as
   rotas de dados não tinham ambiente e respondiam 500. O modo documentado agora
   funciona, com um ambiente fixo.
 - **Servidor sem banco respondia 401 "sua sessão expirou"** nas rotas de conta,
@@ -301,7 +480,7 @@ código novo. Os dois primeiros já existiam antes das contas.
 
 ### Sabendo do risco
 
-- **O cadastro é aberto, por decisão de produto** — o LexFlow vai ser vendido a
+- **O cadastro é aberto, por decisão de produto** — o Processo Vivo vai ser vendido a
   advogados pelo Brasil, e formulário fechado por convite não combina com isso.
   Duas consequências ficam registradas: qualquer pessoa pode descobrir se um
   e-mail já é assinante (o 409 do cadastro denuncia), e a cota compartilhada do
@@ -480,11 +659,11 @@ publicados**. O DataJud não tem documento nenhum. Faltava a fonte que tem.
 ### Adicionado — cofre de credenciais
 
 - **`credenciais_tribunal`, com a senha cifrada em AES-256-GCM.** É o dado mais
-  sensível do banco: a chave de API só abre o LexFlow, esta abre o processo no
+  sensível do banco: a chave de API só abre o Processo Vivo, esta abre o processo no
   tribunal. GCM e não CBC porque o GCM autentica — adulterar a coluna dá erro de
   decifração, e não um "segredo" corrompido que só falha lá no tribunal
   parecendo senha errada do usuário.
-- **Sem `LEXFLOW_CREDENCIAL_CHAVE`, o acesso a peças não é montado** e as rotas
+- **Sem `PROCESSOVIVO_CREDENCIAL_CHAVE`, o acesso a peças não é montado** e as rotas
   respondem 501 com a instrução. Não existe caminho que guarde senha em claro.
 - Chave gerada por `npm run chave -- --cofre`.
 - Rotas `GET/PUT/DELETE /v1/credenciais`. A senha nunca volta na resposta — nem
@@ -528,7 +707,7 @@ duas estão gravadas em `tests/fixtures/mni-tjgo-credencial-invalida-real.txt`:
 ### Corrigido
 
 - **`.env.example` estava desatualizado e sabotava a busca por OAB.** Trazia
-  `LEXFLOW_PROVIDER_CHAIN=mock-crawler-tjsp,datajud` e `DATAJUD_TIMEOUT_MS=8000`.
+  `PROCESSOVIVO_PROVIDER_CHAIN=mock-crawler-tjsp,datajud` e `DATAJUD_TIMEOUT_MS=8000`.
   Quem seguisse o README (`cp .env.example .env`) subia sem DJEN na cadeia: a
   vigilância respondia 501 e a busca por OAB devolvia zero. O arquivo correto
   tinha virado `env.example` (sem ponto) num dos uploads, e o antigo ficou.
@@ -551,7 +730,7 @@ verdade.
 
 ## [0.11.0] — 2026-09-07
 
-**O LexFlow passa a parecer o que já era.**
+**O Processo Vivo passa a parecer o que já era.**
 
 A crítica que originou esta versão foi simples: a tela estava bem construída,
 mas parecia ferramenta interna, não produto que se vende. O que denunciava não
@@ -573,7 +752,7 @@ falta de identidade.
   que chegar pelo link do e-mail de aviso não caia na tela de login, e `Secure`
   apenas sob HTTPS (marcar sempre faria o navegador descartar o cookie em
   `localhost`, com o sintoma "faço login e volto para o login").
-- **Cadastro por código de acesso**, que é uma das chaves de `LEXFLOW_API_KEYS`.
+- **Cadastro por código de acesso**, que é uma das chaves de `PROCESSOVIVO_API_KEYS`.
   Não é burocracia: a chave do CNJ é compartilhada por todo o país, e um
   formulário aberto na internet transforma o VPS em proxy gratuito para a cota
   alheia — quem leva o bloqueio é a chave. Distribuir uma chave por cliente vira,
@@ -712,7 +891,7 @@ O topo respondia "o que é este processo?" quando a pergunta do advogado ao abri
 
 ### ⚠️ Ação necessária no deploy
 
-Se `LEXFLOW_PROVIDER_CHAIN` estiver preenchida no Easypanel com o valor antigo,
+Se `PROCESSOVIVO_PROVIDER_CHAIN` estiver preenchida no Easypanel com o valor antigo,
 **troque para `datajud,djen`**. Valor explícito ganha do padrão do código — foi
 por isso que o DJEN não entrou na v0.9.0. Sem `djen` na cadeia, a vigilância por
 OAB responde 501.
@@ -723,7 +902,7 @@ OAB responde 501.
 
 **A busca por OAB passa a existir — e o processo passa a vir inteiro.**
 
-Até aqui o LexFlow enxergava metade de cada processo: o DataJud entrega
+Até aqui o Processo Vivo enxergava metade de cada processo: o DataJud entrega
 metadados e a linha do tempo codificada, mas não indexa parte nem advogado, e
 por isso `buscarPorOab` só sabia lançar `OperacaoNaoSuportadaError`. Esta versão
 fecha o buraco com uma segunda fonte oficial.
@@ -799,7 +978,7 @@ A saída foi outra fonte oficial.
 
 ### Alterado
 
-- **`LEXFLOW_PROVIDER_CHAIN` mudou de `mock-crawler-tjsp,datajud` para
+- **`PROCESSOVIVO_PROVIDER_CHAIN` mudou de `mock-crawler-tjsp,datajud` para
   `datajud,djen`.** O mock saiu do padrão: em produção ele inventaria processo.
   Sem `DATAJUD_API_KEY` a cadeia degrada sozinha para só o DJEN — que não exige
   chave, então o serviço sobe e funciona sem nenhuma configuração de fonte.
@@ -820,7 +999,7 @@ A saída foi outra fonte oficial.
 
 ## [0.8.0] — 2026-09-05
 
-**O LexFlow deixa de ser consulta avulsa e vira produto de acompanhamento.**
+**O Processo Vivo deixa de ser consulta avulsa e vira produto de acompanhamento.**
 
 ### ⚠️ Ação necessária no deploy
 
@@ -832,7 +1011,7 @@ A imagem passou para **Node 24**, exigido pelo `node:sqlite`.
 
 ### Adicionado
 
-- **Acompanhamento de processos.** O usuário marca um processo e o LexFlow passa
+- **Acompanhamento de processos.** O usuário marca um processo e o Processo Vivo passa
   a verificá-lo sozinho. A primeira consulta acontece na hora de adicionar, para
   o processo já aparecer preenchido na lista.
 - **Feed de atualizações.** Só o que apareceu DEPOIS de você começar a
@@ -930,7 +1109,7 @@ quem advoga. Se estiver errada, é a tabela que muda — o dado continua todo l�
   agora abre o sistema: campo para a chave, consulta por número CNJ ou por OAB,
   e o processo renderizado com partes e movimentações.
 
-  Motivo: até aqui o LexFlow era só API. Digitar a URL no navegador devolvia
+  Motivo: até aqui o Processo Vivo era só API. Digitar a URL no navegador devolvia
   `{"erro":"NAO_AUTENTICADO"}`, porque navegador não manda header customizado —
   e do lado de quem usa, isso é indistinguível de "não funciona". Servindo da
   mesma origem, a página manda o `x-api-key` sozinha: sem CORS, sem PowerShell,
@@ -1016,7 +1195,7 @@ Foco: o health check do DataJud dava timeout contra a API real.
   tribunal do país. Mesmo com `size: 0`, isso faz o Elasticsearch percorrer e
   contar o índice inteiro: a query mais cara possível, disparada a cada
   `/ready`. Contra a API pública compartilhada e sob carga, dava timeout, e o
-  LexFlow concluía "fonte fora do ar" com a fonte no ar. Agora a consulta casa
+  Processo Vivo concluía "fonte fora do ar" com a fonte no ar. Agora a consulta casa
   com zero documentos (um número CNJ de vinte zeros), que responde a mesma
   pergunta — "consigo falar com a fonte e ela me aceita?" — de graça.
 - **O health check herdava a política de retry das consultas de usuário**
@@ -1056,7 +1235,7 @@ Foco: impedir que texto de exemplo vire credencial.
   porque falso positivo aqui recusaria credencial legítima.
   - `DATAJUD_API_KEY` com placeholder → fonte tratada como **ausente**, com aviso
     dizendo o que fazer, em vez de virar credencial quebrada.
-  - `LEXFLOW_API_KEYS` com placeholder → serviço **recusa subir**. Um placeholder
+  - `PROCESSOVIVO_API_KEYS` com placeholder → serviço **recusa subir**. Um placeholder
     de 35 caracteres passaria no mínimo de 24 e viraria a chave de produção.
 - 9 testes novos, incluindo o valor exato do incidente (total: 154).
 
@@ -1098,7 +1277,7 @@ Foco: geração e proteção das chaves de API.
   aparece nos logs, para você anotar qual chave é de qual consumidor.
 - Validação de autenticação no arranque (`src/main/http/chaves.ts`): recusa subir
   sem chave, com chave de menos de 24 caracteres, com chaves repetidas, ou com
-  `LEXFLOW_AUTH_DISABLED=true` junto de chaves preenchidas.
+  `PROCESSOVIVO_AUTH_DISABLED=true` junto de chaves preenchidas.
 - Seção completa no `DEPLOY.md` sobre gerar, guardar e rotacionar chaves sem
   downtime.
 - 11 testes novos (total: 135).

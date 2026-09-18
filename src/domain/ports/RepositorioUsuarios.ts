@@ -31,7 +31,7 @@ export interface PerfilEditavel {
  *
  * Sessão mora aqui, e não num serviço de cache, por uma razão de produto: o
  * cache é em memória e evapora no redeploy. Com sessão em cache, todo deploy
- * desconectaria todos os assinantes ao mesmo tempo — e o LexFlow é redeployado
+ * desconectaria todos os assinantes ao mesmo tempo — e o Processo Vivo é redeployado
  * com frequência.
  *
  * **O token NUNCA é guardado.** O que entra e sai destes métodos é o hash dele.
@@ -54,4 +54,16 @@ export interface RepositorioUsuarios {
   encerrarSessoesDe(usuarioId: string): Promise<void>;
   /** Limpeza das expiradas. Sem isso a tabela cresce para sempre. */
   limparSessoesExpiradas(): Promise<number>;
+
+  /**
+   * Recuperação de senha. Como na sessão, o que entra e sai é o HASH do token.
+   *
+   * `consumirRecuperacao` é deliberadamente uma operação só: conferir e marcar
+   * como usado em passos separados abriria a janela para o mesmo link ser
+   * aceito duas vezes por duas requisições simultâneas.
+   */
+  abrirRecuperacao(hashDoToken: string, usuarioId: string, expiraEm: Date): Promise<void>;
+  consumirRecuperacao(hashDoToken: string): Promise<Usuario | undefined>;
+  /** Quantos pedidos a conta fez desde `desde`. Trava contra usar o sistema para inundar caixa de entrada. */
+  contarRecuperacoesRecentes(usuarioId: string, desde: Date): Promise<number>;
 }

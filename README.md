@@ -1,4 +1,4 @@
-# LexFlow
+# Processo Vivo
 
 **v0.13.0** — histórico em [CHANGELOG.md](./CHANGELOG.md).
 Para saber qual versão está rodando: `GET /health` devolve o campo `versao`.
@@ -27,7 +27,7 @@ Nenhuma fonte sozinha atende um advogado:
   disso é publicado no diário, então nenhuma fonte pública tem. Em troca, exige
   a credencial de quem está habilitado nos autos.
 
-O LexFlow põe as duas atrás da mesma interface (`ProcessoProvider`) e as encadeia
+O Processo Vivo põe as duas atrás da mesma interface (`ProcessoProvider`) e as encadeia
 com fallback automático. Se o crawler cai, o DataJud responde; a consulta
 continua funcionando, com menos detalhe — e o campo `procedencia` diz de onde
 veio cada resposta.
@@ -71,7 +71,7 @@ As peças saem pelo MNI, com a credencial do próprio advogado:
 
 ```bash
 # 1. gere a chave que cifra as credenciais (uma vez, por instalação)
-npm run chave -- --cofre        # → LEXFLOW_CREDENCIAL_CHAVE
+npm run chave -- --cofre        # → PROCESSOVIVO_CREDENCIAL_CHAVE
 
 # 2. valide o acesso ANTES de cadastrar qualquer coisa
 MNI_ID_CONSULTANTE=00000000000 MNI_SENHA_CONSULTANTE=... \
@@ -89,7 +89,7 @@ Três coisas que valem saber antes de usar:
   documento e omite o arquivo. Não é defeito: é o controle de acesso do processo
   eletrônico. A listagem informa `comTeorDisponivel` justamente para a interface
   poder dizer isso antes de alguém clicar.
-- **Sem `LEXFLOW_CREDENCIAL_CHAVE` a funcionalidade não sobe** e as rotas
+- **Sem `PROCESSOVIVO_CREDENCIAL_CHAVE` a funcionalidade não sobe** e as rotas
   respondem 501. Não há caminho que guarde senha de tribunal em claro.
 - **Uma tentativa por consulta, sem retry.** O tribunal conta tentativa
   malsucedida para bloquear a conta do advogado.
@@ -102,9 +102,9 @@ npm run build && npm run start:local
 npm run dev
 ```
 
-Exige `LEXFLOW_API_KEYS` no `.env` — o serviço **se recusa a subir sem chave**,
+Exige `PROCESSOVIVO_API_KEYS` no `.env` — o serviço **se recusa a subir sem chave**,
 ou com chave de menos de 24 caracteres (a menos que você declare
-`LEXFLOW_AUTH_DISABLED=true`). Gere uma com:
+`PROCESSOVIVO_AUTH_DISABLED=true`). Gere uma com:
 
 ```bash
 npm run chave                  # uma chave, com o identificador que sai no log
@@ -139,7 +139,7 @@ curl -H "x-api-key: SUA_CHAVE" \
 ```
 
 `Authorization: Bearer <chave>` também funciona. Toda resposta de processo traz
-`x-lexflow-fonte` e `x-lexflow-cache`, para você saber de onde veio o dado e se
+`x-processovivo-fonte` e `x-processovivo-cache`, para você saber de onde veio o dado e se
 foi servido da memória.
 
 Os códigos de status separam **culpa do cliente** (400/404), **falha rio acima**
@@ -300,9 +300,9 @@ mais mudam comportamento:
 
 | Variável | Padrão | Efeito |
 |---|---|---|
-| `LEXFLOW_API_KEYS` | vazio | chaves de `x-api-key`, separadas por vírgula. **Sem ela o serviço não sobe** |
+| `PROCESSOVIVO_API_KEYS` | vazio | chaves de `x-api-key`, separadas por vírgula. **Sem ela o serviço não sobe** |
 | `HTTP_PORT` / `HTTP_HOST` | `3000` / `0.0.0.0` | em contêiner, host tem que ser `0.0.0.0` |
-| `LEXFLOW_PROVIDER_CHAIN` | `mock-crawler-tjsp,datajud` | ordem da cadeia: o primeiro é primário, os demais são fallback |
+| `PROCESSOVIVO_PROVIDER_CHAIN` | `mock-crawler-tjsp,datajud` | ordem da cadeia: o primeiro é primário, os demais são fallback |
 | `DATAJUD_API_KEY` | vazio | sem ela, o DataJud sai da cadeia |
 | `DATAJUD_RATE_LIMIT_PER_MINUTE` | `60` | autolimite; a chave do CNJ é compartilhada |
 | `MOCK_CRAWLER_FAILURE_RATE` | `0` | de 0 a 1 — use `1` para exercitar o fallback |

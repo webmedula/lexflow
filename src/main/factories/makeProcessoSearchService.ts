@@ -36,8 +36,10 @@ import {
 import { CachedProcessoProvider } from '../../infrastructure/cache/CachedProcessoProvider.js';
 import { InMemoryCache } from '../../infrastructure/cache/InMemoryCache.js';
 import type { Config } from '../../infrastructure/config/env.js';
+import { avisosDeRenomeacao } from '../../infrastructure/config/env.js';
 import { pareceValorDeExemplo } from '../../infrastructure/config/placeholder.js';
 import { ConsoleLogger } from '../../infrastructure/logging/ConsoleLogger.js';
+import { gerarBackup } from '../../infrastructure/persistencia/backup.js';
 import { ServicoContas } from '../../application/services/ServicoContas.js';
 import { RepositorioUsuariosSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioUsuariosSqlite.js';
 import { hashScrypt } from '../../infrastructure/seguranca/senha.js';
@@ -61,6 +63,8 @@ export interface Aplicacao {
   readonly preferenciasNotificacao: RepositorioNotificacao;
   readonly agendador: Agendador;
   readonly agendadorVigilancia: Agendador | undefined;
+  /** `undefined` com backup desligado ou banco em memória (testes). */
+  readonly agendadorBackup: Agendador | undefined;
   readonly logger: Logger;
   /** Fecha o banco. Chamado no desligamento gracioso. */
   readonly encerrar: () => void;
@@ -87,10 +91,22 @@ export interface Aplicacao {
 export function montarAplicacao(config: Config): Aplicacao {
   const logger = new ConsoleLogger(config.nivelLog);
 
+  // O aviso sai AQUI, e não dentro de `carregarConfig`, porque lá o logger ainda
+  // não existe — o nível de log vem justamente da configuração que está sendo
+  // lida. `warn` e não `info`: é dívida de migração, e some da tela no dia em
+  // que o painel estiver limpo.
+  for (const { antigo, atual } of avisosDeRenomeacao()) {
+    logger.warn('variável de ambiente com nome antigo', {
+      antigo,
+      atual,
+      acao: `renomeie ${antigo} para ${atual} na configuração do serviço`,
+    });
+  }
+
   const providers = construirProviders(config, logger);
   if (providers.length === 0) {
     throw new Error(
-      `Nenhum provider utilizável em LEXFLOW_PROVIDER_CHAIN="${config.cadeiaDeProviders.join(',')}". ` +
+      `Nenhum provider utilizável em PROCESSOVIVO_PROVIDER_CHAIN="${config.cadeiaDeProviders.join(',')}". ` +
         `Valores aceitos: ${NOME_MOCK_CRAWLER}, ${NOME_DATAJUD}, ${NOME_DJEN}.`,
     );
   }
@@ -131,18 +147,37 @@ export function montarAplicacao(config: Config): Aplicacao {
   // Contas. O scrypt e o gerador de token entram como PORTA — é no composition
   // root que a escolha concreta vive, e é o que deixa trocar scrypt por argon2
   // no dia em que a imagem deixar de ser Alpine sem tocar em `application/`.
+  // Um canal de saída, uma configuração: o mesmo notificador serve a vigilância
+  // e a recuperação de senha. Construído UMA vez — duas chamadas abririam dois
+  // pools de conexão SMTP para o mesmo servidor.
+  const notificador = construirNotificador(config, logger);
+
   const contas = new ServicoContas({
     repositorio: new RepositorioUsuariosSqlite(db),
     senhas: hashScrypt,
     tokens: tokensDeSessao,
     duracaoSessaoMs: DURACAO_SESSAO_MS,
+    // A recuperação recebe o notificador SÓ quando ele entrega de verdade.
+    //
+    // A diferença é sutil e custou um achado de revisão: sem SMTP, a vigilância
+    // cai no `LogNotificador`, que se declara `habilitado` de propósito — o
+    // caminho inteiro continua sendo exercitado e o resumo aparece no log. Isso
+    // é certo para a vigilância e ERRADO para a recuperação: ali o "envio" que
+    // vai para o log é um token que ninguém recebe, e a pessoa fica com a tela
+    // dizendo "confira seu e-mail", um link gasto e, depois de cinco tentativas,
+    // uma hora de espera sem entender por quê.
+    //
+    // Log não é entrega. Sem SMTP de verdade, a recuperação não existe neste
+    // servidor, e a interface não a oferece.
+    ...(entregaDeVerdade(config) ? { notificador } : {}),
+    urlBase: config.http.urlBase,
   });
 
   const preferenciasNotificacao = new RepositorioNotificacaoSqlite(db);
   const notificacao = new ServicoNotificacao({
     preferencias: preferenciasNotificacao,
     acompanhamentos: repositorio,
-    notificador: construirNotificador(config, logger),
+    notificador,
     logger,
     horasAteAlertar: config.notificacao.horasAteAlertar,
     ...(config.notificacao.urlBase ? { urlBase: config.notificacao.urlBase } : {}),
@@ -158,6 +193,15 @@ export function montarAplicacao(config: Config): Aplicacao {
       const r = await acompanhamento.sincronizar();
       await notificacao.marcarVarreduraOk();
       await notificacao.despachar();
+      // Faxina das sessões vencidas, de carona na varredura que já roda.
+      //
+      // Não é segurança — a expiração é conferida no SQL a cada leitura, então
+      // sessão vencida nunca vale. É higiene: sem isto a tabela cresce para
+      // sempre, e cada backup diário carrega o lixo inteiro junto. O método
+      // existia, testado, e ninguém o chamava; um agendador só para isso seria
+      // peça a mais para manter.
+      const limpas = await contas.limparSessoesExpiradas();
+      if (limpas > 0) logger.debug('sessões vencidas removidas', { limpas });
       return r;
     },
   });
@@ -180,7 +224,7 @@ export function montarAplicacao(config: Config): Aplicacao {
   if (!vigilancia) {
     logger.warn(
       'vigilância por OAB indisponível: nenhuma fonte da cadeia busca por OAB com período',
-      { acao: 'inclua "djen" em LEXFLOW_PROVIDER_CHAIN' },
+      { acao: 'inclua "djen" em PROCESSOVIVO_PROVIDER_CHAIN' },
     );
   }
 
@@ -199,6 +243,32 @@ export function montarAplicacao(config: Config): Aplicacao {
         })
       : undefined;
 
+  /**
+   * Backup automático, no agendador que já existe.
+   *
+   * Sem cron externo e sem serviço novo: o Processo Vivo roda numa instância, e o
+   * mesmo mecanismo que varre os processos serve para isto. Uma dependência a
+   * menos para configurar no Easypanel — e backup que depende de configuração
+   * manual é backup que não existe no dia em que precisa.
+   *
+   * Falhar aqui NÃO derruba nada: o agendador registra e tenta de novo no
+   * próximo ciclo. Mas o log sai como ERRO, porque backup falhando é a única
+   * coisa desta lista que só se descobre tarde demais.
+   */
+  const agendadorBackup =
+    config.backup.intervaloHoras > 0 && config.banco.caminho !== ':memory:'
+      ? new Agendador({
+          intervaloHoras: config.backup.intervaloHoras,
+          logger,
+          tarefa: async () =>
+            gerarBackup({
+              caminhoBanco: config.banco.caminho,
+              manter: config.backup.manter,
+              logger,
+            }),
+        })
+      : undefined;
+
   return {
     buscarProcessoPorNumero: new BuscarProcessoPorNumero(provider),
     buscarProcessosPorOab: new BuscarProcessosPorOab(provider),
@@ -212,10 +282,12 @@ export function montarAplicacao(config: Config): Aplicacao {
     preferenciasNotificacao,
     agendador,
     agendadorVigilancia,
+    agendadorBackup,
     logger,
     encerrar: () => {
       agendador.parar();
       agendadorVigilancia?.parar();
+      agendadorBackup?.parar();
       db.close();
     },
   };
@@ -237,13 +309,13 @@ function montarServicoPecas(
 ): ServicoPecas | undefined {
   if (pareceValorDeExemplo(config.mni.chaveDoCofre)) {
     logger.warn(
-      'acesso a peças desligado: LEXFLOW_CREDENCIAL_CHAVE ainda contém o texto de exemplo',
+      'acesso a peças desligado: PROCESSOVIVO_CREDENCIAL_CHAVE ainda contém o texto de exemplo',
       { acao: 'gere uma chave real com `npm run chave -- --cofre`' },
     );
     return undefined;
   }
   if (!config.mni.chaveDoCofre) {
-    logger.warn('acesso a peças desligado: LEXFLOW_CREDENCIAL_CHAVE não definida', {
+    logger.warn('acesso a peças desligado: PROCESSOVIVO_CREDENCIAL_CHAVE não definida', {
       motivo:
         'sem cofre, a senha do advogado no tribunal só poderia ser guardada em claro',
       acao: 'gere uma chave com `npm run chave -- --cofre`',
@@ -306,6 +378,18 @@ function temBuscaPorPeriodo(
 }
 
 /**
+ * O notificador ENTREGA, ou só escreve no log?
+ *
+ * A mesma condição decide as duas coisas, e por isso mora numa função só: com
+ * ela falsa, `construirNotificador` devolve o `LogNotificador` e a recuperação
+ * de senha não é montada. Duplicar o teste faria os dois divergirem no dia em
+ * que um deles ganhasse uma condição nova.
+ */
+function entregaDeVerdade(config: Config): boolean {
+  return Boolean(config.notificacao.smtpHost && config.notificacao.remetente);
+}
+
+/**
  * SMTP quando configurado; log quando não.
  *
  * Cair para o log em vez de desligar a notificação é decisão consciente: o
@@ -314,7 +398,7 @@ function temBuscaPorPeriodo(
  * resumo até o dia em que o SMTP fosse ligado, que é o pior dia para descobrir.
  */
 function construirNotificador(config: Config, logger: Logger): Notificador {
-  if (!config.notificacao.smtpHost || !config.notificacao.remetente) {
+  if (!entregaDeVerdade(config)) {
     logger.info('notificação por e-mail em modo log', {
       motivo: 'SMTP_HOST ou SMTP_FROM não definidos',
     });
@@ -333,7 +417,7 @@ function construirNotificador(config: Config, logger: Logger): Notificador {
 }
 
 /**
- * A ordem da cadeia é a ordem declarada em `LEXFLOW_PROVIDER_CHAIN` — mudar a
+ * A ordem da cadeia é a ordem declarada em `PROCESSOVIVO_PROVIDER_CHAIN` — mudar a
  * fonte primária em produção é mudar uma variável de ambiente, sem redeploy de
  * código.
  *

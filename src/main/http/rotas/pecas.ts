@@ -33,7 +33,7 @@ export function rotasDePecas(servico: ServicoPecas | undefined): FastifyPluginAs
         throw new OperacaoNaoSuportadaError(
           'pecas',
           'listarPecas',
-          'o acesso a peças não está configurado — defina LEXFLOW_CREDENCIAL_CHAVE ' +
+          'o acesso a peças não está configurado — defina PROCESSOVIVO_CREDENCIAL_CHAVE ' +
             'e MNI_ENDPOINT no ambiente',
         );
       }

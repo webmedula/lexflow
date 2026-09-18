@@ -142,8 +142,8 @@ export class ServicoNotificacao {
     const processos = porProcesso.size;
     const assunto =
       processos === 1
-        ? `LexFlow: ${total} atualização(ões) em ${[...porProcesso.keys()][0]}`
-        : `LexFlow: ${total} atualização(ões) em ${processos} processos`;
+        ? `Processo Vivo: ${total} atualização(ões) em ${[...porProcesso.keys()][0]}`
+        : `Processo Vivo: ${total} atualização(ões) em ${processos} processos`;
 
     const linhas: string[] = [
       `${total} atualização(ões) em ${processos} processo(s).`,
@@ -165,7 +165,7 @@ export class ServicoNotificacao {
     if (this.urlBase) linhas.push(`Abrir: ${this.urlBase}`);
     linhas.push('');
     linhas.push(
-      'Este resumo cobre o que o LexFlow detectou nas fontes públicas até ' +
+      'Este resumo cobre o que o Processo Vivo detectou nas fontes públicas até ' +
         `${formatarDataHora(agora)}. A conferência do prazo continua sendo sua.`,
     );
 
@@ -176,9 +176,9 @@ export class ServicoNotificacao {
     const horas = Math.floor((agora.getTime() - ultimaOk.getTime()) / HORA_MS);
     return {
       para,
-      assunto: `LexFlow: ATENÇÃO — sem verificar seus processos há ${horas}h`,
+      assunto: `Processo Vivo: ATENÇÃO — sem verificar seus processos há ${horas}h`,
       texto: [
-        `O LexFlow não conclui uma verificação desde ${formatarDataHora(ultimaOk)}`,
+        `O Processo Vivo não conclui uma verificação desde ${formatarDataHora(ultimaOk)}`,
         `— ou seja, há cerca de ${horas} horas.`,
         '',
         'Isto NÃO significa que não houve movimentação. Significa que não',

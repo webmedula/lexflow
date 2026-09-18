@@ -106,7 +106,7 @@ describe('RepositorioCredenciaisSqlite', () => {
   });
 
   it('trata credencial ilegível como ausente, para pedir novo cadastro', async () => {
-    // É o que acontece quando LEXFLOW_CREDENCIAL_CHAVE muda entre deploys.
+    // É o que acontece quando PROCESSOVIVO_CREDENCIAL_CHAVE muda entre deploys.
     // Devolver "ausente" leva o usuário a recadastrar, que é a saída correta;
     // estourar deixaria a tela quebrada sem dizer o que fazer.
     const db = abrirBanco(':memory:');

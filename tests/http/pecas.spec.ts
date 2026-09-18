@@ -61,9 +61,9 @@ class ProvedorFalsoDePecas implements ProvedorDePecas {
 
 function config(): Config {
   return carregarConfig({
-    LEXFLOW_PROVIDER_CHAIN: 'mock-crawler-tjsp',
+    PROCESSOVIVO_PROVIDER_CHAIN: 'mock-crawler-tjsp',
     LOG_LEVEL: 'silent',
-    LEXFLOW_API_KEYS: CHAVE,
+    PROCESSOVIVO_API_KEYS: CHAVE,
     CACHE_ENABLED: 'false',
   } as NodeJS.ProcessEnv);
 }
@@ -105,7 +105,7 @@ describe('API — peças', () => {
       headers: cabecalhos,
     });
 
-    // 428 e não 401: a autenticação no LexFlow está boa; falta o acesso DELE no
+    // 428 e não 401: a autenticação no Processo Vivo está boa; falta o acesso DELE no
     // tribunal. 401 mandaria o cliente refazer login, que não resolve nada.
     expect(r.statusCode).toBe(428);
     expect(r.json().erro).toBe('CREDENCIAL_TRIBUNAL_AUSENTE');
@@ -275,6 +275,6 @@ describe('API — peças sem o serviço montado', () => {
     // Lista vazia diria ao advogado que o processo não tem peças, quando o que
     // falta é configuração do servidor.
     expect(r.statusCode).toBe(501);
-    expect(r.json().mensagem).toContain('LEXFLOW_CREDENCIAL_CHAVE');
+    expect(r.json().mensagem).toContain('PROCESSOVIVO_CREDENCIAL_CHAVE');
   });
 });

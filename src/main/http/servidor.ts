@@ -14,7 +14,13 @@ import { rotasDeProcesso } from './rotas/processos.js';
 import { rotasDeAcompanhamento } from './rotas/acompanhamentos.js';
 import { rotasDeVigilancia } from './rotas/vigilancias.js';
 import { rotasDePecas } from './rotas/pecas.js';
-import { ROTA_CONTAS, ROTA_SESSOES, rotasDeContas } from './rotas/contas.js';
+import {
+  ROTA_CONTAS,
+  ROTA_RECUPERAR,
+  ROTA_REDEFINIR,
+  ROTA_SESSOES,
+  rotasDeContas,
+} from './rotas/contas.js';
 
 /**
  * Monta o servidor HTTP sem subir porta nenhuma.
@@ -77,7 +83,17 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
     //
     // Criar conta e entrar TÊM que ser públicas: são justamente as rotas de
     // quem ainda não tem como se autenticar.
-    rotasPublicas: [ROTA_HEALTH, ROTA_READY, ROTA_CONSOLE, ROTA_CONTAS, ROTA_SESSOES],
+    rotasPublicas: [
+      ROTA_HEALTH,
+      ROTA_READY,
+      ROTA_CONSOLE,
+      ROTA_CONTAS,
+      ROTA_SESSOES,
+      // Recuperar e redefinir senha são de quem NÃO consegue entrar. Exigir
+      // autenticação nelas seria pedir a chave para quem perdeu a chave.
+      ROTA_RECUPERAR,
+      ROTA_REDEFINIR,
+    ],
   });
 
   void servidor.register(
@@ -120,7 +136,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
     // isso como incidente enche o log de ruído até ninguém mais olhar.
     const contexto = {
       metodo: requisicao.method,
-      rota: requisicao.url,
+      rota: rotaParaLog(requisicao.url),
       status,
       erro: corpo.erro,
       chave: requisicao.identidadeDaChave,
@@ -142,7 +158,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
     if (requisicao.url === ROTA_HEALTH) return;
     log.info('requisição atendida', {
       metodo: requisicao.method,
-      rota: requisicao.url,
+      rota: rotaParaLog(requisicao.url),
       status: resposta.statusCode,
       duracaoMs: Math.round(resposta.elapsedTime),
       chave: requisicao.identidadeDaChave,
@@ -150,6 +166,29 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   });
 
   return servidor;
+}
+
+/**
+ * O caminho da requisição SEM a query string.
+ *
+ * Achado numa revisão de segurança, e sério: o link de recuperação de senha
+ * chega como `GET /?recuperar=<token>`, e o log registrava a URL inteira. Um
+ * token válido, de uso único, com uma hora de vida, escrito em nível `info` no
+ * log do contêiner — que vai para o Easypanel e, com frequência, para um
+ * coletor de terceiro. Quem lê o log toma a conta.
+ *
+ * Cortar a query INTEIRA, e não os parâmetros conhecidos: uma lista de nomes
+ * proibidos envelhece mal — a próxima rota com segredo na URL entra sem que
+ * ninguém lembre de acrescentá-la, e a falha volta calada. O caminho basta para
+ * saber qual rota foi chamada, que é para o que o log serve.
+ *
+ * (O lado do navegador já se protegia: o console apaga `?recuperar=` da barra
+ * de endereço com `replaceState` antes de qualquer outra coisa. Mas isso é
+ * depois de o servidor ter respondido — e escrito o log.)
+ */
+function rotaParaLog(url: string): string {
+  const corte = url.indexOf('?');
+  return corte === -1 ? url : url.slice(0, corte);
 }
 
 function temStatusCode(erro: unknown): erro is { statusCode: number } {
@@ -181,8 +220,9 @@ export async function iniciar(app: Aplicacao, config: Config): Promise<FastifyIn
   // DataJud. Amarrar as duas no mesmo intervalo faria a fonte lenta ditar o
   // ritmo da rápida — e é na rápida que estão as publicações que abrem prazo.
   app.agendadorVigilancia?.iniciar();
+  app.agendadorBackup?.iniciar();
 
-  app.logger.info('LexFlow no ar', {
+  app.logger.info('Processo Vivo no ar', {
     versao: VERSAO,
     host: config.http.host,
     porta: config.http.porta,

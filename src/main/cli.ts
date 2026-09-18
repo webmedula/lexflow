@@ -8,6 +8,7 @@ import { HttpClient } from '../infrastructure/http/HttpClient.js';
 import type { RespostaHttpBinaria } from '../infrastructure/http/HttpClient.js';
 import { DomainError } from '../domain/errors/index.js';
 import { carregarConfig } from '../infrastructure/config/env.js';
+import { gerarBackup } from '../infrastructure/persistencia/backup.js';
 import { montarAplicacao } from './factories/makeProcessoSearchService.js';
 
 /**
@@ -24,12 +25,13 @@ import { montarAplicacao } from './factories/makeProcessoSearchService.js';
  */
 
 const USO = `
-LexFlow — consulta de processos judiciais
+Processo Vivo — consulta de processos judiciais
 
   npm run cli -- processo <numero-cnj> [--json]
   npm run cli -- oab <numero> <uf> [--json]
   npm run cli -- pecas <numero-cnj> [--json] [--capturar <arquivo>]
   npm run cli -- saude
+  npm run cli -- backup [--manter 7]
 
 Exemplos:
   npm run cli -- processo 1234567-47.2023.8.26.0100
@@ -37,6 +39,7 @@ Exemplos:
   npm run cli -- oab 234567 SP
   npm run cli -- pecas 5818922-04.2026.8.09.0011
   npm run cli -- saude
+  npm run cli -- backup
 
 O comando "pecas" lê a credencial do ambiente, NÃO do banco:
   MNI_ID_CONSULTANTE     CPF do advogado (só dígitos)
@@ -52,6 +55,7 @@ async function main(): Promise<number> {
     args: process.argv.slice(2),
     options: {
       json: { type: 'boolean', default: false },
+      manter: { type: 'string' },
       capturar: { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
     },
@@ -163,6 +167,30 @@ async function main(): Promise<number> {
         // credencial não vale nada. Para pegar o teor: `pecas <n> --capturar`,
         // ou a rota de download.
       }
+      return 0;
+    }
+
+    case 'backup': {
+      // Uma cópia CONSISTENTE com o serviço em pé — ver `backup.ts` para por
+      // que copiar o arquivo à mão não serve em modo WAL.
+      const manter = values.manter ? Number(values.manter) : undefined;
+      const r = gerarBackup({
+        caminhoBanco: config.banco.caminho,
+        ...(manter !== undefined && Number.isFinite(manter) ? { manter } : {}),
+      });
+
+      console.log(`Backup: ${r.caminho}`);
+      console.log(`Tamanho: ${(r.bytes / 1024 / 1024).toFixed(2)} MB`);
+      console.log(`Integridade: conferida (o arquivo foi aberto e lido)`);
+      if (r.apagados.length > 0) {
+        console.log(`Cópias antigas removidas: ${r.apagados.length}`);
+      }
+      // O aviso vai SEMPRE, e em stderr para não sujar a saída de dados.
+      console.error(
+        '\nAtenção: esta cópia está no mesmo volume do banco. Isso protege ' +
+          'contra corrupção e engano, NÃO contra perder o volume. Leve uma cópia ' +
+          'para fora do servidor — ver o runbook de deploy.',
+      );
       return 0;
     }
 

@@ -92,7 +92,7 @@ const autenticacaoPlugin: FastifyPluginAsync<OpcoesAutenticacao> = async (
     if (publicas.has(rota)) return;
     if (requisicao.workspace) return;
 
-    // Modo de rede interna (`LEXFLOW_AUTH_DISABLED=true`): não há chave nem
+    // Modo de rede interna (`PROCESSOVIVO_AUTH_DISABLED=true`): não há chave nem
     // sessão, mas as rotas de dados PRECISAM de um ambiente para filtrar. Sem
     // esta linha elas não tinham de quem eram os dados e respondiam erro — ou
     // seja, o modo documentado simplesmente não funcionava.

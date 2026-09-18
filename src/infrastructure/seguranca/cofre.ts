@@ -26,7 +26,7 @@ const TAMANHO_CHAVE = 32;
 export class ChaveDeCifraInvalidaError extends Error {
   constructor(motivo: string) {
     super(
-      `LEXFLOW_CREDENCIAL_CHAVE inválida: ${motivo}. ` +
+      `PROCESSOVIVO_CREDENCIAL_CHAVE inválida: ${motivo}. ` +
         'Gere uma com `npm run chave -- --cofre`.',
     );
     this.name = 'ChaveDeCifraInvalidaError';
@@ -118,7 +118,7 @@ export class Cofre {
       // que está lendo — e a mensagem precisa dizer isso, porque a alternativa é
       // alguém concluir que o banco corrompeu e restaurar backup à toa.
       throw new SegredoIlegivelError(
-        'a autenticação da cifra falhou; a chave em LEXFLOW_CREDENCIAL_CHAVE ' +
+        'a autenticação da cifra falhou; a chave em PROCESSOVIVO_CREDENCIAL_CHAVE ' +
           'provavelmente não é a mesma que gravou este registro',
         { cause: erro },
       );

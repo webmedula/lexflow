@@ -97,7 +97,7 @@ const ESQUEMA = [
   // Credencial do advogado no tribunal, para as consultas que exigem
   // habilitação nos autos (peças, via MNI). A senha vai CIFRADA na coluna —
   // ver `infrastructure/seguranca/cofre.ts`. É o dado mais sensível do banco:
-  // a chave de API só abre o LexFlow, esta abre o processo no tribunal.
+  // a chave de API só abre o Processo Vivo, esta abre o processo no tribunal.
   //
   // Uma credencial por (workspace, tribunal): o advogado tem uma inscrição por
   // sistema, e permitir duas criaria a dúvida de qual usar numa consulta — que
@@ -145,7 +145,7 @@ const ESQUEMA = [
      ultimo_acesso_em TEXT
    )`,
 
-  // Sessões em DISCO, não em memória: o cache evapora no redeploy, e o LexFlow
+  // Sessões em DISCO, não em memória: o cache evapora no redeploy, e o Processo Vivo
   // é redeployado com frequência. Sessão em cache desconectaria todo mundo a
   // cada subida.
   //
@@ -160,6 +160,24 @@ const ESQUEMA = [
      criada_em   TEXT NOT NULL,
      expira_em   TEXT NOT NULL
    )`,
+
+  // Pedidos de recuperação de senha.
+  //
+  // Mesma regra da sessão: a chave é o HASH do token, nunca o token. Quem lesse
+  // esta tabela num vazamento não conseguiria redefinir a senha de ninguém.
+  //
+  // `usada_em` existe para que o link valha UMA vez. Sem isso, um link que
+  // ficou no histórico do e-mail continuaria abrindo a conta meses depois — e
+  // e-mail é o lugar menos seguro onde esse link vai parar.
+  `CREATE TABLE IF NOT EXISTS recuperacoes_senha (
+     hash_token TEXT PRIMARY KEY,
+     usuario_id TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+     criada_em  TEXT NOT NULL,
+     expira_em  TEXT NOT NULL,
+     usada_em   TEXT
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_recup_usuario ON recuperacoes_senha(usuario_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_recup_expira ON recuperacoes_senha(expira_em)`,
 
   `CREATE INDEX IF NOT EXISTS idx_sessoes_usuario ON sessoes(usuario_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sessoes_expira ON sessoes(expira_em)`,

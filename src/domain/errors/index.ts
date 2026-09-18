@@ -239,7 +239,7 @@ export class SenhaFracaError extends DomainError {
 /**
  * A requisição passou pela autenticação sem resolver um ambiente.
  *
- * Só acontece com `LEXFLOW_AUTH_DISABLED=true`, que é o modo de rede interna:
+ * Só acontece com `PROCESSOVIVO_AUTH_DISABLED=true`, que é o modo de rede interna:
  * não há chave nem sessão, então não há de quem sejam os dados. Antes disso
  * virava `throw new Error` cru — 500, alarme de produção, e o modo documentado
  * simplesmente quebrado.

@@ -67,7 +67,7 @@ export function mapearErro(erro: unknown): RespostaDeErro {
     return { status: 400, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 
-  // 401 nos dois: é a autenticação DO LEXFLOW que falhou, e a ação é a mesma —
+  // 401 nos dois: é a autenticação DO PROCESSOVIVO que falhou, e a ação é a mesma —
   // entrar de novo. A mensagem de `CredenciaisInvalidasError` é propositalmente
   // a mesma para e-mail inexistente e senha errada; ver o erro de domínio.
   if (
@@ -93,7 +93,7 @@ export function mapearErro(erro: unknown): RespostaDeErro {
   }
 
   // 428 (Precondition Required) e não 401: quem chamou está autenticado no
-  // LexFlow: o que falta é a credencial DELE no tribunal. Devolver 401 faria o
+  // Processo Vivo: o que falta é a credencial DELE no tribunal. Devolver 401 faria o
   // cliente HTTP e o navegador tratarem como sessão expirada e mandarem a pessoa
   // fazer login de novo — que não resolve nada e esconde o que falta fazer.
   if (erro instanceof CredencialTribunalAusenteError) {

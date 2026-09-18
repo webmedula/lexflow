@@ -228,7 +228,7 @@ describe('notificação', () => {
       acompanhamentos: acomp,
       notificador: espiao,
       logger: loggerSilencioso,
-      urlBase: 'https://lexflow.exemplo',
+      urlBase: 'https://processovivo.exemplo',
       agora: () => agora,
     });
   });

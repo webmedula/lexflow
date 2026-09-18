@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Gera chaves de API para o LexFlow.
+ * Gera chaves de API para o Processo Vivo.
  *
  *   npm run chave                    uma chave
  *   npm run chave -- 3               três chaves
  *   npm run chave -- 3 --env         já no formato da variável de ambiente
  *   npm run chave -- 1 --rotulo n8n  com rótulo, para você saber de quem é
- *   npm run chave -- --cofre         chave do cofre de credenciais (LEXFLOW_CREDENCIAL_CHAVE)
+ *   npm run chave -- --cofre         chave do cofre de credenciais (PROCESSOVIVO_CREDENCIAL_CHAVE)
  *
  * Existe por dois motivos práticos:
  *
@@ -42,7 +42,7 @@ if (args.includes('--cofre')) {
   const { randomBytes: bytesDoCofre } = await import('node:crypto');
   const chave = bytesDoCofre(32).toString('base64');
   console.log('\nChave do cofre de credenciais (AES-256-GCM):\n');
-  console.log(`LEXFLOW_CREDENCIAL_CHAVE=${chave}`);
+  console.log(`PROCESSOVIVO_CREDENCIAL_CHAVE=${chave}`);
   console.log(
     '\nGuarde no gerenciador de senhas. Trocar esta chave torna ilegíveis as',
   );
@@ -68,7 +68,7 @@ const identificar = (chave) =>
   createHash('sha256').update(chave).digest('hex').slice(0, 8);
 
 if (formatoEnv) {
-  console.log(`LEXFLOW_API_KEYS=${chaves.join(',')}`);
+  console.log(`PROCESSOVIVO_API_KEYS=${chaves.join(',')}`);
   console.error('');
   console.error('Identificadores (aparecem no log, guarde ao lado do nome de cada consumidor):');
   for (const chave of chaves) console.error(`  ${identificar(chave)}`);
@@ -85,7 +85,7 @@ for (const [indice, chave] of chaves.entries()) {
 }
 
 console.log('Como usar:');
-console.log('  .env local ....... LEXFLOW_API_KEYS=' + chaves.join(','));
+console.log('  .env local ....... PROCESSOVIVO_API_KEYS=' + chaves.join(','));
 console.log('  Easypanel ........ aba Environment, mesma linha acima');
 console.log('');
 console.log('A chave NÃO fica salva em lugar nenhum — copie agora para o seu');

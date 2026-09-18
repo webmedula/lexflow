@@ -27,7 +27,7 @@ const schema = z.object({
    * Sem DATAJUD_API_KEY a cadeia degrada sozinha para só o DJEN — que não exige
    * chave nenhuma. É de propósito: o sistema sobe e funciona sem configuração.
    */
-  LEXFLOW_PROVIDER_CHAIN: z.string().default('datajud,djen'),
+  PROCESSOVIVO_PROVIDER_CHAIN: z.string().default('datajud,djen'),
 
   DATAJUD_API_KEY: z.string().default(''),
   DATAJUD_BASE_URL: z
@@ -60,8 +60,17 @@ const schema = z.object({
   SMTP_PASS: z.string().default(''),
   SMTP_SECURE: z.enum(['true', 'false']).default('false'),
   SMTP_FROM: z.string().default(''),
-  /** Endereço público, usado nos links do e-mail. */
-  LEXFLOW_URL_BASE: z.string().default(''),
+  /**
+   * Endereço público do sistema — ex.: `https://processovivo.webmedula.com.br`.
+   *
+   * Usado nos links que saem por e-mail, inclusive o de recuperação de senha.
+   * **Sem ele a recuperação não é oferecida**: link relativo em e-mail não leva
+   * a lugar nenhum, e adivinhar o domínio pelo cabeçalho `Host` da requisição
+   * deixaria qualquer um forjar o destino do link mandando outro `Host` — o
+   * e-mail sairia do nosso servidor, com a nossa cara, apontando para o
+   * atacante.
+   */
+  PROCESSOVIVO_URL_BASE: z.string().default(''),
   // Silêncio tolerado antes de avisar que a verificação parou. 26h e não 24h
   // para não disparar por causa de uma varredura que atrasou alguns minutos.
   NOTIFICACAO_HORAS_ATE_ALERTAR: inteiroPositivo(26),
@@ -102,12 +111,12 @@ const schema = z.object({
    * senha de tribunal em claro transformaria um vazamento de banco em acesso
    * aos processos de terceiros. Gere com `npm run chave -- --cofre`.
    */
-  LEXFLOW_CREDENCIAL_CHAVE: z.string().default(''),
+  PROCESSOVIVO_CREDENCIAL_CHAVE: z.string().default(''),
 
   // --- Banco e sincronização ------------------------------------------------
   // Caminho do arquivo SQLite. No contêiner tem que apontar para um VOLUME,
   // senão os acompanhamentos somem a cada redeploy.
-  LEXFLOW_DB_PATH: z.string().default('./dados/lexflow.db'),
+  PROCESSOVIVO_DB_PATH: z.string().default('./dados/processovivo.db'),
   // Intervalo da varredura automática, em horas. 0 desliga.
   SYNC_INTERVALO_HORAS: z.coerce.number().min(0).default(12),
   SYNC_MAXIMO_POR_VARREDURA: inteiroPositivo(200),
@@ -122,9 +131,9 @@ const schema = z.object({
   HTTP_PORT: inteiroPositivo(3000),
   HTTP_BODY_LIMIT_BYTES: inteiroPositivo(65_536),
   /** Chaves aceitas no header x-api-key, separadas por vírgula. */
-  LEXFLOW_API_KEYS: z.string().default(''),
+  PROCESSOVIVO_API_KEYS: z.string().default(''),
   /** Escape explícito para rodar sem autenticação (só em rede interna). */
-  LEXFLOW_AUTH_DISABLED: booleano.default('false'),
+  PROCESSOVIVO_AUTH_DISABLED: booleano.default('false'),
   RATE_LIMIT_MAX: inteiroPositivo(60),
   RATE_LIMIT_WINDOW_MS: inteiroPositivo(60_000),
   /** Confia em X-Forwarded-For. Ligado por padrão: atrás do Traefik do Easypanel. */
@@ -138,6 +147,17 @@ const schema = z.object({
    * para a tela de login", que não parece problema de configuração.
    */
   COOKIE_SECURE: booleano.default('true'),
+  /**
+   * Backup automático do banco, em horas. 0 desliga.
+   *
+   * 24h por padrão, e LIGADO por padrão: um SaaS que guarda a carteira e a
+   * credencial de tribunal do assinante não pode depender de alguém lembrar de
+   * configurar backup. O custo de uma cópia por dia é um arquivo do tamanho do
+   * banco; o custo de não ter é o negócio.
+   */
+  BACKUP_INTERVALO_HORAS: z.coerce.number().min(0).default(24),
+  /** Quantas cópias manter. */
+  BACKUP_MANTER: inteiroPositivo(7),
   /** Origens liberadas para CORS, separadas por vírgula. Vazio = CORS desligado. */
   CORS_ORIGINS: z.string().default(''),
 });
@@ -174,6 +194,10 @@ export interface Config {
   };
   readonly nivelLog: NivelLog;
   readonly banco: { readonly caminho: string };
+  readonly backup: {
+    readonly intervaloHoras: number;
+    readonly manter: number;
+  };
   readonly sincronizacao: {
     readonly intervaloHoras: number;
     readonly maximoPorVarredura: number;
@@ -204,12 +228,83 @@ export interface Config {
     readonly rateLimitJanelaMs: number;
     readonly confiarNoProxy: boolean;
     readonly cookieSeguro: boolean;
+    readonly urlBase: string;
     readonly corsOrigins: readonly string[];
   };
 }
 
+/**
+ * Nomes antigos que ainda são aceitos, e o nome atual de cada um.
+ *
+ * O produto se chamava LexFlow até a v0.18.0. Renomear as variáveis é o certo —
+ * ninguém quer ler `LEXFLOW_` no painel de um sistema chamado Processo Vivo —,
+ * mas uma renomeação seca transformaria a atualização numa armadilha: bastaria
+ * esquecer UMA variável no Easypanel para o serviço subir errado.
+ *
+ * E o modo de falhar seria diferente em cada uma, o que é pior do que uma falha
+ * só: sem `..._API_KEYS` o processo se recusa a subir (barulhento, fácil);
+ * sem `..._CREDENCIAL_CHAVE` as peças somem em silêncio e as rotas passam a
+ * responder 501; sem `..._DB_PATH` o sistema abre um banco NOVO e vazio ao lado
+ * do que tem os dados, e a carteira parece ter sumido.
+ *
+ * Então o nome antigo continua valendo, com aviso no log dizendo exatamente o
+ * que trocar. A remoção fica para uma versão futura, depois de o painel estar
+ * limpo.
+ */
+const NOMES_ANTIGOS: ReadonlyArray<readonly [antigo: string, atual: string]> = [
+  ['LEXFLOW_PROVIDER_CHAIN', 'PROCESSOVIVO_PROVIDER_CHAIN'],
+  ['LEXFLOW_API_KEYS', 'PROCESSOVIVO_API_KEYS'],
+  ['LEXFLOW_AUTH_DISABLED', 'PROCESSOVIVO_AUTH_DISABLED'],
+  ['LEXFLOW_DB_PATH', 'PROCESSOVIVO_DB_PATH'],
+  ['LEXFLOW_CREDENCIAL_CHAVE', 'PROCESSOVIVO_CREDENCIAL_CHAVE'],
+  ['LEXFLOW_URL_BASE', 'PROCESSOVIVO_URL_BASE'],
+];
+
+/** O que `carregarConfig` encontrou de nome antigo. Vazio é o estado desejado. */
+export interface AvisoDeRenomeacao {
+  readonly antigo: string;
+  readonly atual: string;
+}
+
+let avisosDaUltimaCarga: readonly AvisoDeRenomeacao[] = [];
+
+/**
+ * Os nomes antigos vistos na última chamada de `carregarConfig`.
+ *
+ * Existe porque o logger ainda não foi construído quando a configuração é lida —
+ * o nível de log vem dela. Guardar e emitir depois, no composition root, evita
+ * um `console.warn` solto em biblioteca e mantém o aviso no mesmo formato JSON
+ * do resto do log.
+ */
+export function avisosDeRenomeacao(): readonly AvisoDeRenomeacao[] {
+  return avisosDaUltimaCarga;
+}
+
+/**
+ * Preenche o nome atual a partir do antigo, quando só o antigo veio.
+ *
+ * O nome ATUAL sempre vence: quem já migrou e deixou o antigo para trás no
+ * painel não pode ver o valor velho sobrescrever o novo.
+ */
+function aceitarNomesAntigos(fonte: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const copia: NodeJS.ProcessEnv = { ...fonte };
+  const avisos: AvisoDeRenomeacao[] = [];
+
+  for (const [antigo, atual] of NOMES_ANTIGOS) {
+    const valorAntigo = fonte[antigo];
+    if (valorAntigo === undefined || valorAntigo === '') continue;
+    avisos.push({ antigo, atual });
+    if (fonte[atual] === undefined || fonte[atual] === '') {
+      copia[atual] = valorAntigo;
+    }
+  }
+
+  avisosDaUltimaCarga = avisos;
+  return copia;
+}
+
 export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
-  const resultado = schema.safeParse(fonte);
+  const resultado = schema.safeParse(aceitarNomesAntigos(fonte));
   if (!resultado.success) {
     const detalhes = resultado.error.issues
       .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
@@ -219,7 +314,7 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
 
   const env = resultado.data;
   return {
-    cadeiaDeProviders: env.LEXFLOW_PROVIDER_CHAIN.split(',')
+    cadeiaDeProviders: env.PROCESSOVIVO_PROVIDER_CHAIN.split(',')
       .map((s) => s.trim())
       .filter((s) => s.length > 0),
     djen: {
@@ -250,10 +345,14 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
         .filter((s) => s.length > 0),
       timeoutMs: env.MNI_TIMEOUT_MS,
       limitePorMinuto: env.MNI_RATE_LIMIT_PER_MINUTE,
-      chaveDoCofre: env.LEXFLOW_CREDENCIAL_CHAVE.trim(),
+      chaveDoCofre: env.PROCESSOVIVO_CREDENCIAL_CHAVE.trim(),
     },
     nivelLog: env.LOG_LEVEL,
-    banco: { caminho: env.LEXFLOW_DB_PATH },
+    banco: { caminho: env.PROCESSOVIVO_DB_PATH },
+    backup: {
+      intervaloHoras: env.BACKUP_INTERVALO_HORAS,
+      manter: env.BACKUP_MANTER,
+    },
     sincronizacao: {
       intervaloHoras: env.SYNC_INTERVALO_HORAS,
       maximoPorVarredura: env.SYNC_MAXIMO_POR_VARREDURA,
@@ -272,19 +371,20 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
       smtpSeguro: env.SMTP_SECURE === 'true',
       // Sem SMTP_FROM explícito, o usuário SMTP costuma ser o próprio endereço.
       remetente: env.SMTP_FROM.trim() || env.SMTP_USER.trim(),
-      urlBase: env.LEXFLOW_URL_BASE.trim().replace(/\/+$/, ''),
+      urlBase: env.PROCESSOVIVO_URL_BASE.trim().replace(/\/+$/, ''),
       horasAteAlertar: env.NOTIFICACAO_HORAS_ATE_ALERTAR,
     },
     http: {
       host: env.HTTP_HOST,
       porta: env.HTTP_PORT,
       bodyLimitBytes: env.HTTP_BODY_LIMIT_BYTES,
-      chavesDeApi: listaSeparadaPorVirgula(env.LEXFLOW_API_KEYS),
-      autenticacaoDesativada: env.LEXFLOW_AUTH_DISABLED,
+      chavesDeApi: listaSeparadaPorVirgula(env.PROCESSOVIVO_API_KEYS),
+      autenticacaoDesativada: env.PROCESSOVIVO_AUTH_DISABLED,
       rateLimitMax: env.RATE_LIMIT_MAX,
       rateLimitJanelaMs: env.RATE_LIMIT_WINDOW_MS,
       confiarNoProxy: env.HTTP_TRUST_PROXY,
       cookieSeguro: env.COOKIE_SECURE,
+      urlBase: env.PROCESSOVIVO_URL_BASE.trim().replace(/\/+$/, ''),
       corsOrigins: listaSeparadaPorVirgula(env.CORS_ORIGINS),
     },
   };

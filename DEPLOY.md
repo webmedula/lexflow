@@ -1,4 +1,4 @@
-# Deploy do LexFlow no Easypanel
+# Deploy do Processo Vivo no Easypanel
 
 Runbook do zero até a API respondendo no seu domínio. Se algo falhar, a seção
 [Quando der errado](#quando-der-errado) cobre os tropeços mais comuns.
@@ -9,7 +9,7 @@ Runbook do zero até a API respondendo no seu domínio. Se algo falhar, a seçã
 
 - VPS com Easypanel instalado e acessível
 - Repositório no GitHub com este código (público ou privado)
-- Um subdomínio apontado para o IP do VPS — ex.: `lexflow.webmedula.com.br`,
+- Um subdomínio apontado para o IP do VPS — ex.: `processovivo.webmedula.com.br`,
   registro **A** → IP do VPS
 - (Opcional) Chave Pública do DataJud:
   <https://datajud-wiki.cnj.jus.br/api-publica/acesso/>
@@ -21,7 +21,7 @@ Sem a chave do DataJud o serviço sobe igual — só roda com o crawler mock, o 
 
 ## 1. Gere as chaves de API
 
-O serviço **se recusa a subir sem `LEXFLOW_API_KEYS`**, e também recusa chave com
+O serviço **se recusa a subir sem `PROCESSOVIVO_API_KEYS`**, e também recusa chave com
 menos de 24 caracteres. Isso é proposital: a API do DataJud usa uma Chave Pública
 compartilhada do CNJ, e um endpoint aberto na internet transforma seu VPS em
 proxy gratuito para a cota de todo mundo — o bloqueio cai sobre a chave, não
@@ -30,7 +30,7 @@ sobre quem abusou.
 ### O que essa chave é (e o que não é)
 
 Não é algo emitido por ninguém, nem tem relação com a chave do CNJ. É **um
-segredo aleatório que você inventa**, e o LexFlow compara com o que chega no
+segredo aleatório que você inventa**, e o Processo Vivo compara com o que chega no
 header `x-api-key`. Quem tem a string entra; quem não tem, não. Só isso.
 
 O que importa é que seja **aleatória de verdade** e **longa o bastante**. O
@@ -65,7 +65,7 @@ Variações:
 ```bash
 npm run chave -- --rotulo n8n     # com nome, para não se perder
 npm run chave -- 3                # três chaves de uma vez
-npm run chave -- 3 --env          # já no formato LEXFLOW_API_KEYS=a,b,c
+npm run chave -- 3 --env          # já no formato PROCESSOVIVO_API_KEYS=a,b,c
 ```
 
 **Sem o projeto em mãos, só com o Node instalado:**
@@ -108,10 +108,10 @@ O motivo é revogação: se a chave do n8n vazar num log ou num print, você tir
 **só ela** da variável e redeploya. Com chave única compartilhada, revogar uma
 significa derrubar todo mundo ao mesmo tempo.
 
-No `LEXFLOW_API_KEYS` elas vão separadas por vírgula:
+No `PROCESSOVIVO_API_KEYS` elas vão separadas por vírgula:
 
 ```env
-LEXFLOW_API_KEYS=5f0eb8d0...888a,03a5babf...6ec2,5f3ae83a...e38d3
+PROCESSOVIVO_API_KEYS=5f0eb8d0...888a,03a5babf...6ec2,5f3ae83a...e38d3
 ```
 
 Espaços em volta das vírgulas são tolerados. Chaves repetidas são recusadas no
@@ -133,7 +133,7 @@ Troca periódica (ou vazamento) sem janela de indisponibilidade:
 
 1. Gere a chave nova: `npm run chave -- --rotulo n8n-nova`
 2. No Easypanel, **acrescente** a nova à lista, mantendo a antiga:
-   `LEXFLOW_API_KEYS=<antiga>,<nova>`
+   `PROCESSOVIVO_API_KEYS=<antiga>,<nova>`
 3. Redeploy. Agora as duas funcionam.
 4. Atualize o consumidor (n8n, script, cliente) para usar a nova.
 5. Confirme nos logs que o identificador antigo parou de aparecer.
@@ -153,12 +153,12 @@ mão de terceiro.
 > precisa ser checada.
 
 ```bash
-cd lexflow
+cd processovivo
 git init
 git add .
-git commit -m "LexFlow: núcleo, API HTTP e Docker"
+git commit -m "Processo Vivo: núcleo, API HTTP e Docker"
 git branch -M main
-git remote add origin git@github.com:SEU-USUARIO/lexflow.git
+git remote add origin git@github.com:SEU-USUARIO/processovivo.git
 git push -u origin main
 ```
 
@@ -169,14 +169,14 @@ O `.gitignore` já barra `.env`, `node_modules/` e `dist/`. **Confira que o
 
 ## 3. Crie o serviço no Easypanel
 
-No painel: **Projeto → + Service → App**. Nome: `lexflow-api`.
+No painel: **Projeto → + Service → App**. Nome: `processovivo-api`.
 
 ### Aba Source
 
 | Campo | Valor |
 |---|---|
 | Type | GitHub |
-| Repository | `SEU-USUARIO/lexflow` |
+| Repository | `SEU-USUARIO/processovivo` |
 | Branch | `main` |
 | Build Path | `/` |
 
@@ -197,7 +197,7 @@ você fica na mão da heurística de detecção — e ela muda entre versões.
 
 ### Aba Environment
 
-Cole isto **como está** e depois preencha só a linha do `LEXFLOW_API_KEYS` com a
+Cole isto **como está** e depois preencha só a linha do `PROCESSOVIVO_API_KEYS` com a
 chave do passo 1:
 
 ```env
@@ -206,12 +206,12 @@ HTTP_HOST=0.0.0.0
 HTTP_PORT=3000
 
 # ↓ cole aqui a chave gerada no passo 1 (npm run chave)
-LEXFLOW_API_KEYS=
+PROCESSOVIVO_API_KEYS=
 RATE_LIMIT_MAX=60
 RATE_LIMIT_WINDOW_MS=60000
 HTTP_TRUST_PROXY=true
 
-LEXFLOW_PROVIDER_CHAIN=datajud,djen
+PROCESSOVIVO_PROVIDER_CHAIN=datajud,djen
 # Deixe vazia até ter a Chave Pública do CNJ. Vazia = o DataJud sai da cadeia
 # e o serviço roda só com o DJEN, sem erro — e o DJEN não precisa de chave.
 DATAJUD_API_KEY=
@@ -225,13 +225,24 @@ VIGILANCIA_INTERVALO_HORAS=1
 VIGILANCIA_MAXIMO_POR_VARREDURA=50
 
 # Aviso por e-mail. Vazio = modo log (o resumo aparece no log, nada é enviado).
+#
+# SMTP_HOST + PROCESSOVIVO_URL_BASE também ligam a RECUPERAÇÃO DE SENHA. Sem os
+# dois, a tela de entrada não mostra o "esqueci minha senha" — e a única saída
+# de quem perder a senha é você, no banco. Configure antes do primeiro cliente.
 SMTP_HOST=
 SMTP_PORT=587
 SMTP_USER=
 SMTP_PASS=
 SMTP_FROM=
-# Endereço público, para os links do e-mail.
-LEXFLOW_URL_BASE=
+# Endereço público do sistema. Sai nos links dos e-mails, inclusive o de
+# redefinir senha. Vem DAQUI e não do cabeçalho Host da requisição: senão
+# bastaria mandar outro Host para o servidor enviar, com a nossa cara, um link
+# apontando para o endereço de quem atacou.
+#
+# Aponta para o SUBDOMÍNIO do app, não para a raiz: a raiz é a página de vendas.
+# Errar aqui manda quem clicou em "redefinir senha" para a landing, que não sabe
+# o que fazer com o token.
+PROCESSOVIVO_URL_BASE=https://app.processovivo.com.br
 
 # --- Peças do processo (v0.12.0) -------------------------------------------
 # Cifra a senha do advogado no tribunal. Gere com: npm run chave -- --cofre
@@ -241,7 +252,7 @@ LEXFLOW_URL_BASE=
 # NUNCA troque esta chave depois de cadastrar credenciais: o que está no banco
 # foi cifrado com a antiga e vira ilegível, obrigando cada assinante a cadastrar
 # a senha do tribunal de novo.
-LEXFLOW_CREDENCIAL_CHAVE=
+PROCESSOVIVO_CREDENCIAL_CHAVE=
 MNI_ENDPOINT=https://projudi.tjgo.jus.br/IntercomunicacaoService
 MNI_TRIBUNAIS=TJGO
 MNI_TIMEOUT_MS=90000
@@ -251,10 +262,16 @@ CACHE_ENABLED=true
 CACHE_TTL_SECONDS=900
 
 # Banco: precisa apontar para o volume montado em /dados
-LEXFLOW_DB_PATH=/dados/lexflow.db
+PROCESSOVIVO_DB_PATH=/dados/processovivo.db
 # Varredura automática dos processos acompanhados. 0 desliga.
 SYNC_INTERVALO_HORAS=12
 SYNC_PAUSA_MS=1500
+
+# Backup automático do banco. Ligado por padrão; 0 desliga.
+# As cópias vão para /dados/backups — dentro do MESMO volume. Leia a seção
+# "6. Backup, restauração e custódia da chave" antes de considerar isso pronto.
+BACKUP_INTERVALO_HORAS=24
+BACKUP_MANTER=7
 
 LOG_LEVEL=info
 ```
@@ -271,12 +288,12 @@ aumente sem necessidade.
 > **Não escreva um texto de exemplo no lugar de um valor que você ainda não tem.**
 > Uma variável com `COLE_AQUI_...` dentro não está vazia: o serviço a aceita como
 > credencial e só falha depois, na primeira chamada — longe da causa. A partir da
-> v0.4.1 o LexFlow detecta esses textos e avisa, mas o hábito certo é deixar a
+> v0.4.1 o Processo Vivo detecta esses textos e avisa, mas o hábito certo é deixar a
 > linha vazia mesmo.
 
 ### Aba Mounts — **obrigatório a partir da v0.8.0**
 
-O LexFlow agora guarda os processos acompanhados e o histórico de novidades num
+O Processo Vivo agora guarda os processos acompanhados e o histórico de novidades num
 arquivo SQLite. Sem um volume, esse arquivo vive dentro do contêiner e **é
 apagado a cada redeploy** — o usuário perde a carteira inteira e o histórico de
 "o que mudou".
@@ -286,10 +303,10 @@ Em **Mounts → Add Mount**:
 | Campo | Valor |
 |---|---|
 | Type | **Volume** |
-| Name | `lexflow-dados` |
+| Name | `processovivo-dados` |
 | Mount Path | `/dados` |
 
-O `Dockerfile` já define `LEXFLOW_DB_PATH=/dados/lexflow.db` e cria o diretório
+O `Dockerfile` já define `PROCESSOVIVO_DB_PATH=/dados/processovivo.db` e cria o diretório
 com o dono certo. Você só precisa montar o volume.
 
 Para conferir depois do deploy: acompanhe um processo, faça um **Deploy** de
@@ -297,9 +314,12 @@ novo e veja se ele continua na lista. Se sumiu, o volume não está montado.
 
 ### Aba Domains
 
+O sistema vive no **subdomínio**, e a raiz do domínio fica para a página de
+vendas:
+
 | Campo | Valor |
 |---|---|
-| Host | `lexflow.webmedula.com.br` |
+| Host | `app.processovivo.com.br` |
 | Path | `/` |
 | Protocol | HTTP |
 | **Port** | **3000** |
@@ -307,6 +327,21 @@ novo e veja se ele continua na lista. Se sumiu, o volume não está montado.
 
 **A porta alvo tem que ser 3000** — é onde o contêiner escuta. Esse é o campo
 que mais gera "502 Bad Gateway" quando fica errado.
+
+No DNS do domínio, um registro **A** para `app` apontando para o IP do VPS. O
+Let's Encrypt só emite o certificado depois que o DNS propagar, então um erro de
+certificado nos primeiros minutos é espera, não defeito.
+
+**Por que o app não fica na raiz.** Separar custa um serviço a mais no Easypanel
+e paga em três coisas: a landing pode receber pixel de anúncio, Google Analytics
+e script de terceiro sem que nada disso encoste na página onde o advogado digita
+a senha; a landing pode cair, ser reescrita ou trocar de tecnologia sem risco
+para o sistema; e `PROCESSOVIVO_URL_BASE` aponta para um endereço que não vai
+mudar — os links dos e-mails de recuperação de senha, que valem uma hora, não
+podem apontar para um lugar que você planeja reformar.
+
+Quando a landing existir, ela entra como um segundo serviço, com Host
+`processovivo.com.br` e `www.processovivo.com.br`.
 
 ### Deploy
 
@@ -319,23 +354,23 @@ Botão **Deploy**. Acompanhe o log de build: as quatro etapas do Dockerfile
 
 ```bash
 # Liveness — não deve pedir chave
-curl https://lexflow.webmedula.com.br/health
+curl https://processovivo.webmedula.com.br/health
 # {"status":"ok","uptimeSegundos":12}
 
 # Readiness — mostra o estado de cada fonte
-curl https://lexflow.webmedula.com.br/ready
+curl https://processovivo.webmedula.com.br/ready
 # {"status":"pronto","fontes":[{"provider":"mock-crawler-tjsp","saudavel":true},…]}
 
 # Consulta de verdade
 curl -H "x-api-key: SUA_CHAVE" \
-  https://lexflow.webmedula.com.br/v1/processos/1234567-47.2023.8.26.0100
+  https://processovivo.webmedula.com.br/v1/processos/1234567-47.2023.8.26.0100
 
 # A carteira de um advogado
 curl -H "x-api-key: SUA_CHAVE" \
-  https://lexflow.webmedula.com.br/v1/advogados/SP/234567/processos
+  https://processovivo.webmedula.com.br/v1/advogados/SP/234567/processos
 
 # Sem chave deve dar 401 — se der 200, a autenticação não está ativa
-curl -i https://lexflow.webmedula.com.br/v1/processos/1234567-47.2023.8.26.0100
+curl -i https://processovivo.webmedula.com.br/v1/processos/1234567-47.2023.8.26.0100
 ```
 
 ---
@@ -353,6 +388,155 @@ quebrado não chega ao VPS.
 
 ---
 
+## 6. Backup, restauração e custódia da chave
+
+Esta seção é a que separa "está no ar" de "dá para vender". A partir do momento
+em que existe um assinante, o banco do Processo Vivo guarda a carteira de processos
+dele, o histórico de novidades e a credencial dele no tribunal. Perder isso não
+é um incidente técnico: é o cliente sem o próprio trabalho.
+
+### O que o sistema já faz sozinho
+
+Uma cópia por dia, guardando as 7 últimas, em `/dados/backups/`. Ligado por
+padrão — `BACKUP_INTERVALO_HORAS=24` e `BACKUP_MANTER=7`.
+
+A cópia é feita com `VACUUM INTO`, e não copiando o arquivo. A diferença
+importa: o banco roda em modo WAL, onde uma escrita recente vive no arquivo
+`-wal` até o checkpoint. Copiar só o `.db` devolveria um arquivo que abre,
+parece íntegro e está desatualizado — o pior tipo de backup, porque ninguém
+descobre até precisar dele.
+
+Cada cópia é **conferida antes de ser aceita**: o sistema abre o arquivo
+recém-criado, roda `PRAGMA integrity_check` e confere a contagem de contas. Se
+não bater, a cópia é apagada e o erro vai para o log. Backup que ninguém abriu
+é suposição, não cópia.
+
+Para tirar uma cópia na hora, fora do horário:
+
+```bash
+npm run cli -- backup
+npm run cli -- backup --manter 14
+```
+
+### O limite honesto: isso não é backup ainda
+
+**As cópias ficam no mesmo volume do banco.** Elas protegem contra o que
+acontece com mais frequência — apagar a linha errada, um update sem `WHERE`,
+um arquivo corrompido, uma migração malfeita. **Não protegem contra perder o
+volume**: VPS cancelado, disco que falha, conta suspensa, ransomware.
+
+Backup que mora ao lado do original é meio backup. A outra metade é levar a
+cópia para fora do VPS, e isso hoje é trabalho seu. O caminho mais curto, de
+qualquer máquina que alcance o VPS por SSH:
+
+```bash
+# roda de madrugada, na SUA máquina ou em outro servidor
+rsync -az --delete \
+  root@SEU-VPS:/var/lib/docker/volumes/processovivo-dados/_data/backups/ \
+  ~/backups-processovivo/
+```
+
+O caminho exato do volume aparece em `docker volume inspect processovivo-dados`.
+Guarde as cópias cifradas se elas saírem para armazenamento de terceiro — o
+arquivo contém a credencial de tribunal dos assinantes, cifrada, e o e-mail de
+todos eles, em claro.
+
+Uma regra simples para saber se está pronto: **se o VPS sumisse agora, quanto
+tempo de trabalho dos seus clientes iria junto?** Se a resposta não for "no
+máximo um dia", a cópia externa ainda não está funcionando.
+
+### Restaurar
+
+O procedimento é este, e ele é exercitado por um teste automatizado
+(`tests/infrastructure/backup.spec.ts`, "restaurar por cima do banco perdido"):
+
+1. **Pare o serviço** no Easypanel. Restaurar com o serviço no ar sobrescreve
+   um arquivo que está sendo escrito, e o resultado é imprevisível.
+
+2. **Escolha a cópia.** Os nomes são `processovivo-<data-hora>.db` e ordenam por
+   texto na mesma ordem do tempo, então a última da lista é a mais recente:
+
+   ```bash
+   ls -la /dados/backups/
+   ```
+
+3. **Confira antes de confiar.** Trinta segundos aqui evitam restaurar lixo por
+   cima do que sobrou:
+
+   ```bash
+   sqlite3 /dados/backups/processovivo-2026-09-17T03-00-00.db "PRAGMA integrity_check;"
+   sqlite3 /dados/backups/processovivo-2026-09-17T03-00-00.db "SELECT COUNT(*) FROM usuarios;"
+   ```
+
+4. **Guarde o que ainda existe**, mesmo achando que não presta. O banco
+   corrompido de hoje pode ter uma hora de dados que a cópia de ontem não tem:
+
+   ```bash
+   mv /dados/processovivo.db /dados/processovivo.db.quebrado
+   rm -f /dados/processovivo.db-wal /dados/processovivo.db-shm
+   ```
+
+   Apagar o `-wal` e o `-shm` **não é opcional**: eles pertencem ao banco
+   antigo, e o SQLite tentaria aplicá-los sobre o novo arquivo.
+
+5. **Copie a cópia por cima**, com o nome que o serviço espera:
+
+   ```bash
+   cp /dados/backups/processovivo-2026-09-17T03-00-00.db /dados/processovivo.db
+   ```
+
+6. **Suba o serviço.** As migrações e a retrocarga de colunas rodam sozinhas no
+   arranque, inclusive se a cópia for de uma versão anterior do Processo Vivo.
+
+7. **Confira pela porta da frente**, não pelo log: entre com uma conta, veja se
+   a carteira está lá, e confira que uma peça ainda baixa — é isso que prova que
+   a chave do cofre continua casando com o banco restaurado.
+
+### A chave do cofre: o único segredo que o backup não salva
+
+`PROCESSOVIVO_CREDENCIAL_CHAVE` é o que cifra a senha de cada advogado no tribunal.
+Ela **não está no banco** — mora na configuração do serviço. É por isso que um
+vazamento do banco não entrega credencial nenhuma.
+
+A consequência é a que ninguém lembra na hora errada: **restaurar o banco com
+uma chave diferente não recupera as credenciais.** Elas continuam lá, cifradas,
+ilegíveis para sempre, e cada assinante precisa cadastrar a senha do tribunal
+de novo — um por um, cada um com o próprio constrangimento de ser avisado.
+
+Então:
+
+- **Guarde a chave no gerenciador de senhas**, junto da anotação de qual
+  instalação ela abre. Não no VPS, não num arquivo ao lado do backup, não numa
+  conversa.
+- **Nunca troque a chave** depois que houver credencial cadastrada. Não há
+  migração automática de uma chave para outra.
+- **Confira a custódia antes de vender o primeiro acesso.** A pergunta é: se o
+  VPS sumir hoje, você consegue subir outro com a MESMA `PROCESSOVIVO_CREDENCIAL_CHAVE`?
+  Se a resposta for não, a restauração vai devolver o banco e não o sistema.
+
+O mesmo vale, em menor grau, para `PROCESSOVIVO_API_KEYS`: perdê-las derruba as
+integrações até você distribuir chaves novas — recuperável, mas ninguém quer
+descobrir isso no mesmo dia em que perdeu o disco.
+
+### Senha esquecida: configure o SMTP antes do primeiro cliente
+
+A recuperação de senha só existe com `SMTP_HOST` **e** `PROCESSOVIVO_URL_BASE`
+preenchidos. Sem os dois, a tela de entrada nem mostra o "esqueci minha senha" —
+de propósito: aceitar o pedido, responder "enviamos um e-mail" e não enviar nada
+faria a pessoa esperar uma mensagem que não vem.
+
+Para conferir depois do deploy, sem criar conta nenhuma:
+
+```bash
+curl -s https://app.processovivo.com.br/v1/senha/recuperar
+# {"disponivel":true}
+```
+
+`false` aqui significa que o único caminho para quem perder a senha é você
+mexendo no banco. Resolva antes de haver cliente.
+
+---
+
 ## Endpoints
 
 | Método | Rota | Auth | O que faz |
@@ -361,12 +545,17 @@ quebrado não chega ao VPS.
 | GET | `/ready` | não | consegue atender? lista o estado das fontes |
 | GET | `/v1/processos/:numero` | sim | processo por número CNJ, com ou sem máscara |
 | GET | `/v1/advogados/:uf/:oab/processos` | sim | carteira do advogado |
+| POST | `/v1/contas` | não | cria a conta e já entra (cadastro aberto) |
+| POST | `/v1/sessoes` | não | entrar; `DELETE` sai |
+| GET | `/v1/senha/recuperar` | não | esta instalação manda e-mail? `{"disponivel":…}` |
+| POST | `/v1/senha/recuperar` | não | pede o link; responde **sempre** 202 |
+| POST | `/v1/senha/redefinir` | não | troca a senha pelo link e já entra |
 
 Query opcional na carteira: `?ordenarPor=DISTRIBUICAO` (padrão:
 `ULTIMA_MOVIMENTACAO`).
 
-Toda resposta de processo traz `x-lexflow-fonte` (qual fonte respondeu) e
-`x-lexflow-cache` (`true` se veio da memória). Não trate dado de cache como
+Toda resposta de processo traz `x-processovivo-fonte` (qual fonte respondeu) e
+`x-processovivo-cache` (`true` se veio da memória). Não trate dado de cache como
 consulta ao vivo quando houver prazo em jogo.
 
 ### Códigos de status
@@ -374,13 +563,13 @@ consulta ao vivo quando houver prazo em jogo.
 | Código | Significado | É problema seu? |
 |---|---|---|
 | 400 | número CNJ ou OAB inválidos | não, o cliente errou |
-| 401 | chave ausente ou inválida | não |
+| 401 | chave ausente ou inválida, sessão vencida, link de recuperação morto | não |
 | 404 | consultamos, o processo não existe | não |
 | 429 | limite de requisições estourado | não |
 | 501 | nenhuma fonte sabe fazer essa busca | é escopo, não falha |
 | 502 | as fontes externas falharam | **rio acima** — tribunal ou CNJ |
 | 503 | fonte temporariamente indisponível | rio acima, tente de novo |
-| 500 | bug do LexFlow | **sim** — só este merece alarme |
+| 500 | bug do Processo Vivo | **sim** — só este merece alarme |
 
 Essa separação é deliberada: se tribunal fora do ar virasse 500, o alarme
 tocaria o tempo todo por algo que não é seu, e o 500 de verdade se perderia no
@@ -407,12 +596,12 @@ A porta alvo do domínio não bate com a do contêiner. Confira: `Port = 3000` n
 aba Domains e `HTTP_PORT=3000` no Environment.
 
 **O contêiner reinicia em loop**
-Veja o log. Se aparecer `Configuração recusada: defina LEXFLOW_API_KEYS…`, é a
+Veja o log. Se aparecer `Configuração recusada: defina PROCESSOVIVO_API_KEYS…`, é a
 guarda do passo 1 — a variável não foi salva. Se aparecer
 `Configuração inválida:` seguido do nome de uma variável, o valor está fora do
 formato (número onde se esperava número, URL onde se esperava URL).
 
-**Sobe, o log diz "LexFlow no ar", mas nada responde**
+**Sobe, o log diz "Processo Vivo no ar", mas nada responde**
 `HTTP_HOST` está como `127.0.0.1`. Dentro do contêiner isso significa "só eu
 mesmo": o proxy não alcança. Tem que ser `0.0.0.0`.
 
@@ -425,7 +614,7 @@ se estivesse com problema de disponibilidade, quando na verdade nunca foi
 configurada.
 
 **`/ready` devolve 503**
-Nenhuma fonte respondeu. Com `LEXFLOW_PROVIDER_CHAIN=datajud,djen` o DJEN
+Nenhuma fonte respondeu. Com `PROCESSOVIVO_PROVIDER_CHAIN=datajud,djen` o DJEN
 responde em menos de 1s e sem chave, então 503 aqui normalmente é a cadeia mal
 escrita — confira se não há espaço ou nome errado na variável — ou o VPS sem
 saída para `comunicaapi.pje.jus.br`.
@@ -438,9 +627,9 @@ saída HTTPS para `comunicaapi.pje.jus.br` (DJEN) e `api-publica.datajud.cnj.jus
 **Primeiro acesso depois de atualizar para a v0.11**
 A tela agora pede e-mail e senha. Como ainda não existe conta nenhuma, ela abre
 direto em **Criar conta** — e o "código de acesso" é a chave que está em
-`LEXFLOW_API_KEYS`. A PRIMEIRA conta criada adota o workspace da primeira chave,
+`PROCESSOVIVO_API_KEYS`. A PRIMEIRA conta criada adota o workspace da primeira chave,
 então a carteira que você já tinha continua lá. Se criar a conta e a carteira
-aparecer vazia, confira se `LEXFLOW_API_KEYS` continua com a MESMA chave de
+aparecer vazia, confira se `PROCESSOVIVO_API_KEYS` continua com a MESMA chave de
 antes: mudou a chave, mudou o workspace.
 
 **"Faço login e volto para a tela de login"**
@@ -449,7 +638,7 @@ antes: mudou a chave, mudou o workspace.
 descartado em silêncio.
 
 **A aba Vigilância responde 501**
-Falta `djen` em `LEXFLOW_PROVIDER_CHAIN`. É a única fonte que indexa advogado.
+Falta `djen` em `PROCESSOVIVO_PROVIDER_CHAIN`. É a única fonte que indexa advogado.
 Repare que valor preenchido no painel GANHA do padrão do código — se a variável
 ficou com o valor antigo de uma versão anterior, o DJEN não entra.
 
@@ -464,7 +653,7 @@ Sem `SMTP_HOST` o sistema fica em modo log de propósito: procure no log a linha
 ainda sem chegar, a linha "falha ao enviar e-mail" traz o motivo do servidor.
 
 **A busca por OAB não devolve nada**
-Confira se `djen` está em `LEXFLOW_PROVIDER_CHAIN`: é a única fonte do projeto
+Confira se `djen` está em `PROCESSOVIVO_PROVIDER_CHAIN`: é a única fonte do projeto
 que faz essa busca. Se estiver e ainda vier vazio, é o limite da fonte, não um
 defeito — o DJEN só conhece processos que tiveram publicação no diário, e o
 histórico dele começa por volta de 2023.
@@ -479,8 +668,8 @@ identificador que o `npm run chave` imprimiu.
 
 **Contêiner recusa subir com "Configuração de autenticação recusada"**
 A mensagem diz exatamente o quê: chave ausente, chave com menos de 24
-caracteres, chave repetida, ou `LEXFLOW_AUTH_DISABLED=true` junto com
-`LEXFLOW_API_KEYS` preenchida (ambíguo — escolha um dos dois).
+caracteres, chave repetida, ou `PROCESSOVIVO_AUTH_DISABLED=true` junto com
+`PROCESSOVIVO_API_KEYS` preenchida (ambíguo — escolha um dos dois).
 
 **502 nas consultas depois de configurar o DataJud**
 Log com `chave pública rejeitada (HTTP 401)` = a chave do CNJ está errada ou foi
@@ -491,6 +680,119 @@ rotacionada; pegue a atual na wiki do DataJud. Log com
 Não deveria acontecer: o tini repassa o SIGTERM e o Fastify fecha esperando as
 respostas em voo. Se acontecer, confira se o `ENTRYPOINT` do Dockerfile foi
 alterado.
+
+---
+
+## Migrar uma instalação que era LexFlow
+
+Até a v0.17.0 o produto se chamava LexFlow, e o nome estava no domínio, nas
+variáveis de ambiente, no arquivo do banco e no cookie de sessão. A v0.18.0
+renomeia tudo para Processo Vivo. **Faça isto com o serviço no ar; nada aqui
+exige parar nada** — mas faça na ordem, porque dois passos podem parecer que os
+dados sumiram.
+
+### 1. Tire um backup antes de qualquer coisa
+
+```bash
+npm run cli -- backup
+```
+
+Ou, se preferir, apenas confirme que a cópia automática de hoje está lá em
+`/dados/backups/`. Os dois passos seguintes mexem com o arquivo do banco.
+
+### 2. O arquivo do banco: renomeie o ARQUIVO ou mantenha a variável
+
+Este é o passo que engana. A v0.18.0 mudou o caminho **padrão** para
+`/dados/processovivo.db`, mas no Easypanel o caminho vem da variável, então o
+padrão não se aplica ao seu serviço. Você tem duas saídas, e as duas funcionam:
+
+- **A mais simples:** não mexa. Deixe `PROCESSOVIVO_DB_PATH=/dados/lexflow.db`.
+  O nome do arquivo dentro do volume não aparece para ninguém.
+- **A mais limpa:** renomeie o arquivo dentro do volume e só então mude a
+  variável. No terminal do contêiner, pelo Easypanel:
+
+  ```bash
+  ls /dados
+  mv /dados/lexflow.db     /dados/processovivo.db
+  mv /dados/lexflow.db-wal /dados/processovivo.db-wal 2>/dev/null
+  mv /dados/lexflow.db-shm /dados/processovivo.db-shm 2>/dev/null
+  ```
+
+  Os arquivos `-wal` e `-shm` vão junto: eles pertencem ao banco e carregam
+  escritas que ainda não foram para o arquivo principal.
+
+> **O que NÃO fazer:** mudar `PROCESSOVIVO_DB_PATH` para um arquivo que não
+> existe. O sistema não reclama — ele cria um banco novo e vazio, sobe normal, e
+> o advogado entra e encontra o ambiente sem nenhum processo, com os dados dele
+> intactos no arquivo ao lado, invisíveis. É o pior modo de falhar que existe
+> aqui, porque parece perda de dados e não é.
+
+### 3. O volume: mantenha o nome que já existe
+
+Se o seu mount se chama `lexflow-dados`, **deixe como está**. Renomear o mount
+no Easypanel não renomeia o volume: cria um volume novo e vazio, e monta esse.
+O nome `processovivo-dados` na seção de Mounts vale para instalação nova.
+
+### 4. As variáveis de ambiente
+
+Renomeie o prefixo de todas: `LEXFLOW_*` → `PROCESSOVIVO_*`.
+
+| Antes | Depois |
+|---|---|
+| `LEXFLOW_API_KEYS` | `PROCESSOVIVO_API_KEYS` |
+| `LEXFLOW_PROVIDER_CHAIN` | `PROCESSOVIVO_PROVIDER_CHAIN` |
+| `LEXFLOW_DB_PATH` | `PROCESSOVIVO_DB_PATH` |
+| `LEXFLOW_CREDENCIAL_CHAVE` | `PROCESSOVIVO_CREDENCIAL_CHAVE` |
+| `LEXFLOW_URL_BASE` | `PROCESSOVIVO_URL_BASE` |
+| `LEXFLOW_AUTH_DISABLED` | `PROCESSOVIVO_AUTH_DISABLED` |
+
+**O nome antigo continua funcionando**, de propósito: se uma passar
+despercebida, o serviço sobe igual e o log avisa, em `warn`, qual trocar —
+
+```
+{"nivel":"warn","msg":"variável de ambiente com nome antigo",
+ "antigo":"LEXFLOW_CREDENCIAL_CHAVE","atual":"PROCESSOVIVO_CREDENCIAL_CHAVE"}
+```
+
+Se as duas estiverem definidas, vence a NOVA. Isso existe porque cada variável
+esquecida falharia de um jeito diferente: sem a chave de API o processo nem
+sobe (barulhento, fácil de achar); sem a chave do cofre as peças somem em
+silêncio e as rotas passam a responder 501; sem o caminho do banco acontece o
+que está no aviso do passo 2.
+
+**Uma coisa que não pode ser reaproveitada de jeito nenhum:** o VALOR de
+`LEXFLOW_CREDENCIAL_CHAVE` tem que continuar exatamente o mesmo. É ele que
+decifra a senha de tribunal de cada assinante. Copie o valor, não gere outro.
+
+### 5. O domínio
+
+Acrescente `app.processovivo.com.br` na aba Domains e ajuste
+`PROCESSOVIVO_URL_BASE` para ele. Mantenha o domínio antigo apontando para o
+mesmo serviço por algumas semanas — quem tiver a página aberta ou salva nos
+favoritos continua entrando.
+
+### 6. Depois do deploy
+
+O cookie de sessão mudou de nome (`lexflow_sessao` → `processovivo_sessao`), o
+que **desconecta todo mundo uma vez**. É esperado: basta entrar de novo. Se você
+tiver assinantes, avise antes — um logout sem explicação parece defeito.
+
+Confira, nesta ordem:
+
+```bash
+curl -s https://app.processovivo.com.br/health
+# {"status":"ok","versao":"0.18.0",...}   ← a versão confirma que o deploy pegou
+
+curl -s https://app.processovivo.com.br/v1/senha/recuperar
+# {"disponivel":true}   ← false significa que falta SMTP ou URL_BASE
+```
+
+E então, pela interface: entre, veja se a carteira está lá, e **baixe uma peça**.
+A peça é o teste que vale, porque é o único que prova que a chave do cofre
+continua casando com o banco.
+
+As cópias de backup antigas (`lexflow-<data>.db`) continuam sendo reconhecidas e
+podadas normalmente — não precisa apagar nada à mão.
 
 ---
 
@@ -511,7 +813,7 @@ ponto, então o que você arrastou não incluiu:
 
 Como conferir: no GitHub, digite <kbd>t</kbd> na página do repositório e busque
 por `gitignore`. Ou abra
-`https://github.com/SEU-USUARIO/lexflow/blob/main/.gitignore` direto — 404
+`https://github.com/SEU-USUARIO/processovivo/blob/main/.gitignore` direto — 404
 significa que não está lá.
 
 **Se faltar o `.gitignore`, resolva isso antes de qualquer outra coisa.** Sem
@@ -531,7 +833,7 @@ esconde dotfiles. Vale os cinco minutos de instalar o Git.
 
 ```powershell
 git init
-git remote add origin https://github.com/SEU-USUARIO/lexflow.git
+git remote add origin https://github.com/SEU-USUARIO/processovivo.git
 git fetch origin
 git checkout -b main
 git add -A
@@ -571,7 +873,7 @@ repositório — o upload só adiciona e sobrescreve. Por isso o Git é melhor.
 ### Confirme que o deploy pegou a versão nova
 
 ```bash
-curl https://lexflow.webmedula.com.br/health
+curl https://processovivo.webmedula.com.br/health
 # {"status":"ok","versao":"0.3.0","uptimeSegundos":12}
 ```
 

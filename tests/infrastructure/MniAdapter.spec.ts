@@ -60,7 +60,7 @@ function respostaMultipart(
   const blocos: Buffer[] = [
     Buffer.from(
       `--${boundary}\r\nContent-Type: application/xop+xml\r\n` +
-        `Content-ID: <raiz@lexflow>\r\n\r\n${xml}\r\n`,
+        `Content-ID: <raiz@processovivo>\r\n\r\n${xml}\r\n`,
       'utf8',
     ),
   ];
@@ -81,7 +81,7 @@ function respostaMultipart(
   return {
     status: 200,
     ok: true,
-    contentType: `multipart/related; boundary="${boundary}"; start="<raiz@lexflow>"`,
+    contentType: `multipart/related; boundary="${boundary}"; start="<raiz@processovivo>"`,
     bytes: new Uint8Array(Buffer.concat(blocos)),
   };
 }
@@ -113,7 +113,7 @@ function xmlComDocumentos(opcoes: {
   const documentos = Array.from({ length: opcoes.quantidade }, (_, i) => {
     const id = `doc-${i + 1}`;
     const conteudo = opcoes.comConteudo
-      ? `<ns2:conteudo><xop:Include xmlns:xop="http://www.w3.org/2004/08/xop/include" href="cid:${id}@lexflow"/></ns2:conteudo>`
+      ? `<ns2:conteudo><xop:Include xmlns:xop="http://www.w3.org/2004/08/xop/include" href="cid:${id}@processovivo"/></ns2:conteudo>`
       : '';
     return (
       `<ns2:documento idDocumento="${id}" tipoDocumento="57" ` +
@@ -255,8 +255,8 @@ describe('MniAdapter — envelope enviado', () => {
   it('pede só o documento escolhido ao baixar uma peça', async () => {
     const http = new HttpFalso(() =>
       respostaMultipart(xmlComDocumentos({ comConteudo: true, quantidade: 2 }), [
-        { id: 'doc-1@lexflow', bytes: Buffer.from('%PDF-um') },
-        { id: 'doc-2@lexflow', bytes: Buffer.from('%PDF-dois') },
+        { id: 'doc-1@processovivo', bytes: Buffer.from('%PDF-um') },
+        { id: 'doc-2@processovivo', bytes: Buffer.from('%PDF-dois') },
       ]),
     );
     await new MniAdapter({ httpClient: http }).obterConteudo(
@@ -272,7 +272,7 @@ describe('MniAdapter — envelope enviado', () => {
   it('pede a linha do tempo também ao baixar, senão não vem documento nenhum', async () => {
     const http = new HttpFalso(() =>
       respostaMultipart(xmlComDocumentos({ comConteudo: true, quantidade: 1 }), [
-        { id: 'doc-1@lexflow', bytes: Buffer.from('%PDF-um') },
+        { id: 'doc-1@processovivo', bytes: Buffer.from('%PDF-um') },
       ]),
     );
     await new MniAdapter({ httpClient: http }).obterConteudo(
@@ -340,7 +340,7 @@ describe('MniAdapter — peças', () => {
     const pdf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0xff, 0x00]);
     const http = new HttpFalso(() =>
       respostaMultipart(xmlComDocumentos({ comConteudo: true, quantidade: 1 }), [
-        { id: 'doc-1@lexflow', bytes: pdf },
+        { id: 'doc-1@processovivo', bytes: pdf },
       ]),
     );
 

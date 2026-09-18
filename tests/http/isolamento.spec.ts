@@ -17,13 +17,13 @@ function montar(autenticacaoAberta = false): {
 } {
   const app = aplicacaoDeTeste([new ProviderFalso({ nome: 'falso' })]);
   const config = carregarConfig({
-    LEXFLOW_PROVIDER_CHAIN: 'mock-crawler-tjsp',
+    PROCESSOVIVO_PROVIDER_CHAIN: 'mock-crawler-tjsp',
     LOG_LEVEL: 'silent',
     CACHE_ENABLED: 'false',
     COOKIE_SECURE: 'false',
     ...(autenticacaoAberta
-      ? { LEXFLOW_AUTH_DISABLED: 'true' }
-      : { LEXFLOW_API_KEYS: CHAVE }),
+      ? { PROCESSOVIVO_AUTH_DISABLED: 'true' }
+      : { PROCESSOVIVO_API_KEYS: CHAVE }),
   } as NodeJS.ProcessEnv);
   return { servidor: construirServidor(app, config), app };
 }
@@ -174,7 +174,7 @@ describe('Robustez das rotas de dados', () => {
   });
 });
 
-describe('Modo de rede interna (LEXFLOW_AUTH_DISABLED)', () => {
+describe('Modo de rede interna (PROCESSOVIVO_AUTH_DISABLED)', () => {
   let servidor: FastifyInstance;
 
   beforeEach(() => {

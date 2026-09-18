@@ -1,4 +1,4 @@
-# CLAUDE.md — LexFlow
+# CLAUDE.md — Processo Vivo
 
 Regras de trabalho neste repositório. Vale para agentes de IA e para pessoas.
 Se algo aqui conflitar com o código, **o código está errado ou este arquivo está
@@ -6,7 +6,7 @@ desatualizado** — resolva a divergência, não a ignore.
 
 ---
 
-## 1. O que é o LexFlow
+## 1. O que é o Processo Vivo
 
 SaaS de consulta e acompanhamento de processos judiciais nos tribunais
 brasileiros. O advogado consulta por número CNJ ou pela própria OAB e recebe
@@ -235,7 +235,7 @@ Onde uma decisão parece estranha, o comentário explica a restrição que a cau
 
 ```bash
 npm install              # dependências
-cp .env.example .env     # configuração local (defina LEXFLOW_API_KEYS)
+cp .env.example .env     # configuração local (defina PROCESSOVIVO_API_KEYS)
 
 npm run dev              # API com reload
 npm run build && npm run start:local   # API a partir do build
@@ -349,7 +349,11 @@ para `main/http/erros.ts` — é assim que o mesmo erro deixa de virar 404 numa
 rota e 500 na outra.
 
 Rota que dispensa autenticação precisa entrar em `rotasPublicas` ao registrar o
-plugin de autenticação — hoje só `/health` e `/ready`.
+plugin de autenticação: hoje `/health`, `/ready`, o console, `/v1/contas`,
+`/v1/sessoes`, `/v1/senha/recuperar` e `/v1/senha/redefinir`. As quatro últimas
+são públicas por necessidade — são as rotas de quem ainda não tem, ou acabou de
+perder, como se autenticar. Pedir chave nelas seria pedir a chave a quem perdeu
+a chave.
 
 ---
 
@@ -382,8 +386,8 @@ Não são detalhes — moldam o código.
   Guarde como veio — não desmascare, não complete, não infira.
 - **A API não pode ficar aberta.** A chave do CNJ é compartilhada; um endpoint
   público transforma o VPS em proxy gratuito para a cota alheia. Por isso
-  `main/http/index.ts` **recusa subir** sem `LEXFLOW_API_KEYS`, a menos que
-  `LEXFLOW_AUTH_DISABLED=true` seja declarado. Não remova essa guarda.
+  `main/http/index.ts` **recusa subir** sem `PROCESSOVIVO_API_KEYS`, a menos que
+  `PROCESSOVIVO_AUTH_DISABLED=true` seja declarado. Não remova essa guarda.
 - **Chave nunca vai para o log nem para a resposta.** O log registra o
   `identificarChave()` — 8 hex do SHA-256, não reversível e imune a prefixo
   comum. Nunca troque por um prefixo da chave: vaza segredo e colapsa todas as
@@ -397,7 +401,7 @@ Não são detalhes — moldam o código.
   desculpa para voltar a usar placeholder.
 - **Configuração de autenticação é validada no arranque** (`main/http/chaves.ts`):
   sem chave, chave com menos de `TAMANHO_MINIMO_CHAVE`, chave repetida, ou
-  `LEXFLOW_AUTH_DISABLED` junto com chaves preenchidas — todos derrubam a
+  `PROCESSOVIVO_AUTH_DISABLED` junto com chaves preenchidas — todos derrubam a
   montagem. Chave fraca é pior do que nenhuma: passa sensação de proteção.
 - **Duas autenticações, um workspace.** Pessoa entra por e-mail e senha (sessão
   em cookie); integração entra por chave de API. As duas resolvem para o mesmo
@@ -411,7 +415,7 @@ Não são detalhes — moldam o código.
 - **O banco guarda o HASH do token de sessão, nunca o token.** Vazamento de
   banco não pode virar sessão aberta. E o token não volta no corpo da resposta:
   vive só no cookie HttpOnly, fora do alcance de qualquer script da página.
-- **Em HTTPS o cookie se chama `__Host-lexflow_sessao`.** O prefixo é uma regra
+- **Em HTTPS o cookie se chama `__Host-processovivo_sessao`.** O prefixo é uma regra
   que o navegador aplica: só grava com `Secure`, `Path=/` e sem `Domain`. Sem
   ele, quem controlasse um subdomínio plantaria um cookie de `Path` mais
   específico, seria lido primeiro, e o advogado trabalharia dentro do ambiente
@@ -426,7 +430,7 @@ Não são detalhes — moldam o código.
   cadeia inteira de `X-Forwarded-For`, que o cliente escreve: um IP novo por
   requisição cai num balde novo de rate limit e anula o limite. Na rota de
   login, que é pública e gasta scrypt, isso é força bruta sem teto.
-- **Cadastro é ABERTO**, por decisão de produto: o LexFlow é vendido a
+- **Cadastro é ABERTO**, por decisão de produto: o Processo Vivo é vendido a
   advogados pelo Brasil, e convite não combina com isso. (Até a v0.13.x este
   arquivo dizia o contrário — a regra estava escrita e o código não existia.)
   O que protege a cota compartilhada do CNJ passa a ser o rate limiter do NOSSO
@@ -446,7 +450,7 @@ Não são detalhes — moldam o código.
 - **Credencial de tribunal nunca vai para log, resposta ou mensagem de erro.**
   Nem em `debug`, nem dentro de objeto de contexto. É o vazamento que não aparece
   em auditoria de código, porque parece inofensivo na linha em que é escrito. E
-  nunca há caminho que a grave em claro: sem `LEXFLOW_CREDENCIAL_CHAVE` a
+  nunca há caminho que a grave em claro: sem `PROCESSOVIVO_CREDENCIAL_CHAVE` a
   funcionalidade inteira não sobe.
 - **No MNI não há retry, e é deliberado.** A requisição carrega a senha do
   advogado, e o tribunal conta tentativa malsucedida para bloquear a conta. Uma
@@ -513,6 +517,28 @@ Não são detalhes — moldam o código.
   `ARQUIVOS DIGITAIS INDISPONÍVEIS (NÃO SÃO DO TIPO PÚBLICO)` no lugar do teor —
   em 69% das publicações do processo de teste. Aviso de fonte não é conteúdo:
   reconheça e marque (`teorIndisponivel`), não repasse como se fosse o despacho.
+- **Segredo na URL vira segredo no log.** O link de recuperação chega como
+  `GET /?recuperar=<token>`, e o log de acesso registrava a URL inteira em
+  nível `info` — token válido, de uso único, no log do contêiner, que costuma
+  seguir para coletor de terceiro. O log guarda o CAMINHO, sem query string, em
+  toda rota. Lista de parâmetros proibidos não serve: a próxima rota com
+  segredo na URL entra sem ninguém lembrar de acrescentá-la.
+- **Log não é entrega.** O `LogNotificador` se declara `habilitado` de
+  propósito, e para a vigilância isso é certo: exercita o caminho inteiro e
+  mostra no log o que teria saído. Para a recuperação de senha é o contrário —
+  o "envio" seria um token que ninguém recebe, com a tela dizendo "confira seu
+  e-mail". Funcionalidade que depende de ENTREGA só é montada com SMTP de
+  verdade (`entregaDeVerdade`, no composition root).
+- **Em rota pública, nada caro antes da conferência barata.** `guardar` do
+  scrypt gasta ~50ms de CPU e 16 MB, bloqueando o event loop. Na redefinição de
+  senha ele vinha antes de olhar o token — 50ms de graça por token inventado,
+  contra um processo de thread única. A ordem é: validar (de graça), conferir o
+  token, e só então pagar o hash. É por isso que `HashDeSenha` tem `validar`
+  separado de `guardar`.
+- **Poda só apaga o que a poda criou.** O filtro de backups era "começa com
+  `processovivo-` e termina em `.db`", e alcançava a cópia manual que alguém guardou
+  antes de uma migração — a que mais importava. O padrão é o nome exato que o
+  gerador produz, e o log registra QUAIS arquivos sumiram, não só quantos.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache
@@ -543,15 +569,17 @@ e rate limit, **contas de assinante com senha, sessão em cookie e ambiente
 isolado por conta** (v0.14.0), **cadastro progressivo com trilha de liberação**,
 **painel inicial**,
 **identidade visual e tema claro**, **vigilância contínua por OAB**, **peças do processo via MNI com cofre de
-credenciais**,
+credenciais**, **recuperação de senha por e-mail** e **backup automático do
+banco com verificação de integridade** (v0.17.0),
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 324 testes.
+multi-stage, CI, 478 testes.
 
-**Não implementado (decisão consciente do MVP):** cobrança e planos, recuperação
-de senha por e-mail (hoje a troca exige saber a senha atual), convite de membros
-para um mesmo escritório, crawler real,
+**Não implementado (decisão consciente do MVP):** cobrança e planos, convite de
+membros para um mesmo escritório, crawler real, **cópia de backup fora do VPS**
+(as cópias automáticas ficam no mesmo volume do banco — protegem contra erro de
+operação, não contra perder o volume; o procedimento manual está em DEPLOY.md),
 **WhatsApp** (adiado: exige template aprovado pela Meta e conta business
 verificada — e a biblioteca não oficial que resolveria numa tarde viola os
 termos e derruba o número, levando junto o aviso de prazo de todos os

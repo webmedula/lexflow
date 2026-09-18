@@ -3,7 +3,7 @@ import type { Oab } from './Oab.js';
 /**
  * Uma inscrição da OAB sob vigilância contínua.
  *
- * É a virada de chave do produto. Até aqui o LexFlow vigiava **o que o usuário
+ * É a virada de chave do produto. Até aqui o Processo Vivo vigiava **o que o usuário
  * digitou**: ele precisava saber o número do processo para acompanhá-lo — ou
  * seja, precisava já saber que o processo existe. A vigilância por OAB inverte
  * isso: o advogado cadastra a inscrição dele uma vez e o sistema passa a vigiar

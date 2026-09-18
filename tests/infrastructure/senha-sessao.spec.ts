@@ -117,9 +117,9 @@ describe('sessão — token e cookie', () => {
   });
 
   it('não confunde um cookie de nome parecido', () => {
-    // `lexflow_sessao_antiga` contém o nome inteiro como prefixo; casar por
+    // `processovivo_sessao_antiga` contém o nome inteiro como prefixo; casar por
     // "começa com" pegaria o cookie errado e a sessão nunca resolveria.
-    expect(tokenDoCabecalho('lexflow_sessao_antiga=x')).toBeUndefined();
+    expect(tokenDoCabecalho('processovivo_sessao_antiga=x')).toBeUndefined();
   });
 
   it('devolve undefined quando não há cookie nenhum', () => {

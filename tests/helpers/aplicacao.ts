@@ -36,6 +36,9 @@ import { SenhaFracaError } from '../../src/domain/errors/index.js';
  * de verdade tem a suíte dele.
  */
 export const hashDeTeste: HashDeSenha = {
+  validar: (senha) => {
+    if (senha.length < 10) throw new SenhaFracaError(10);
+  },
   guardar: (senha) => {
     if (senha.length < 10) throw new SenhaFracaError(10);
     return `teste:${senha}`;
@@ -67,6 +70,18 @@ export interface OpcoesAplicacaoDeTeste {
   readonly duracaoSessaoMs?: number;
   /** Fonte de peças. Sem ela, `pecas` fica indefinida e as rotas dão 501. */
   readonly provedorDePecas?: ProvedorDePecas;
+  /**
+   * Liga a recuperação de senha.
+   *
+   * Ausente de propósito por padrão: a instalação sem SMTP é o estado normal,
+   * e é ele que os testes de "a recuperação não existe aqui" precisam ver.
+   */
+  readonly recuperacao?: {
+    readonly notificador: Notificador;
+    readonly urlBase: string;
+    /** Passe um valor negativo para simular link já vencido. */
+    readonly duracaoMs?: number;
+  };
 }
 
 /**
@@ -148,10 +163,20 @@ export function aplicacaoDeTeste(
       senhas: opcoes.senhas ?? hashDeTeste,
       tokens: tokensDeSessao,
       duracaoSessaoMs: opcoes.duracaoSessaoMs ?? 60 * 60 * 1000,
+      ...(opcoes.recuperacao
+        ? {
+            notificador: opcoes.recuperacao.notificador,
+            urlBase: opcoes.recuperacao.urlBase,
+            ...(opcoes.recuperacao.duracaoMs !== undefined
+              ? { duracaoRecuperacaoMs: opcoes.recuperacao.duracaoMs }
+              : {}),
+          }
+        : {}),
     }),
     preferenciasNotificacao,
     agendador: parado(),
     agendadorVigilancia: undefined,
+    agendadorBackup: undefined,
     logger: loggerSilencioso,
     encerrar: () => db.close(),
   };

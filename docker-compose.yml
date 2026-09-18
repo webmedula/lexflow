@@ -15,8 +15,8 @@ services:
     environment:
       HTTP_HOST: 0.0.0.0
       HTTP_PORT: '3000'
-      LEXFLOW_PROVIDER_CHAIN: mock-crawler-tjsp,datajud
-      LEXFLOW_API_KEYS: chave-local-de-desenvolvimento
+      PROCESSOVIVO_PROVIDER_CHAIN: mock-crawler-tjsp,datajud
+      PROCESSOVIVO_API_KEYS: chave-local-de-desenvolvimento
       # Deixe vazio para rodar só com o crawler mock; preencha para exercitar
       # o DataJud de verdade.
       DATAJUD_API_KEY: '${DATAJUD_API_KEY:-}'
@@ -25,11 +25,11 @@ services:
       CACHE_TTL_SECONDS: '900'
       RATE_LIMIT_MAX: '60'
       LOG_LEVEL: debug
-      LEXFLOW_DB_PATH: /dados/lexflow.db
+      PROCESSOVIVO_DB_PATH: /dados/processovivo.db
       SYNC_INTERVALO_HORAS: '12'
     volumes:
       # Sem isto, os acompanhamentos somem a cada `docker compose up --build`.
-      - lexflow-dados:/dados
+      - processovivo-dados:/dados
     restart: unless-stopped
     healthcheck:
       test:
@@ -45,4 +45,4 @@ services:
       start_period: 10s
 
 volumes:
-  lexflow-dados:
+  processovivo-dados:
