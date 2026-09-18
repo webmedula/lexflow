@@ -57,6 +57,43 @@ describe('NumeroCNJ', () => {
     });
   });
 
+  it('reconhece a Justiça do Trabalho, contra um número REAL', () => {
+    /*
+     * Número de um processo trabalhista de verdade, do TRT da 18ª Região
+     * (Goiás). Não é fixture inventado — é o que motivou o suporte.
+     *
+     * Vale registrar o que faltava: nada além da lista de siglas e deste mapa.
+     * O DataJud usa a mesma chave pública do CNJ para todos os tribunais, e o
+     * endereço de cada um é montado a partir da sigla. Durante meses a resposta
+     * a um advogado trabalhista foi "tribunal não suportado" por causa de uma
+     * lista desatualizada se passando por limitação de arquitetura.
+     */
+    const numero = NumeroCNJ.criar('0011242-47.2021.5.18.0016');
+
+    expect(numero.segmento).toBe('5');
+    expect(numero.tribunal).toBe('18');
+    expect(numero.siglaTribunal).toBe('TRT18');
+  });
+
+  it('mapeia as 24 regiões trabalhistas, e o TST em TR = 00', () => {
+    // A numeração do CNJ é posicional: a região do número É o número da região.
+    // Um erro de deslocamento aqui mandaria a consulta para o tribunal errado —
+    // que responderia "não encontrado", indistinguível de processo inexistente.
+    for (let regiao = 1; regiao <= 24; regiao += 1) {
+      const digitos = construirNumeroValido(
+        '0011242',
+        '2021',
+        '5',
+        String(regiao).padStart(2, '0'),
+        '0016',
+      );
+      expect(NumeroCNJ.criar(digitos).siglaTribunal).toBe(`TRT${regiao}`);
+    }
+
+    const tst = construirNumeroValido('0011242', '2021', '5', '00', '0016');
+    expect(NumeroCNJ.criar(tst).siglaTribunal).toBe('TST');
+  });
+
   it('devolve null na sigla quando o segmento/tribunal não está mapeado', () => {
     // Segmento 9 não existe na Resolução 65 — o DV, porém, é válido.
     const digitos = construirNumeroValido('1234567', '2023', '9', '99', '0100');

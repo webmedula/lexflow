@@ -8,12 +8,28 @@
  * ele não reconhece, em vez de chutar um índice e receber 404.
  */
 
-/** Siglas cobertas pelo MVP: Justiça Estadual + TRFs. */
+/**
+ * Siglas cobertas: Justiça Estadual, Federal e do Trabalho.
+ *
+ * A Justiça do Trabalho entrou depois, e vale registrar por quê: não faltava
+ * nada além DESTA lista e do mapa J.TR em `NumeroCNJ`. O DataJud usa a mesma
+ * chave pública do CNJ para todos os tribunais, e o endereço de cada um é
+ * montado mecanicamente a partir da sigla. Sem credencial nova, sem adapter
+ * novo, sem acordo com ninguém — 31 linhas, e um segmento inteiro da advocacia
+ * deixou de receber "tribunal não suportado".
+ *
+ * Fica como lembrete de que "o produto não atende X" às vezes é uma lista
+ * desatualizada se passando por limitação de arquitetura.
+ */
 export const TRIBUNAIS_SUPORTADOS: readonly string[] = [
   'TJAC', 'TJAL', 'TJAP', 'TJAM', 'TJBA', 'TJCE', 'TJDFT', 'TJES', 'TJGO',
   'TJMA', 'TJMT', 'TJMS', 'TJMG', 'TJPA', 'TJPB', 'TJPR', 'TJPE', 'TJPI',
   'TJRJ', 'TJRN', 'TJRS', 'TJRO', 'TJRR', 'TJSC', 'TJSE', 'TJSP', 'TJTO',
   'TRF1', 'TRF2', 'TRF3', 'TRF4', 'TRF5', 'TRF6',
+  'TRT1', 'TRT2', 'TRT3', 'TRT4', 'TRT5', 'TRT6', 'TRT7', 'TRT8',
+  'TRT9', 'TRT10', 'TRT11', 'TRT12', 'TRT13', 'TRT14', 'TRT15', 'TRT16',
+  'TRT17', 'TRT18', 'TRT19', 'TRT20', 'TRT21', 'TRT22', 'TRT23', 'TRT24',
+  'TST',
 ];
 
 const SUPORTADOS = new Set(TRIBUNAIS_SUPORTADOS);

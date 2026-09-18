@@ -260,13 +260,33 @@ describe('DataJudAdapter', () => {
 
   it('recusa tribunal fora da lista suportada antes de ir à rede', async () => {
     const { instancia, http } = adapter(() => ok(RESPOSTA_COM_UM_PROCESSO));
-    // Justiça do Trabalho (segmento 5) não está no mapa de siglas do MVP.
-    const numeroTrabalhista = comDigitoValido('0001234', '2023', '5', '02', '0001');
+    /*
+     * Segmento 9 não existe na Resolução 65 do CNJ, e por isso serve de exemplo
+     * estável de "tribunal que não dá para consultar".
+     *
+     * Este teste usava a Justiça do Trabalho (segmento 5) como exemplo, até ela
+     * passar a ser suportada. Trocar por um segmento inexistente deixa o teste
+     * medindo o que ele sempre quis medir — recusar ANTES de ir à rede, em vez
+     * de montar um endereço chutado e receber 404 — sem precisar de conserto no
+     * dia em que a cobertura crescer de novo.
+     */
+    const numeroDeSegmentoInexistente = comDigitoValido('0001234', '2023', '9', '99', '0001');
 
-    await expect(instancia.buscarPorNumero(numeroTrabalhista)).rejects.toBeInstanceOf(
-      OperacaoNaoSuportadaError,
-    );
+    await expect(
+      instancia.buscarPorNumero(numeroDeSegmentoInexistente),
+    ).rejects.toBeInstanceOf(OperacaoNaoSuportadaError);
     expect(http.requisicoes).toHaveLength(0);
+  });
+
+  it('monta o endereço do tribunal trabalhista a partir do número', async () => {
+    const { instancia, http } = adapter(() => ok(RESPOSTA_COM_UM_PROCESSO));
+    // TRT18 (Goiás), o mesmo tribunal do número real que motivou a cobertura.
+    const trabalhista = comDigitoValido('0011242', '2021', '5', '18', '0016');
+
+    await instancia.buscarPorNumero(trabalhista).catch(() => undefined);
+
+    expect(http.requisicoes).toHaveLength(1);
+    expect(http.requisicoes[0]?.url).toContain('api_publica_trt18');
   });
 
   it('declara e cumpre a limitação de não buscar por OAB', async () => {

@@ -18,7 +18,7 @@ fonte que respondeu — e, cadastrando o acesso dele no tribunal, também as
 
 | Fonte | Custo | Cobertura | Partes/advogados | Inteiro teor | **Peças das partes** | Busca por OAB | Linha do tempo |
 |---|---|---|---|---|---|---|---|
-| API Pública DataJud (CNJ) | grátis | ~91 tribunais | ❌ não indexa | ❌ só rótulo TPU | ❌ | ❌ impossível | ✅ completa |
+| API Pública DataJud (CNJ) | grátis | 27 TJs + 6 TRFs + 24 TRTs + TST | ❌ não indexa | ❌ só rótulo TPU | ❌ | ❌ impossível | ✅ completa |
 | DJEN / Comunica API (CNJ) | grátis, sem chave | nacional | ✅ | ✅ do publicado | ❌ | ✅ | ⚠️ só o publicado |
 | **MNI 2.2.2** (Projudi/TJGO) | grátis, credencial do advogado | 1 tribunal por endpoint | ✅ | ✅ | ✅ | ❌ | ✅ |
 | Crawler próprio (e-SAJ, PJe, Projudi) | infra + manutenção | 1 tribunal por crawler | ✅ | ✅ | ⚠️ | ✅ | ✅ |
@@ -299,6 +299,13 @@ npm run build            # compila para dist/
 2. Par `J.TR` no mapa `SIGLAS_POR_SEGMENTO_TRIBUNAL` em
    `domain/entities/NumeroCNJ.ts`.
 3. Teste com um número real daquele tribunal.
+
+São esses três passos e mais nada: a chave do CNJ é a mesma para todos os
+tribunais e o endereço sai da sigla. **Confira esta lista antes de dizer que o
+produto não atende um segmento.** A Justiça do Trabalho ficou de fora por meses
+— e a resposta a um advogado trabalhista era "tribunal não suportado" — quando o
+que faltava eram 31 linhas de configuração. "O produto não atende X" às vezes é
+uma lista desatualizada se passando por limitação de arquitetura.
 
 ### Adicionar uma fonte nova
 
@@ -597,7 +604,7 @@ banco com verificação de integridade** (v0.17.0),
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 489 testes.
+multi-stage, CI, 492 testes.
 
 **Não implementado (decisão consciente do MVP):** cobrança e planos, convite de
 membros para um mesmo escritório, crawler real, **cópia de backup fora do VPS**

@@ -9,6 +9,57 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.20.0] — 2026-09-18
+
+**Justiça do Trabalho: 24 TRTs e o TST.**
+
+Verificado contra número real: `0011242-47.2021.5.18.0016`, TRT da 18ª Região.
+
+O que faltava era **só configuração**. A chave pública do CNJ é a mesma para
+todos os tribunais e o endereço de cada um é montado a partir da sigla
+(`api_publica_trt18`). Não havia credencial nova, adapter novo nem acordo com
+ninguém — havia duas listas desatualizadas: as siglas suportadas e o mapa J.TR
+do número CNJ.
+
+Durante meses a resposta a um advogado trabalhista foi "tribunal não suportado",
+e isso passou por limitação de arquitetura quando era uma lista por atualizar.
+Fica registrado no CLAUDE.md como coisa a conferir antes de dizer que o produto
+não atende um segmento.
+
+### Adicionado
+
+- `TRT1` a `TRT24` e `TST` em `TRIBUNAIS_SUPORTADOS`.
+- Mapa do segmento 5 (`5.01`…`5.24`, e `5.00` para o TST) em `NumeroCNJ`.
+
+### O que isso muda no produto
+
+Advogado trabalhista passa a ter consulta por número, acompanhamento, vigilância
+por OAB e aviso de movimentação — **sem credencial nenhuma**, porque nada disso
+depende de senha de tribunal. O que ele não tem é peça, que exige o endereço MNI
+daquele tribunal e a credencial de um advogado habilitado nos autos; hoje só o
+TJGO está montado assim.
+
+### Testes
+
+De 489 para 492. Entre eles, o número real do TRT18 e a conferência das 24
+regiões uma a uma — a numeração do CNJ é posicional, e um erro de deslocamento
+mandaria a consulta ao tribunal errado, que responderia "não encontrado",
+indistinguível de processo inexistente.
+
+Um teste **mudou de exemplo**: `recusa tribunal fora da lista suportada` usava a
+Justiça do Trabalho como caso de tribunal não atendido. Passou a usar o segmento
+9, que não existe na Resolução 65 do CNJ — assim ele mede o que sempre quis
+medir, recusar antes de ir à rede, e não precisa de conserto a cada vez que a
+cobertura crescer.
+
+### Pendente de verificação
+
+O TST (`5.00`) entrou pelo padrão, sem número real para conferir. Se o alias
+`api_publica_tst` não existir, a consulta cai no fallback e o DJEN responde —
+nada quebra, mas vale um teste com número real quando aparecer um.
+
+---
+
 ## [0.19.0] — 2026-09-18
 
 **`npm run cli -- email <destinatario>`: testar o envio sem gastar um link.**

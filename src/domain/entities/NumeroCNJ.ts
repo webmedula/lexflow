@@ -133,8 +133,8 @@ export class NumeroCNJ {
 }
 
 /**
- * Mapa parcial J.TR → sigla. Cobre os tribunais estaduais (J = 8) e os
- * federais (J = 4), que são o alvo do MVP. Ampliar conforme os adapters crescerem.
+ * Mapa J.TR → sigla: Justiça Estadual (J = 8), Federal (J = 4) e do Trabalho
+ * (J = 5). Ampliar conforme os adapters crescerem.
  */
 const SIGLAS_POR_SEGMENTO_TRIBUNAL = new Map<string, string>([
   // Justiça Estadual (J = 8)
@@ -172,4 +172,35 @@ const SIGLAS_POR_SEGMENTO_TRIBUNAL = new Map<string, string>([
   ['4.04', 'TRF4'],
   ['4.05', 'TRF5'],
   ['4.06', 'TRF6'],
+  // Justiça do Trabalho (J = 5). As 24 regiões, mais o TST em TR = 00 — no
+  // padrão do CNJ, tribunal `00` é o tribunal superior do segmento.
+  //
+  // Verificado contra número real: 0011242-47.2021.5.18.0016 (TRT18, Goiás).
+  // As demais regiões seguem o mesmo padrão J.TR, que é posicional e não
+  // comporta exceção — a região do número É o número da região.
+  ['5.01', 'TRT1'],
+  ['5.02', 'TRT2'],
+  ['5.03', 'TRT3'],
+  ['5.04', 'TRT4'],
+  ['5.05', 'TRT5'],
+  ['5.06', 'TRT6'],
+  ['5.07', 'TRT7'],
+  ['5.08', 'TRT8'],
+  ['5.09', 'TRT9'],
+  ['5.10', 'TRT10'],
+  ['5.11', 'TRT11'],
+  ['5.12', 'TRT12'],
+  ['5.13', 'TRT13'],
+  ['5.14', 'TRT14'],
+  ['5.15', 'TRT15'],
+  ['5.16', 'TRT16'],
+  ['5.17', 'TRT17'],
+  ['5.18', 'TRT18'],
+  ['5.19', 'TRT19'],
+  ['5.20', 'TRT20'],
+  ['5.21', 'TRT21'],
+  ['5.22', 'TRT22'],
+  ['5.23', 'TRT23'],
+  ['5.24', 'TRT24'],
+  ['5.00', 'TST'],
 ]);
