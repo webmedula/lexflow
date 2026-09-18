@@ -569,6 +569,13 @@ Não são detalhes — moldam o código.
   Passou por typecheck limpo, lint limpo e 486 testes verdes.
   `tests/http/console-script.spec.ts` roda o ESLint DENTRO da string e é o
   único lugar que enxerga esse código. Ao mexer no console, rode-o.
+- **Tradução de erro que chuta é pior que o erro cru.** O nodemailer usa
+  `ESOCKET` tanto para falha de TLS quanto para conexão recusada — consertos
+  opostos. A primeira versão do diagnóstico de SMTP via o código e culpava o
+  TLS, mandando quem lê mexer em `SMTP_SECURE` enquanto o problema era a porta
+  fechada. Ao traduzir erro de biblioteca: decida pela MENSAGEM e não só pelo
+  código, carregue o texto original junto SEMPRE, e quando não houver evidência
+  para o palpite, entregue o texto cru em vez de inventar uma causa.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache
@@ -604,7 +611,7 @@ banco com verificação de integridade** (v0.17.0),
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 492 testes.
+multi-stage, CI, 499 testes.
 
 **Não implementado (decisão consciente do MVP):** cobrança e planos, convite de
 membros para um mesmo escritório, crawler real, **cópia de backup fora do VPS**

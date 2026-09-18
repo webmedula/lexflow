@@ -9,6 +9,48 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.20.1] — 2026-09-18
+
+**O comando `email` agora diz POR QUE falhou, em vez de apontar para o log.**
+
+A v0.19.0 entregou um diagnóstico que, na falha, dizia "o motivo está no log
+acima" — inútil para quem está num terminal de contêiner com o log em outra aba,
+ou com `LOG_LEVEL` alto. Diagnóstico que depende de outro lugar não é
+diagnóstico.
+
+### Adicionado
+
+- `Notificador.diagnosticar()` (opcional, no mesmo espírito do `diagnosticar()`
+  do `ProcessoProvider`): abre a conexão, autentica e desliga, **sem mandar
+  mensagem**. A maioria das falhas de SMTP acontece antes de a mensagem existir
+  — porta bloqueada, senha errada, TLS na porta errada —, e tentar enviar para
+  descobrir isso mistura dois problemas.
+- O comando `email` confere a conexão antes de enviar e imprime a causa
+  provável com o campo a mexer.
+
+### Duas traduções estavam ERRADAS, e do jeito pior
+
+Encontradas testando contra falhas reais, não em revisão de código:
+
+- **`ESOCKET` era traduzido como falha de TLS.** O nodemailer usa esse mesmo
+  código para conexão recusada. Contra uma porta fechada, a mensagem mandava
+  mexer em `SMTP_SECURE` enquanto o problema era a porta — meia hora no lugar
+  errado. Agora a decisão olha a MENSAGEM (`ECONNREFUSED`, `ETIMEDOUT`,
+  `wrong version number`), não só o código.
+- **`EDNS` não estava na lista.** É o código que o nodemailer usa para nome que
+  não resolve; `ENOTFOUND` aparece só dentro do texto.
+
+A regra que fica: **tradução que chuta é pior que o erro cru**, porque o erro
+cru ao menos não desperdiça tempo. O texto original agora vai junto sempre, e o
+palpite só aparece quando há evidência para ele.
+
+### Testes
+
+De 492 para 499, incluindo os dois casos de `ESOCKET` lado a lado — o teste que
+a versão anterior teria reprovado.
+
+---
+
 ## [0.20.0] — 2026-09-18
 
 **Justiça do Trabalho: 24 TRTs e o TST.**

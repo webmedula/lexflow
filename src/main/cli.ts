@@ -248,6 +248,20 @@ async function main(): Promise<number> {
         return 2;
       }
 
+      // CONFERIR antes de ENVIAR. A maioria das falhas de SMTP acontece antes
+      // de a mensagem existir — porta bloqueada, senha errada, TLS na porta
+      // errada —, e misturar as duas etapas produz "não funcionou" sem causa.
+      if (app.notificador.diagnosticar) {
+        const d = await app.notificador.diagnosticar();
+        if (!d.ok) {
+          console.error(`Conexão com o servidor de e-mail FALHOU${d.codigo ? ` (${d.codigo})` : ''}:\n`);
+          console.error(`  ${d.motivo ?? 'motivo não informado pelo servidor'}\n`);
+          console.error('Nenhuma mensagem foi enviada.');
+          return 2;
+        }
+        console.log('conexão ...... OK (servidor aceitou usuário e senha)\n');
+      }
+
       const ok = await app.notificador.enviar({
         para: destino,
         assunto: 'Processo Vivo — teste de configuração',
@@ -260,10 +274,14 @@ async function main(): Promise<number> {
       });
 
       if (!ok) {
+        // Chegar aqui é raro e específico: a conexão e a autenticação passaram,
+        // e mesmo assim a mensagem foi recusada. Quase sempre é o remetente ou
+        // o destinatário, não a configuração de conexão.
         console.error(
-          'O envio FALHOU. O motivo está no log acima, vindo do servidor de e-mail.\n' +
-            'Causas comuns: senha errada, porta bloqueada na saída do VPS,\n' +
-            'ou SMTP_SECURE trocado (true só na porta 465; em 587 é false).',
+          'Conectou e autenticou, mas o servidor RECUSOU a mensagem.\n' +
+            'Em geral é o remetente: SMTP_FROM precisa ser um endereço que este\n' +
+            'servidor tenha autorização para enviar. O motivo exato está no log,\n' +
+            'em "falha ao enviar e-mail".',
         );
         return 2;
       }

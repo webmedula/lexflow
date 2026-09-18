@@ -23,10 +23,35 @@ export interface Mensagem {
  * a originou. Devolve `false` e registra o motivo — o dado já está salvo, o que
  * se perdeu foi o aviso.
  */
+/**
+ * O resultado de conferir o canal SEM enviar nada.
+ *
+ * `motivo` é escrito para quem está configurando o servidor, não para o
+ * assinante: nomeia a causa provável e o que mexer.
+ */
+export interface DiagnosticoNotificador {
+  readonly ok: boolean;
+  readonly motivo?: string;
+  /** Código bruto do servidor ou da biblioteca (EAUTH, ETIMEDOUT, 535…). */
+  readonly codigo?: string;
+}
+
 export interface Notificador {
   readonly nome: string;
   readonly habilitado: boolean;
   enviar(mensagem: Mensagem): Promise<boolean>;
+
+  /**
+   * Confere conexão e autenticação sem mandar mensagem. Opcional: só faz
+   * sentido em canal que tem mais de um jeito de falhar.
+   *
+   * Existe pelo mesmo motivo que `diagnosticar()` no `ProcessoProvider`:
+   * devolver só `false` obriga quem opera a adivinhar entre senha errada,
+   * porta bloqueada e servidor fora do ar — três problemas com consertos
+   * completamente diferentes. E separar CONFERIR de ENVIAR importa porque a
+   * maioria das falhas de SMTP acontece antes da mensagem existir.
+   */
+  diagnosticar?(): Promise<DiagnosticoNotificador>;
 }
 
 /**

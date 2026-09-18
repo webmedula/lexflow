@@ -1,7 +1,11 @@
 import { createTransport } from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import type { Logger } from '../../domain/ports/Logger.js';
-import type { Mensagem, Notificador } from '../../domain/ports/Notificador.js';
+import type {
+  DiagnosticoNotificador,
+  Mensagem,
+  Notificador,
+} from '../../domain/ports/Notificador.js';
 
 export interface OpcoesEmailSmtp {
   readonly host: string;
@@ -77,9 +81,92 @@ export class EmailSmtpNotificador implements Notificador {
     }
   }
 
+  /**
+   * Abre a conexão, autentica e desliga — sem mandar mensagem.
+   *
+   * A maior parte das falhas de SMTP acontece ANTES de existir mensagem:
+   * porta bloqueada na saída do VPS, senha errada, TLS na porta errada. Tentar
+   * enviar para descobrir isso mistura os dois problemas e ainda deixa dúvida
+   * sobre o destinatário ter recebido.
+   */
+  async diagnosticar(): Promise<DiagnosticoNotificador> {
+    try {
+      await this.transporte.verify();
+      return { ok: true };
+    } catch (erro) {
+      const codigo = codigoDoErro(erro);
+      return {
+        ok: false,
+        motivo: explicarFalhaSmtp(codigo, erro),
+        ...(codigo ? { codigo } : {}),
+      };
+    }
+  }
+
   /** Fecha o pool de conexões no desligamento gracioso. */
   encerrar(): void {
     this.transporte.close();
+  }
+}
+
+function codigoDoErro(erro: unknown): string | undefined {
+  if (typeof erro !== 'object' || erro === null) return undefined;
+  const c = (erro as { code?: unknown }).code;
+  const r = (erro as { responseCode?: unknown }).responseCode;
+  if (typeof c === 'string') return c;
+  if (typeof r === 'number') return String(r);
+  return undefined;
+}
+
+/**
+ * Traduz o erro do nodemailer para a causa provável e o que mexer.
+ *
+ * Duas regras aprendidas testando isto contra falhas reais:
+ *
+ * 1. **Olhe a mensagem, não só o código.** O nodemailer usa `ESOCKET` tanto
+ *    para falha de TLS quanto para conexão recusada — problemas com consertos
+ *    opostos. A primeira versão desta função via `ESOCKET` e culpava o TLS;
+ *    contra uma porta fechada, mandava quem lê mexer em `SMTP_SECURE` enquanto
+ *    o problema era a porta. Tradução que chuta é pior que o erro cru, porque
+ *    o erro cru pelo menos não desperdiça meia hora.
+ *
+ * 2. **Quando não der para distinguir, não invente.** O texto original vai
+ *    junto sempre, e o palpite só aparece quando há evidência para ele.
+ */
+function explicarFalhaSmtp(codigo: string | undefined, erro: unknown): string {
+  const bruto = erro instanceof Error ? erro.message : String(erro);
+  const texto = bruto.toLowerCase();
+
+  const contem = (...termos: string[]): boolean =>
+    termos.some((t) => texto.includes(t));
+
+  // A mensagem vem primeiro: ela carrega a causa real quando o código é
+  // ambíguo.
+  if (contem('econnrefused')) {
+    return `a conexão foi RECUSADA — há rede até o servidor, e a porta está fechada. Confira SMTP_PORT (tente 465 com SMTP_SECURE=true) e se o VPS não bloqueia a saída nessa porta. — ${bruto}`;
+  }
+  if (contem('etimedout', 'timeout', 'ehostunreach', 'enetunreach')) {
+    return `a conexão expirou sem resposta — sinal típico de porta bloqueada na SAÍDA do VPS. Muitos provedores fecham 25 e 587 contra spam; 465 costuma passar (com SMTP_SECURE=true). — ${bruto}`;
+  }
+  if (contem('enotfound', 'getaddrinfo', 'eai_again')) {
+    return `o endereço do servidor não resolve. Confira SMTP_HOST — e lembre que, se o domínio passar a apontar para o VPS, o nome do site deixa de servir como servidor de e-mail. — ${bruto}`;
+  }
+  if (contem('wrong version number', 'ssl', 'certificate', 'self-signed', 'self signed')) {
+    return `falha de TLS. Quase sempre é SMTP_SECURE trocado: true SÓ na porta 465; em 587 o TLS é negociado por STARTTLS e o valor tem que ser false. — ${bruto}`;
+  }
+
+  switch (codigo) {
+    case 'EAUTH':
+    case '535':
+    case '534':
+      return `o servidor recusou usuário e senha. Confira SMTP_USER (costuma ser o endereço completo, não só o nome antes do @) e SMTP_PASS. — ${bruto}`;
+    case 'EENVELOPE':
+    case '550':
+    case '553':
+      return `o servidor recusou o remetente ou o destinatário. SMTP_FROM precisa ser um endereço que este servidor tenha autorização para enviar. — ${bruto}`;
+    default:
+      // Sem evidência para palpite: entrega o texto original e não inventa.
+      return bruto;
   }
 }
 
