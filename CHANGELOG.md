@@ -9,6 +9,90 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.18.2] — 2026-09-18
+
+**Conserta a aba Atualizações, que quebrava com "f is not defined".**
+
+A tela inicial do console pintava o conteúdo e, logo em seguida, lançava
+`ReferenceError`. O `catch` do carregamento trocava a tela inteira por uma caixa
+de erro — por isso a barra de navegação aparecia certa e o conteúdo sumia.
+
+### Corrigido
+
+- Removido de `verNovidades()` um bloco de restauração de foco copiado da tela
+  de processos. Lá existe um `f` com o estado do filtro; aqui esse `f` nunca foi
+  declarado. Essa tela não tem campo de texto — só um chip e um select —, então
+  não há foco a restaurar e o bloco não tinha o que fazer ali.
+- O defeito entrou na v0.16.0 e só apareceu agora porque a produção pulou da
+  v0.14.0 direto para a v0.18.0.
+
+### A lacuna que o permitiu, agora fechada
+
+O console é JavaScript dentro de um `String.raw`. Isso é decisão de arquitetura,
+e boa: sem build, sem bundler, sem `node_modules` na imagem. O preço é que **nem
+o `tsc` nem o ESLint enxergam uma linha dele** — para as duas ferramentas aquilo
+é texto. O bug passou por `typecheck` limpo, `lint` limpo e 486 testes verdes.
+
+`tests/http/console-script.spec.ts` agora extrai a string e roda o ESLint dentro
+dela, com os globais de navegador, checando `no-undef`, erro de sintaxe e
+parentes próximos. Não substitui um teste de navegador, mas pega a família
+inteira de erros que este bug representa: variável não declarada, nome digitado
+errado, sintaxe quebrada. Verificado reintroduzindo o defeito — o teste aponta a
+linha e o nome da variável.
+
+### Testes
+
+De 486 para 489.
+
+---
+
+## [0.18.1] — 2026-09-18
+
+**Corrige a falha que a v0.18.0 causou em produção: banco vazio, em silêncio.**
+
+A v0.18.0 trocou o caminho padrão do banco no `Dockerfile`, de
+`/dados/lexflow.db` para `/dados/processovivo.db`. A compatibilidade que eu tinha
+escrito cobria as variáveis declaradas no painel — e não cobria o padrão da
+imagem, que é justamente de onde a instalação em produção tirava o valor.
+
+O resultado foi o pior modo de falhar que este sistema tem: o SQLite criou um
+arquivo NOVO e VAZIO, o serviço subiu saudável, o health check passou, e a
+carteira apareceu em branco — com 1,2 MB de dados intactos no arquivo ao lado,
+invisíveis. Nada produziu erro. Foi preciso consultar o banco para descobrir.
+
+### Corrigido
+
+- **`abrirBanco` recusa iniciar** quando o banco configurado não existe, ou
+  existe e está sem nenhum dado, **e** há um banco com o nome antigo na mesma
+  pasta com dados dentro. A mensagem traz os dois caminhos e as três saídas
+  possíveis, prontas para copiar.
+- A verificação acontece em **duas passagens**, e a segunda é a que importa:
+  antes de abrir, o sinal é "o arquivo não existe"; depois de abrir e criar o
+  esquema, o sinal é "o arquivo existe e está vazio". Sem a segunda, a proteção
+  valeria no primeiro deploy e ficaria calada em todos os seguintes — ou seja,
+  justamente em quem já tropeçou.
+- `PROCESSOVIVO_BANCO_NOVO=true` reconhece um banco novo proposital e desliga a
+  checagem.
+
+### A regra que fica
+
+**Entre subir vazio e não subir, não subir.** Um serviço fora do ar por dez
+minutos é um incidente comum; um serviço no ar mostrando a carteira em branco é
+o cliente achando que perdeu o trabalho dele — e essa diferença é confiança no
+produto, que não volta com um redeploy.
+
+O corolário para renomeações futuras: **valor padrão dentro da imagem é
+configuração que ninguém lembra que existe.** Renomear uma variável no painel é
+visível; mudar o `ENV` do `Dockerfile` muda o comportamento de toda instalação
+que não a declara, sem nenhum sinal.
+
+### Testes
+
+De 478 para 486. Entre eles, o segundo arranque com o arquivo vazio já criado —
+o estado exato da produção quando o problema apareceu.
+
+---
+
 ## [0.18.0] — 2026-09-17
 
 **O produto agora se chama Processo Vivo.**

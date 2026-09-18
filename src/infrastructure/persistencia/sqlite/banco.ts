@@ -1,5 +1,5 @@
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { paraBusca } from '../normalizacaoBusca.js';
 
@@ -183,8 +183,135 @@ const ESQUEMA = [
   `CREATE INDEX IF NOT EXISTS idx_sessoes_expira ON sessoes(expira_em)`,
 ];
 
+/**
+ * Tabelas cuja presença de linhas significa "este banco está em uso".
+ *
+ * As quatro que representam trabalho do assinante. `marcas` e as tabelas de
+ * sessão ficam de fora de propósito: elas se preenchem sozinhas no arranque e
+ * fariam um banco recém-criado parecer habitado.
+ */
+const TABELAS_COM_DADO_DO_ASSINANTE = [
+  'usuarios',
+  'acompanhamentos',
+  'credenciais_tribunal',
+  'vigilancias',
+];
+
+function temConteudo(db: DatabaseSync): boolean {
+  for (const tabela of TABELAS_COM_DADO_DO_ASSINANTE) {
+    try {
+      const r = db.prepare(`SELECT COUNT(*) AS n FROM ${tabela}`).get() as unknown as {
+        n: number;
+      };
+      if (Number(r.n) > 0) return true;
+    } catch {
+      // Tabela ausente é banco de versão anterior, não erro: segue para a próxima.
+    }
+  }
+  return false;
+}
+
+function arquivoDeBancoTemConteudo(caminho: string): boolean {
+  let db: DatabaseSync | undefined;
+  try {
+    db = new DatabaseSync(caminho, { readOnly: true });
+    return temConteudo(db);
+  } catch {
+    // Arquivo ilegível ou que não é banco: não é dado a resgatar.
+    return false;
+  } finally {
+    db?.close();
+  }
+}
+
+/**
+ * Nomes que o arquivo do banco já teve. Hoje só um: o produto se chamava
+ * LexFlow até a v0.18.0.
+ */
+const NOMES_ANTIGOS_DO_BANCO = ['lexflow.db'];
+
+/**
+ * Recusa subir quando o banco configurado não existe MAS o antigo está ali do lado.
+ *
+ * Isto aconteceu em produção, e o modo de falhar é o pior que existe neste
+ * sistema. A v0.18.0 renomeou o produto e, junto, o caminho padrão do banco no
+ * `Dockerfile` — de `/dados/lexflow.db` para `/dados/processovivo.db`. Quem não
+ * declarava o caminho no painel herdava o padrão da imagem: no primeiro deploy,
+ * o SQLite criou um arquivo NOVO e VAZIO, o serviço subiu saudável, o health
+ * check passou, e o assinante entrou numa carteira em branco — com os dados
+ * dele intactos no arquivo ao lado, invisíveis.
+ *
+ * Nada disso produziu um erro. Foi preciso ir ao banco para descobrir.
+ *
+ * Então a regra passa a ser: **na dúvida entre subir vazio e não subir, não
+ * subir.** Um serviço fora do ar por dez minutos é um incidente comum; um
+ * serviço no ar mostrando carteira vazia é o cliente achando que perdeu o
+ * trabalho dele — e a diferença entre as duas coisas é a confiança no produto,
+ * que não volta com um redeploy.
+ *
+ * A checagem é estreita de propósito: só dispara quando o arquivo configurado
+ * NÃO existe e um dos nomes antigos existe na mesma pasta COM conteúdo. Numa
+ * instalação nova, num volume novo, nada disso é verdade e a função é silenciosa.
+ */
+function conferirBancoAntigoAoLado(caminho: string, aberto?: DatabaseSync): void {
+  // Duas passagens, e a segunda é a que pega o caso real.
+  //
+  // ANTES de abrir, o sinal é "o arquivo configurado não existe". Isso protege
+  // o primeiro deploy depois da renomeação.
+  //
+  // DEPOIS de abrir, o sinal é "o arquivo configurado existe e está VAZIO".
+  // Protege todos os deploys seguintes — porque no primeiro o SQLite já criou o
+  // arquivo, e a partir daí ele existe. Sem esta segunda passagem a proteção
+  // valeria uma vez só e ficaria calada justamente em quem já tropeçou.
+  if (aberto ? temConteudo(aberto) : existsSync(caminho)) return;
+
+  const pasta = dirname(caminho);
+  for (const nome of NOMES_ANTIGOS_DO_BANCO) {
+    const antigo = join(pasta, nome);
+    if (antigo === caminho || !existsSync(antigo)) continue;
+    if (statSync(antigo).size === 0) continue;
+    // Um arquivo antigo também vazio não é dado a resgatar — e travar o
+    // arranque por causa dele transformaria a proteção em estorvo.
+    if (!arquivoDeBancoTemConteudo(antigo)) continue;
+
+    // O estado do arquivo configurado muda o diagnóstico, e quem lê isto está
+    // no meio de um deploy: a primeira linha precisa já dizer o que houve.
+    const estado = existsSync(caminho) ? 'existe e está sem nenhum dado' : 'não existe';
+    throw new Error(
+      [
+        `O banco configurado ${estado}, e há um banco antigo com dados na mesma pasta.`,
+        ``,
+        `  configurado:  ${caminho}   (${estado})`,
+        `  encontrado:   ${antigo}`,
+        ``,
+        `Subir assim criaria um banco VAZIO e o sistema pareceria ter perdido as`,
+        `contas, a carteira e os acessos aos tribunais — com os dados intactos no`,
+        `arquivo acima. Por isso o Processo Vivo recusa iniciar.`,
+        ``,
+        `Escolha uma saída:`,
+        ``,
+        `  1. Apontar para o arquivo que tem os dados (mais simples, sem risco):`,
+        `     PROCESSOVIVO_DB_PATH=${antigo}`,
+        ``,
+        `  2. Renomear o arquivo, com o serviço PARADO, levando -wal e -shm junto:`,
+        `     mv ${antigo} ${caminho}`,
+        `     mv ${antigo}-wal ${caminho}-wal   # se existir`,
+        `     mv ${antigo}-shm ${caminho}-shm   # se existir`,
+        ``,
+        `  3. Começar mesmo um banco novo, de propósito, ignorando o antigo:`,
+        `     PROCESSOVIVO_BANCO_NOVO=true`,
+      ].join('\n'),
+    );
+  }
+}
+
 export function abrirBanco(caminho: string): DatabaseSync {
   if (caminho !== ':memory:') {
+    // Antes do `mkdirSync`, e muito antes de abrir: depois que o SQLite toca no
+    // caminho, o arquivo vazio já existe e a checagem não teria mais o que ver.
+    if (process.env['PROCESSOVIVO_BANCO_NOVO'] !== 'true') {
+      conferirBancoAntigoAoLado(caminho);
+    }
     mkdirSync(dirname(caminho), { recursive: true });
   }
 
@@ -201,6 +328,18 @@ export function abrirBanco(caminho: string): DatabaseSync {
   for (const ddl of ESQUEMA) db.exec(ddl);
   migrarColunas(db);
   preencherPartesTexto(db);
+
+  // Segunda passagem: o esquema já existe, então dá para perguntar ao banco se
+  // ele tem alguma coisa dentro. É aqui que o caso real é pego — o arquivo
+  // vazio criado por um deploy anterior existe, e só a contagem denuncia.
+  if (caminho !== ':memory:' && process.env['PROCESSOVIVO_BANCO_NOVO'] !== 'true') {
+    try {
+      conferirBancoAntigoAoLado(caminho, db);
+    } catch (erro) {
+      db.close();
+      throw erro;
+    }
+  }
 
   return db;
 }

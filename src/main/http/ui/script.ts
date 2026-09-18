@@ -195,13 +195,12 @@ function verNovidades(){
     alvo.querySelectorAll('[data-abrir]').forEach(function(el){
       el.addEventListener('click',function(){abrir(el.getAttribute('data-abrir'))})});
 
-    /* A tela é redesenhada a cada filtro, o que apaga o foco — quem estava
-       digitando perderia o campo no meio da palavra. Devolver o cursor ao fim
-       do texto é o que faz a busca parecer instantânea em vez de truncada. */
-    if(f.__focado){
-      var fc=$(f.__focado);
-      if(fc){fc.focus();fc.setSelectionRange(fc.value.length,fc.value.length)}
-    }
+    /* Aqui NÃO há restauração de foco, e é de propósito: esta tela não tem
+       campo de texto — só um chip e um select, que não perdem digitação. O
+       bloco que fazia isso foi copiado da tela de processos, onde existe um
+       "f" com o estado do filtro; aqui esse "f" nunca existiu, e a linha
+       lançava ReferenceError DEPOIS de pintar o conteúdo, fazendo o "catch"
+       abaixo trocar a tela inteira por uma caixa de erro. */
   }).catch(function(e){alvo.innerHTML=erroBloco(e)});
 }
 

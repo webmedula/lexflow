@@ -539,6 +539,28 @@ Não são detalhes — moldam o código.
   `processovivo-` e termina em `.db`", e alcançava a cópia manual que alguém guardou
   antes de uma migração — a que mais importava. O padrão é o nome exato que o
   gerador produz, e o log registra QUAIS arquivos sumiram, não só quantos.
+- **Entre subir vazio e não subir, NÃO SUBIR.** Aconteceu em produção na
+  v0.18.0: o caminho padrão do banco mudou no `Dockerfile`, o SQLite criou um
+  arquivo novo e vazio, o serviço subiu saudável, o health check passou, e a
+  carteira apareceu em branco com os dados intactos no arquivo ao lado. Nada
+  produziu erro. `abrirBanco` agora recusa iniciar quando o banco configurado
+  está vazio e há um banco antigo com dados na mesma pasta — em DUAS passagens,
+  porque depois do primeiro deploy o arquivo vazio já existe e só a contagem de
+  linhas denuncia. Serviço fora do ar dez minutos é incidente comum; serviço no
+  ar com a carteira em branco é o cliente achando que perdeu o trabalho dele.
+- **Valor padrão dentro da imagem é configuração que ninguém lembra que
+  existe.** Renomear variável no painel é visível e o operador confere; mudar um
+  `ENV` do `Dockerfile` muda o comportamento de toda instalação que não declara
+  aquela variável, sem sinal nenhum. Ao mexer em `ENV` de caminho, credencial ou
+  porta, trate como mudança que quebra — e escreva a proteção junto.
+- **O console é JavaScript que nenhuma ferramenta lê.** `ui/script.ts` é um
+  `String.raw`: para o `tsc` e para o ESLint aquilo é texto, não código. Um
+  bloco copiado de uma tela para outra referenciou um `f` que só existia na
+  origem, e a aba inicial passou a morrer com `ReferenceError` — depois de
+  pintar o conteúdo, então o `catch` trocava a tela por uma caixa de erro.
+  Passou por typecheck limpo, lint limpo e 486 testes verdes.
+  `tests/http/console-script.spec.ts` roda o ESLint DENTRO da string e é o
+  único lugar que enxerga esse código. Ao mexer no console, rode-o.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache
@@ -574,7 +596,7 @@ banco com verificação de integridade** (v0.17.0),
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 478 testes.
+multi-stage, CI, 489 testes.
 
 **Não implementado (decisão consciente do MVP):** cobrança e planos, convite de
 membros para um mesmo escritório, crawler real, **cópia de backup fora do VPS**
