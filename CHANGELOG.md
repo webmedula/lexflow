@@ -9,6 +9,46 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.20.2] — 2026-09-18
+
+**A mesma tradução enganou de novo, um nível mais fundo.**
+
+Contra um servidor de e-mail com certificado TLS **vencido**, o diagnóstico da
+v0.20.1 respondeu "quase sempre é SMTP_SECURE trocado" — uma variável sem
+nenhuma relação com o problema. Encontrado em produção, não em teste.
+
+A v0.20.1 já tinha corrigido a versão que decidia só pelo código do erro,
+passando a olhar a mensagem. Mas casava a **palavra solta** `certificate`, e
+por isso agrupou sob "porta TLS errada" tudo que mencionasse certificado.
+Palavra solta é chute com outro nome.
+
+### Corrigido
+
+Quatro falhas de TLS que se pareciam e agora se distinguem, cada uma com o seu
+conserto:
+
+- `certificate has expired` → o certificado do servidor de e-mail está vencido;
+  renove **no servidor**, não há o que configurar aqui.
+- `self-signed` / `unable to verify` → certificado não confiável ou cadeia
+  incompleta.
+- `altnames` / `does not match certificate` → o nome do certificado não bate
+  com o `SMTP_HOST`.
+- `wrong version number` / `packet length` → aí sim é `SMTP_SECURE` trocado.
+
+### A regra, agora completa
+
+Ao traduzir erro de biblioteca: decida pela mensagem e não pelo código; case
+pela **frase**, não por palavra solta; carregue o texto original junto sempre; e
+sem evidência para o palpite, entregue o texto cru.
+
+### Testes
+
+De 499 para 502. O novo par decisivo põe `certificate has expired` e
+`wrong version number` lado a lado e exige que só o segundo mencione
+`SMTP_SECURE` — o teste que a v0.20.1 teria reprovado.
+
+---
+
 ## [0.20.1] — 2026-09-18
 
 **O comando `email` agora diz POR QUE falhou, em vez de apontar para o log.**

@@ -151,8 +151,23 @@ function explicarFalhaSmtp(codigo: string | undefined, erro: unknown): string {
   if (contem('enotfound', 'getaddrinfo', 'eai_again')) {
     return `o endereço do servidor não resolve. Confira SMTP_HOST — e lembre que, se o domínio passar a apontar para o VPS, o nome do site deixa de servir como servidor de e-mail. — ${bruto}`;
   }
-  if (contem('wrong version number', 'ssl', 'certificate', 'self-signed', 'self signed')) {
-    return `falha de TLS. Quase sempre é SMTP_SECURE trocado: true SÓ na porta 465; em 587 o TLS é negociado por STARTTLS e o valor tem que ser false. — ${bruto}`;
+  // As falhas de TLS se parecem e têm consertos completamente diferentes. A
+  // primeira versão desta função agrupava todas sob "SMTP_SECURE trocado", e
+  // contra um certificado VENCIDO no servidor de e-mail mandava mexer numa
+  // variável que não tinha relação nenhuma com o problema. Mesmo erro da
+  // versão anterior, um nível mais fundo: casar por palavra solta
+  // ("certificate") em vez da frase inteira volta a ser chute.
+  if (contem('certificate has expired', 'certexpired')) {
+    return `o certificado TLS do servidor de e-mail está VENCIDO. Não é configuração daqui: é preciso renovar o certificado no servidor (no CyberPanel, SSL > Hostname/Mail Server SSL). — ${bruto}`;
+  }
+  if (contem('self-signed', 'self signed', 'unable to verify', 'leaf signature')) {
+    return `o certificado do servidor de e-mail não é confiável — autoassinado ou com cadeia incompleta. Emita um certificado válido para o host de e-mail no servidor. — ${bruto}`;
+  }
+  if (contem('altname', 'hostname/ip does not match', 'does not match certificate')) {
+    return `o nome no certificado não corresponde ao SMTP_HOST. Use no SMTP_HOST exatamente o nome para o qual o certificado foi emitido. — ${bruto}`;
+  }
+  if (contem('wrong version number', 'packet length', 'record layer')) {
+    return `TLS na porta errada. É SMTP_SECURE trocado: true SÓ na porta 465; em 587 o TLS é negociado por STARTTLS e o valor tem que ser false. — ${bruto}`;
   }
 
   switch (codigo) {

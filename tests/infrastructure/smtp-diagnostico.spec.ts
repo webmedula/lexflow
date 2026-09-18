@@ -49,6 +49,49 @@ describe('diagnóstico do SMTP', () => {
     expect(tls.motivo).toMatch(/SMTP_SECURE/);
   });
 
+  it('separa certificado VENCIDO de porta TLS errada', async () => {
+    /*
+     * A segunda regressão desta função, e a mesma lição um nível mais fundo.
+     *
+     * A versão anterior já decidia pela mensagem em vez do código — mas casava
+     * a palavra solta "certificate", e por isso mandou quem lia mexer em
+     * SMTP_SECURE quando o servidor de e-mail estava com o certificado
+     * vencido. Casar por palavra solta é chute com outro nome; o que distingue
+     * os casos é a FRASE.
+     */
+    const vencido = await comFalha(
+      erroSmtp('ESOCKET', 'certificate has expired'),
+    ).diagnosticar();
+    const portaErrada = await comFalha(
+      erroSmtp('ESOCKET', '140B: wrong version number'),
+    ).diagnosticar();
+
+    expect(vencido.motivo).toMatch(/VENCIDO/);
+    expect(vencido.motivo).not.toMatch(/SMTP_SECURE/);
+    expect(portaErrada.motivo).toMatch(/SMTP_SECURE/);
+  });
+
+  it('reconhece certificado autoassinado e cadeia incompleta', async () => {
+    const auto = await comFalha(
+      erroSmtp('ESOCKET', 'self-signed certificate'),
+    ).diagnosticar();
+    const cadeia = await comFalha(
+      erroSmtp('ESOCKET', 'unable to verify the first certificate'),
+    ).diagnosticar();
+
+    expect(auto.motivo).toMatch(/não é confiável/);
+    expect(cadeia.motivo).toMatch(/não é confiável/);
+    expect(auto.motivo).not.toMatch(/SMTP_SECURE/);
+  });
+
+  it('reconhece nome do certificado diferente do SMTP_HOST', async () => {
+    const d = await comFalha(
+      erroSmtp('ESOCKET', "Hostname/IP does not match certificate's altnames"),
+    ).diagnosticar();
+
+    expect(d.motivo).toMatch(/não corresponde ao SMTP_HOST/);
+  });
+
   it('reconhece o EDNS que o nodemailer usa para nome que não resolve', async () => {
     // O código NÃO é ENOTFOUND, embora a mensagem traga esse texto dentro.
     const d = await comFalha(

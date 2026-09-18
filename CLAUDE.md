@@ -576,6 +576,12 @@ Não são detalhes — moldam o código.
   fechada. Ao traduzir erro de biblioteca: decida pela MENSAGEM e não só pelo
   código, carregue o texto original junto SEMPRE, e quando não houver evidência
   para o palpite, entregue o texto cru em vez de inventar uma causa.
+  **E case pela FRASE, não por palavra solta.** A correção acima passou a
+  decidir pela mensagem, mas casando `certificate` — e contra um certificado
+  VENCIDO no servidor de e-mail mandou de novo mexer em `SMTP_SECURE`. Duas
+  vezes a mesma função, o mesmo erro um nível mais fundo: palavra solta é chute
+  com outro nome. `certificate has expired`, `self-signed`, `altnames` e
+  `wrong version number` são quatro problemas com quatro consertos.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache
@@ -611,7 +617,7 @@ banco com verificação de integridade** (v0.17.0),
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 499 testes.
+multi-stage, CI, 502 testes.
 
 **Não implementado (decisão consciente do MVP):** cobrança e planos, convite de
 membros para um mesmo escritório, crawler real, **cópia de backup fora do VPS**
