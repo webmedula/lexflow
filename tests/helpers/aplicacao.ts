@@ -21,6 +21,8 @@ import { RepositorioNotificacaoSqlite } from '../../src/infrastructure/persisten
 import { RepositorioVigilanciasSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioVigilanciasSqlite.js';
 import type { Aplicacao } from '../../src/main/factories/makeProcessoSearchService.js';
 import { ServicoContas } from '../../src/application/services/ServicoContas.js';
+import { ServicoAssinaturas } from '../../src/application/services/ServicoAssinaturas.js';
+import { RepositorioAssinaturasSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioAssinaturasSqlite.js';
 import { RepositorioUsuariosSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioUsuariosSqlite.js';
 import { tokensDeSessao } from '../../src/infrastructure/seguranca/sessao.js';
 import type { HashDeSenha } from '../../src/domain/ports/Criptografia.js';
@@ -70,6 +72,17 @@ export interface OpcoesAplicacaoDeTeste {
   readonly duracaoSessaoMs?: number;
   /** Fonte de peças. Sem ela, `pecas` fica indefinida e as rotas dão 501. */
   readonly provedorDePecas?: ProvedorDePecas;
+  /**
+   * Liga a cobrança nos testes.
+   *
+   * Desligada por padrão de propósito: a esmagadora maioria dos testes
+   * verifica comportamento que não tem nada a ver com plano, e ligar cobrança
+   * em todos eles faria cada um precisar liberar uma assinatura antes de
+   * exercitar o que realmente está sob teste. Sem isto, o workspace não tem
+   * assinatura — e workspace sem assinatura passa livre, que é a regra de
+   * produção para as chaves de API.
+   */
+  readonly comAssinaturas?: boolean;
   /**
    * Liga a recuperação de senha.
    *
@@ -147,7 +160,14 @@ export function aplicacaoDeTeste(
 
   // Intervalo 0: nenhum agendador dispara sozinho durante os testes.
   const parado = (): Agendador =>
-    new Agendador({ intervaloHoras: 0, logger: loggerSilencioso, tarefa: async () => {} });
+    new Agendador({
+      intervaloHoras: 0,
+      logger: loggerSilencioso,
+      tarefa: async () => {},
+    });
+
+  const usuarios = new RepositorioUsuariosSqlite(db);
+  const repositorioAssinaturas = new RepositorioAssinaturasSqlite(db);
 
   return {
     buscarProcessoPorNumero: new BuscarProcessoPorNumero(orquestrador),
@@ -158,8 +178,18 @@ export function aplicacaoDeTeste(
     vigilancia,
     notificacao,
     pecas,
+    assinaturas: new ServicoAssinaturas({
+      repositorio: repositorioAssinaturas,
+      usuarios,
+      logger: loggerSilencioso,
+      ...(opcoes.notificador ? { notificador: opcoes.notificador } : {}),
+      ...(opcoes.agora ? { agora: opcoes.agora } : {}),
+    }),
+    usuarios,
+    repositorioAssinaturas,
     contas: new ServicoContas({
-      repositorio: new RepositorioUsuariosSqlite(db),
+      repositorio: usuarios,
+      ...(opcoes.comAssinaturas ? { assinaturas: repositorioAssinaturas } : {}),
       senhas: opcoes.senhas ?? hashDeTeste,
       tokens: tokensDeSessao,
       duracaoSessaoMs: opcoes.duracaoSessaoMs ?? 60 * 60 * 1000,

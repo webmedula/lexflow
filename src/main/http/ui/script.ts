@@ -43,7 +43,10 @@ var estado={aba:'novidades',chave:'',detalhe:null,eu:null,trilha:null,
   /* null = ainda não perguntamos ao servidor se ele consegue enviar e-mail.
      O link "esqueci minha senha" só aparece quando a resposta for true —
      oferecer e não enviar deixaria a pessoa esperando mensagem que não vem. */
-  recuperacaoDisponivel:null};
+  recuperacaoDisponivel:null,
+  /* null = ainda não carregada. Pode ficar null para sempre numa sessão por
+     chave de API, que não tem assinatura — e isso NÃO é erro. */
+  assinatura:null};
 
 /* ---------------- utilidades ---------------- */
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
@@ -130,7 +133,7 @@ function verNovidades(){
   var trib=window.__f_nv_trib||''; if(trib)q.push('tribunal='+encodeURIComponent(trib));
 
   api('/v1/novidades'+(q.length?'?'+q.join('&'):'')).then(function(r){
-    var h=blocoTrilha();
+    var h=blocoAssinatura()+blocoTrilha();
     /* O número de PROCESSOS entra no subtítulo, antes do de movimentações.
        Esta tela mostra movimentação NOVA, e processo recém-adicionado não gera
        nenhuma — a primeira sincronização é o retrato inicial. Sem este número,
@@ -1284,6 +1287,29 @@ function carregarEu(){
  * Cada passo diz o que DESTRAVA, não o que exige. "Informe sua OAB" é
  * burocracia; "para ser avisado de processo novo no seu nome" é motivo.
  */
+/* Tarja de assinatura.
+
+   Só aparece quando HÁ o que dizer: o servidor manda o campo "aviso" pronto, e
+   ele só vem perto do vencimento, na carência ou depois do bloqueio. Uma tarja
+   permanente dizendo "plano Peças, ativo" é ruído que treina a pessoa a não
+   ler o cabeçalho — e é justamente o cabeçalho onde vai aparecer, um dia, o
+   aviso que importa.
+
+   O texto vem do servidor de propósito. Montá-lo aqui duplicaria a regra de
+   status em JavaScript que nenhuma ferramenta lê, e as duas versões
+   divergiriam na primeira mudança de carência. */
+function blocoAssinatura(){
+  var a=estado.assinatura;
+  if(!a||!a.aviso)return '';
+  var grave=a.status==='vencida'||a.status==='cancelada';
+  return '<div class="cartao" style="border-left:3px solid var('+
+    (grave?'--erro':'--marco')+')">'+
+    '<div class="tt">'+esc(a.aviso)+'</div>'+
+    '<div class="cp" style="margin-top:4px">Plano '+esc(a.nomeDoPlano)+
+    (grave?' · a vigilância está parada':'')+
+    ' <button class="link" data-trilha="conta">Ver minha conta</button></div></div>';
+}
+
 function blocoTrilha(){
   var t=estado.trilha;
   if(!t||!estado.eu)return '';
@@ -1320,9 +1346,32 @@ function verConta(){
     return;
   }
   var u=estado.eu;
+
+  /* O cartão do plano é PERMANENTE aqui, ao contrário da tarja da tela
+     inicial. São perguntas diferentes: a tarja responde "preciso agir agora?"
+     e some quando não; este cartão responde "o que eu contratei mesmo?", que
+     é a pergunta que traz a pessoa até esta tela. */
+  var a=estado.assinatura;
+  var rotulos={teste:'em teste',ativa:'ativa',carencia:'vencida, em carência',
+    vencida:'vencida',cancelada:'cancelada'};
+  var cartaoPlano=a
+    ? '<div class="cartao"><h3 class="sec">Plano</h3>'+
+      '<div class="tt">'+esc(a.nomeDoPlano)+' · '+esc(rotulos[a.status]||a.status)+'</div>'+
+      '<div class="cp" style="margin-top:4px">'+
+      (a.status==='vencida'||a.status==='cancelada'
+        ? 'A vigilância dos seus processos está parada. Enquanto estiver assim, NÃO receber e-mail nosso não significa que nada aconteceu.'
+        : (a.ehTeste?'Teste até ':'Vale até ')+dt(a.venceEm))+
+      '</div>'+
+      (a.aviso?'<div class="nota" style="margin-top:8px">'+esc(a.aviso)+'</div>':'')+
+      '<div class="nota" style="margin-top:8px">Inclui: '+esc(a.recursos.join(', '))+'</div>'+
+      '<div class="nota" style="margin-top:8px">Para trocar de plano ou renovar, '+
+      'responda o e-mail de aviso ou fale com a gente.</div></div>'
+    : '';
+
   $('conteudo').innerHTML=
     '<div class="titulo-secao"><div><h2>Minha conta</h2>'+
     '<div class="sub">'+esc(u.nome)+' · '+esc(u.email)+'</div></div></div>'+
+    cartaoPlano+
 
     '<div class="cartao"><h3 class="sec">Inscrição na OAB</h3>'+
     '<div class="nota">É o que permite achar os processos no seu nome sem você '+
@@ -1507,6 +1556,14 @@ function iniciar(){
   if(saudacao)saudacao.textContent=estado.eu?estado.eu.nome.split(' ')[0]:'';
   var navConta=$('nav-conta');
   if(navConta)navConta.classList.toggle('oculto',!estado.eu);
+  /* Falha aqui não pode derrubar a tela: a assinatura é um aviso, não o
+     produto. Um erro na rota deixaria o advogado sem a carteira por causa de
+     uma tarja. */
+  api('/v1/assinatura').then(function(r){
+    estado.assinatura=r.assinatura;
+    if(estado.assinatura)render();
+  }).catch(function(){});
+
   api('/v1/facetas').then(function(f){
     estado.facetas=f;
     atualizarBolha();

@@ -87,7 +87,8 @@ src/
 ├── application/
 │   └── services/                # ProcessoSearchService, ServicoAcompanhamento,
 │                                #   ServicoVigilanciaOab, ServicoNotificacao,
-│                                #   ServicoPecas, ServicoContas
+│                                #   ServicoPecas, ServicoContas,
+│                                #   ServicoAssinaturas
 ├── infrastructure/
 │   ├── adapters/
 │   │   ├── datajud/             # adapter + mapper + schemas + aliases
@@ -180,6 +181,9 @@ interface ProcessoProvider {
 | `SessaoInvalidaError` | sessão ausente, expirada ou encerrada | 401; a pessoa entra de novo |
 | `EmailJaCadastradoError` | já existe conta com este e-mail | 409; o pedido é válido, o estado é que conflita |
 | `WorkspaceNaoResolvidoError` | requisição sem ambiente identificado | 401; só acontece com autenticação desligada |
+| `AssinaturaInativaError` | venceu e passou da carência, ou foi cancelada | 402; pagar o que já foi contratado |
+| `RecursoNaoIncluidoNoPlanoError` | está em dia, o plano não cobre | 403; trocar de plano — outra ação, outro código |
+| `PlanoDesconhecidoError` | código de plano que não existe | 400; letra trocada no comando, não bug |
 
 **A distinção que sustenta o produto:** "esse processo não existe" ≠ "não
 consegui ver esse processo". Colapsar as duas coisas faz o sistema dizer ao
@@ -249,6 +253,12 @@ npm run cli -- processo 12345674720238260100 --json
 npm run cli -- oab 234567 SP
 npm run cli -- saude
 npm run cli -- email eu@meudominio.com.br   # testa o SMTP de verdade
+
+npm run cli -- assinatura ver                            # todas, em tabela
+npm run cli -- assinatura ver ana@escritorio.com.br
+npm run cli -- assinatura liberar ana@escritorio.com.br pecas 12 --obs "Pix 22/09"
+npm run cli -- assinatura cancelar ana@escritorio.com.br
+npm run cli -- assinatura avisar            # o mesmo que o agendador roda
 
 npm test                 # suíte completa (Vitest)
 npm run test:watch       # modo watch
@@ -582,6 +592,51 @@ Não são detalhes — moldam o código.
   vezes a mesma função, o mesmo erro um nível mais fundo: palavra solta é chute
   com outro nome. `certificate has expired`, `self-signed`, `altnames` e
   `wrong version number` são quatro problemas com quatro consertos.
+- **Conseguir enviar não é conseguir entregar.** O e-mail do sistema sai por
+  provedor transacional (Resend), e não pelo servidor de e-mail próprio — mesmo
+  com o certificado perfeito, um IP de VPS sem histórico de envio cai em spam,
+  e o e-mail que MAIS precisa chegar é justamente o da recuperação de senha,
+  pedido por quem está trancado para fora. A troca no código é zero: o
+  `EmailSmtpNotificador` fala SMTP com qualquer um. Custou dois dias descobrir
+  isso porque eu tratava "a conexão falha" e "a mensagem não chega" como o
+  mesmo problema. Ao configurar: `SMTP_FROM` é OBRIGATÓRIO com provedor
+  transacional — o `SMTP_USER` ali é um nome de serviço (`resend`), não um
+  endereço, e vazio o envio morre com `EENVELOPE`.
+- **Certificado autoassinado não anuncia que é autoassinado.** O CyberPanel cai
+  nesse fallback em silêncio quando a validação ACME falha, e o sintoma chega no
+  cliente como erro de TLS genérico. Os três marcadores que identificam:
+  `subjectAltName` ausente, validade de 10 anos e emissor sem cadeia. Um
+  certificado sem SAN é recusado por qualquer cliente moderno mesmo vindo de
+  autoridade real — conferir só o CN é conferir um campo que ninguém mais usa.
+- **Cobrança não pode calar a vigilância.** A assinatura vencida entra em
+  CARÊNCIA com tudo funcionando, e cada etapa — 3 dias antes, carência,
+  bloqueio — manda um e-mail. O motivo é o mesmo que governa
+  `ServicoNotificacao`: a partir do primeiro aviso enviado, o advogado para de
+  conferir à mão e lê silêncio como "não houve nada". Parar de vigiar por
+  inadimplência e não contar transforma "você não pagou" em "você perdeu um
+  prazo porque nós paramos e não avisamos". O aviso de bloqueio diz
+  literalmente que não receber e-mail deixou de significar que nada aconteceu.
+- **Workspace SEM assinatura passa livre, de propósito.** Chave de API não tem
+  conta e nunca terá assinatura — são as integrações do próprio operador.
+  Tratar ausência como bloqueio derrubaria o n8n no dia do deploy, sem ninguém
+  ter comprado nada. Quem garante que assinante de verdade tenha assinatura é a
+  retrocarga no arranque e o teste criado junto com a conta, nunca uma negativa
+  por omissão. E **cobrança que entra sem retrocarga é bloqueio em massa**: o
+  advogado que usou o sistema ontem abre hoje e vê "sua assinatura venceu"
+  sobre a carteira que ele montou à mão.
+- **Status de assinatura é DERIVADO das datas, nunca gravado.** Status em
+  coluna precisa de alguém que o atualize, e esse alguém é sempre uma tarefa
+  agendada que pode não ter rodado — uma assinatura que venceu às 3h e só é
+  marcada às 6h são três horas em que o sistema mente. Data comparada com
+  `agora` acerta em todo instante, inclusive depois de dois dias fora do ar.
+- **Plano que não entrega não se vende.** O plano de IA existe no modelo com
+  `disponivelParaContratacao: false`, e há teste que falha se alguém ligar isso
+  antes de a análise existir. Cobrar assinatura de funcionalidade ausente, com
+  advogado, não volta como pedido de reembolso — volta como reclamação formal.
+- **Liberação de assinatura é CLI, não rota HTTP.** Uma rota exigiria um papel
+  de administrador que o sistema não tem, e inventar "administrador" como campo
+  booleano na tabela de usuários é como se constrói, sem perceber, uma escalada
+  de privilégio numa API cujo cadastro é aberto.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache
@@ -619,7 +674,22 @@ banco com verificação de integridade** (v0.17.0),
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
 multi-stage, CI, 502 testes.
 
-**Não implementado (decisão consciente do MVP):** cobrança e planos, convite de
+**Entrega de e-mail (19/09/2026):** em produção via Resend, domínio
+`processovivo.com.br` verificado com DKIM próprio (`resend._domainkey`),
+CNAMEs de retorno (`send`, `rsend`) e DMARC `p=none`. O MX e o SPF da raiz
+continuam apontando para o CyberPanel, que é onde mora a caixa
+`contato@processovivo.com.br` — enviar pelo Resend e receber no servidor
+próprio convivem sem conflito porque os registros do provedor ficam todos em
+subdomínios.
+
+**Cobrança (v0.21.0):** três planos (Acompanhamento, Peças, IA — o último
+modelado e fora de venda), teste de 14 dias no plano Peças para conta nova,
+carência de 7 dias, avisos por e-mail em três etapas e liberação manual pelo
+comando `assinatura` do CLI. Gateway de pagamento **não** entra ainda: com zero
+assinantes, o Pix com liberação à mão ensina o domínio antes de apostar num
+provedor, e o gateway depois é um adapter atrás de uma porta.
+
+**Não implementado (decisão consciente do MVP):** gateway de pagamento, convite de
 membros para um mesmo escritório, crawler real, **cópia de backup fora do VPS**
 (as cópias automáticas ficam no mesmo volume do banco — protegem contra erro de
 operação, não contra perder o volume; o procedimento manual está em DEPLOY.md),

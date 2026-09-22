@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import type { ServicoAssinaturas } from '../../../application/services/ServicoAssinaturas.js';
 import type { ServicoPecas } from '../../../application/services/ServicoPecas.js';
 import {
   OperacaoNaoSuportadaError,
@@ -26,8 +27,28 @@ const corpoCredencial = z.object({
  * lista vazia. A diferença importa: lista vazia diria ao advogado que o processo
  * dele não tem peças, quando o que falta é configuração do servidor.
  */
-export function rotasDePecas(servico: ServicoPecas | undefined): FastifyPluginAsync {
+export function rotasDePecas(
+  servico: ServicoPecas | undefined,
+  assinaturas?: ServicoAssinaturas,
+): FastifyPluginAsync {
   return async (servidor) => {
+    /**
+     * Plano primeiro, serviço depois.
+     *
+     * A ordem importa para quem lê a resposta: "seu plano não inclui peças" é
+     * acionável pelo assinante, "o servidor não está configurado" é problema
+     * nosso. Perguntando ao contrário, um advogado do plano Acompanhamento
+     * receberia 501 numa instalação sem MNI e concluiria que o produto está
+     * quebrado, quando ele simplesmente não contratou aquilo.
+     *
+     * Também é aqui, e não no serviço de peças, porque a credencial do
+     * tribunal é do assinante: cadastrar credencial sem ter o plano seria
+     * guardar a senha do Projudi de alguém que não pode usá-la.
+     */
+    async function exigirPlano(req: FastifyRequest): Promise<void> {
+      await assinaturas?.exigir(workspaceDe(req), 'pecas');
+    }
+
     function exigirServico(): ServicoPecas {
       if (!servico) {
         throw new OperacaoNaoSuportadaError(
@@ -43,6 +64,7 @@ export function rotasDePecas(servico: ServicoPecas | undefined): FastifyPluginAs
     servidor.get<{ Params: { numero: string } }>(
       '/v1/processos/:numero/pecas',
       async (req) => {
+        await exigirPlano(req);
         const pecas = await exigirServico().listarDoProcesso(
           workspaceDe(req),
           req.params.numero,
@@ -67,6 +89,7 @@ export function rotasDePecas(servico: ServicoPecas | undefined): FastifyPluginAs
     servidor.get<{ Params: { numero: string; id: string } }>(
       '/v1/processos/:numero/pecas/:id',
       async (req, resposta) => {
+        await exigirPlano(req);
         const conteudo = await exigirServico().baixarPeca(
           workspaceDe(req),
           req.params.numero,
@@ -86,6 +109,7 @@ export function rotasDePecas(servico: ServicoPecas | undefined): FastifyPluginAs
     );
 
     servidor.get('/v1/credenciais', async (req) => {
+      await exigirPlano(req);
       const lista = await exigirServico().listarCredenciais(workspaceDe(req));
       return {
         total: lista.length,
@@ -100,6 +124,7 @@ export function rotasDePecas(servico: ServicoPecas | undefined): FastifyPluginAs
     });
 
     servidor.put<{ Body: unknown }>('/v1/credenciais', async (req, resposta) => {
+      await exigirPlano(req);
       const dados = corpoCredencial.parse(req.body ?? {});
       const cadastrada = await exigirServico().cadastrarCredencial(workspaceDe(req), {
         tribunal: dados.tribunal.toUpperCase(),
@@ -118,6 +143,12 @@ export function rotasDePecas(servico: ServicoPecas | undefined): FastifyPluginAs
       };
     });
 
+    // Esta rota NÃO exige plano, e é a única do arquivo que não exige.
+    //
+    // Quem deixou de ter o plano continua com a senha do Projudi guardada aqui,
+    // cifrada, e precisa poder tirá-la. Exigir plano para apagar credencial
+    // significaria "pague para poder remover seus dados", que é indefensável —
+    // e empurraria a pessoa a pedir exclusão da conta inteira só por isso.
     servidor.delete<{ Params: { tribunal: string } }>(
       '/v1/credenciais/:tribunal',
       async (req, resposta) => {

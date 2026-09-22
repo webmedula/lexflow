@@ -245,8 +245,11 @@ Para a página não prometer o que a operação ainda não sustenta:
   (Pix ou boleto por fora, você libera a conta), o que é razoável para os
   primeiros assinantes e insustentável a partir de uns dez. Se a página tiver
   tabela de preços, ela precisa de um caminho de pagamento que funcione.
-- **E-mail em configuração.** Sem SMTP no ar, a recuperação de senha fica
-  escondida e o aviso de prazo não sai — que é o núcleo da promessa.
+- ~~E-mail em configuração.~~ **Resolvido em 19/09/2026.** A entrega sai por
+  provedor transacional (Resend), com o domínio verificado e DKIM próprio — o
+  remetente é `contato@processovivo.com.br` e a mensagem chega na caixa de
+  entrada, não no spam. Recuperação de senha e aviso de movimentação estão no
+  ar.
 - **Backup fora do VPS ainda é manual.** Não vai para a página, mas se você
   escrever "seus dados seguros", precisa estar resolvido.
 - **Termos de uso e política de privacidade** não existem ainda. Com credencial

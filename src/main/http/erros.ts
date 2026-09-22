@@ -1,5 +1,6 @@
 import { ZodError } from 'zod';
 import {
+  AssinaturaInativaError,
   CredenciaisInvalidasError,
   CredencialTribunalAusenteError,
   CredencialTribunalInvalidaError,
@@ -10,6 +11,7 @@ import {
   OperacaoNaoSuportadaError,
   ProcessoNaoEncontradoError,
   ProviderIndisponivelError,
+  RecursoNaoIncluidoNoPlanoError,
   RespostaInvalidaError,
   SessaoInvalidaError,
   TeorNaoAutorizadoError,
@@ -111,6 +113,19 @@ export function mapearErro(erro: unknown): RespostaDeErro {
   // 403: o tribunal respondeu e negou o arquivo. É a resposta certa para quem
   // não tem procuração nos autos — e não 404, que diria que a peça não existe.
   if (erro instanceof TeorNaoAutorizadoError) {
+    return { status: 403, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 402 (Payment Required) e não 403: o assinante TEM direito ao recurso, o
+  // que falta é o pagamento em dia. 403 diria "você não pode", que é a outra
+  // conversa — e é a que o erro logo abaixo trata.
+  if (erro instanceof AssinaturaInativaError) {
+    return { status: 402, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 403: está em dia e não tem direito a este recurso no plano que contratou.
+  // Não é 402 (não há nada atrasado) nem 401 (a autenticação está boa).
+  if (erro instanceof RecursoNaoIncluidoNoPlanoError) {
     return { status: 403, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 

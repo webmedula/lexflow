@@ -39,8 +39,22 @@ export interface PerfilEditavel {
  */
 export interface RepositorioUsuarios {
   criar(novo: NovoUsuario): Promise<Usuario>;
-  porEmail(email: string): Promise<{ usuario: Usuario; senha: SenhaGuardada } | undefined>;
+  porEmail(
+    email: string,
+  ): Promise<{ usuario: Usuario; senha: SenhaGuardada } | undefined>;
   porId(id: string): Promise<Usuario | undefined>;
+
+  /**
+   * A conta dona daquele ambiente.
+   *
+   * Existe para o aviso de assinatura, que precisa chegar ao e-mail de LOGIN e
+   * não ao endereço configurado para avisos de movimentação: quem desligou os
+   * avisos de processo não está pedindo para ser surpreendido por um bloqueio.
+   *
+   * Devolve `undefined` para workspace de chave de API, que não tem conta —
+   * e é justamente por isso que quem chama não pode presumir que sempre há uma.
+   */
+  porWorkspace(workspace: string): Promise<Usuario | undefined>;
   atualizarPerfil(id: string, perfil: PerfilEditavel): Promise<Usuario>;
   trocarSenha(id: string, senhaGuardada: SenhaGuardada): Promise<void>;
   registrarAcesso(id: string): Promise<void>;

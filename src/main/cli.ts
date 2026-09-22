@@ -6,7 +6,8 @@ import type { Processo } from '../domain/entities/Processo.js';
 import { MniAdapter } from '../infrastructure/adapters/mni/MniAdapter.js';
 import { HttpClient } from '../infrastructure/http/HttpClient.js';
 import type { RespostaHttpBinaria } from '../infrastructure/http/HttpClient.js';
-import { DomainError } from '../domain/errors/index.js';
+import { DomainError, PlanoDesconhecidoError } from '../domain/errors/index.js';
+import { CODIGOS_DE_PLANO, PLANOS, ehCodigoDePlano } from '../domain/entities/Plano.js';
 import { carregarConfig } from '../infrastructure/config/env.js';
 import { gerarBackup } from '../infrastructure/persistencia/backup.js';
 import { montarAplicacao } from './factories/makeProcessoSearchService.js';
@@ -33,6 +34,10 @@ Processo Vivo — consulta de processos judiciais
   npm run cli -- saude
   npm run cli -- backup [--manter 7]
   npm run cli -- email <destinatario>
+  npm run cli -- assinatura ver [email]
+  npm run cli -- assinatura liberar <email> <plano> <meses> [--obs "Pix 22/09"]
+  npm run cli -- assinatura cancelar <email> [--obs "pediu por e-mail"]
+  npm run cli -- assinatura avisar
 
 Exemplos:
   npm run cli -- processo 1234567-47.2023.8.26.0100
@@ -42,6 +47,8 @@ Exemplos:
   npm run cli -- saude
   npm run cli -- backup
   npm run cli -- email eu@meudominio.com.br
+  npm run cli -- assinatura ver
+  npm run cli -- assinatura liberar ana@escritorio.com.br pecas 12 --obs "Pix 22/09"
 
 O comando "pecas" lê a credencial do ambiente, NÃO do banco:
   MNI_ID_CONSULTANTE     CPF do advogado (só dígitos)
@@ -50,6 +57,12 @@ O comando "pecas" lê a credencial do ambiente, NÃO do banco:
 É de propósito: serve para validar o acesso antes de cadastrar ninguém, e não
 exige a chave do cofre. Use --capturar <arquivo> para gravar a resposta
 CRUA do tribunal — é dela que sai o fixture de teste que hoje falta.
+
+A liberação de assinatura é MANUAL nesta versão: você recebe o Pix e roda o
+comando. Não há rota HTTP para isso, e é deliberado — ela exigiria um papel de
+administrador que o sistema não tem, e inventar "administrador" como um campo
+na tabela de usuários é como se constrói uma escalada de privilégio numa API
+cujo cadastro é aberto.
 `;
 
 async function main(): Promise<number> {
@@ -59,6 +72,7 @@ async function main(): Promise<number> {
       json: { type: 'boolean', default: false },
       manter: { type: 'string' },
       capturar: { type: 'string' },
+      obs: { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
     },
     allowPositionals: true,
@@ -103,9 +117,17 @@ async function main(): Promise<number> {
         uf,
       });
       if (values.json) {
-        console.log(JSON.stringify(processos.map((p) => p.toJSON()), null, 2));
+        console.log(
+          JSON.stringify(
+            processos.map((p) => p.toJSON()),
+            null,
+            2,
+          ),
+        );
       } else if (processos.length === 0) {
-        console.log(`Nenhum processo encontrado para a OAB ${numero}/${uf.toUpperCase()}.`);
+        console.log(
+          `Nenhum processo encontrado para a OAB ${numero}/${uf.toUpperCase()}.`,
+        );
       } else {
         console.log(
           `${processos.length} processo(s) para a OAB ${numero}/${uf.toUpperCase()}:\n`,
@@ -151,7 +173,13 @@ async function main(): Promise<number> {
       });
 
       if (values.json) {
-        console.log(JSON.stringify(pecas.map((p) => p.toJSON()), null, 2));
+        console.log(
+          JSON.stringify(
+            pecas.map((p) => p.toJSON()),
+            null,
+            2,
+          ),
+        );
       } else if (pecas.length === 0) {
         console.log('Nenhuma peça devolvida pelo tribunal.');
       } else {
@@ -254,7 +282,9 @@ async function main(): Promise<number> {
       if (app.notificador.diagnosticar) {
         const d = await app.notificador.diagnosticar();
         if (!d.ok) {
-          console.error(`Conexão com o servidor de e-mail FALHOU${d.codigo ? ` (${d.codigo})` : ''}:\n`);
+          console.error(
+            `Conexão com o servidor de e-mail FALHOU${d.codigo ? ` (${d.codigo})` : ''}:\n`,
+          );
           console.error(`  ${d.motivo ?? 'motivo não informado pelo servidor'}\n`);
           console.error('Nenhuma mensagem foi enviada.');
           return 2;
@@ -297,6 +327,135 @@ async function main(): Promise<number> {
       }
       console.log('\nRecuperação de senha: LIGADA.');
       return 0;
+    }
+
+    case 'assinatura': {
+      const acao = args[0] ?? 'ver';
+
+      /** E-mail -> workspace. O operador conhece o e-mail, não o workspace. */
+      async function workspaceDe(email: string): Promise<string | undefined> {
+        const achado = await app.usuarios.porEmail(email.trim().toLowerCase());
+        return achado?.usuario.workspace;
+      }
+
+      if (acao === 'ver') {
+        const email = args[1];
+
+        if (!email) {
+          const todas = await app.repositorioAssinaturas.todas();
+          if (todas.length === 0) {
+            console.log('Nenhuma assinatura cadastrada.');
+            return 0;
+          }
+          const agora = new Date();
+          console.log('STATUS      PLANO           VENCE EM     WORKSPACE');
+          for (const a of todas) {
+            console.log(
+              `${a.statusEm(agora).padEnd(11)} ${a.detalhesDoPlano.nome.padEnd(15)} ` +
+                `${formatarData(a.venceEm).padEnd(12)} ${a.workspace}`,
+            );
+          }
+          return 0;
+        }
+
+        const ws = await workspaceDe(email);
+        if (!ws) {
+          console.error(`Nenhuma conta com o e-mail ${email}.`);
+          return 2;
+        }
+        const resumo = await app.assinaturas.resumo(ws);
+        if (!resumo) {
+          console.log(`${email} não tem assinatura (workspace ${ws}).`);
+          return 0;
+        }
+        console.log(`conta ......... ${email}`);
+        console.log(`workspace ..... ${ws}`);
+        console.log(
+          `plano ......... ${resumo.nomeDoPlano}${resumo.ehTeste ? ' (teste)' : ''}`,
+        );
+        console.log(`status ........ ${resumo.status}`);
+        console.log(`vence em ...... ${formatarData(new Date(resumo.venceEm))}`);
+        console.log(`recursos ...... ${resumo.recursos.join(', ')}`);
+        if (resumo.aviso) console.log(`\n${resumo.aviso}`);
+        return 0;
+      }
+
+      if (acao === 'liberar') {
+        const [, email, plano, meses] = args;
+        if (!email || !plano || !meses) {
+          console.error(
+            'Uso: assinatura liberar <email> <plano> <meses>\n' +
+              `Planos: ${CODIGOS_DE_PLANO.join(', ')}`,
+          );
+          return 1;
+        }
+        if (!ehCodigoDePlano(plano)) {
+          throw new PlanoDesconhecidoError(plano, CODIGOS_DE_PLANO);
+        }
+        const quantos = Number.parseInt(meses, 10);
+        if (!Number.isInteger(quantos) || quantos < 1 || quantos > 60) {
+          console.error('Meses precisa ser um inteiro entre 1 e 60.');
+          return 1;
+        }
+        // Aviso, e não recusa: o plano pode estar fora do catálogo público e
+        // ainda assim ser liberado a dedo para um piloto. O que não pode é
+        // acontecer sem alguém perceber.
+        if (!PLANOS[plano].disponivelParaContratacao) {
+          console.log(
+            `ATENÇÃO: o plano ${PLANOS[plano].nome} não está à venda — a ` +
+              'funcionalidade dele ainda não existe. Liberando assim mesmo.\n',
+          );
+        }
+
+        const ws = await workspaceDe(email);
+        if (!ws) {
+          console.error(`Nenhuma conta com o e-mail ${email}.`);
+          return 2;
+        }
+        const a = await app.assinaturas.liberar({
+          workspace: ws,
+          plano,
+          meses: quantos,
+          ...(values.obs ? { observacao: values.obs } : {}),
+        });
+        console.log(
+          `${email}: plano ${a.detalhesDoPlano.nome}, vence em ${formatarData(a.venceEm)}.`,
+        );
+        return 0;
+      }
+
+      if (acao === 'cancelar') {
+        const email = args[1];
+        if (!email) {
+          console.error('Uso: assinatura cancelar <email>');
+          return 1;
+        }
+        const ws = await workspaceDe(email);
+        if (!ws) {
+          console.error(`Nenhuma conta com o e-mail ${email}.`);
+          return 2;
+        }
+        const c = await app.assinaturas.cancelar(ws, values.obs);
+        if (!c) {
+          console.error(`${email} não tinha assinatura.`);
+          return 2;
+        }
+        console.log(`${email}: assinatura cancelada. Os dados continuam no sistema.`);
+        return 0;
+      }
+
+      if (acao === 'avisar') {
+        // O mesmo que o agendador roda. Existe à mão para conferir o texto do
+        // e-mail antes que ele chegue a um assinante de verdade.
+        const { avisados } = await app.assinaturas.avisarVencimentos();
+        console.log(`Avisos enviados: ${avisados}.`);
+        return 0;
+      }
+
+      console.error(
+        `Ação desconhecida: "${acao}". Use ver, liberar, cancelar ou avisar.`,
+      );
+      return 1;
     }
 
     default:
