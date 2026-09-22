@@ -106,6 +106,13 @@ export class RepositorioUsuariosSqlite implements RepositorioUsuarios {
     return linha ? paraUsuario(linha) : undefined;
   }
 
+  async porWorkspace(workspace: string): Promise<Usuario | undefined> {
+    const linha = this.db
+      .prepare('SELECT * FROM usuarios WHERE workspace = ?')
+      .get(workspace) as unknown as LinhaUsuario | undefined;
+    return linha ? paraUsuario(linha) : undefined;
+  }
+
   async atualizarPerfil(id: string, perfil: PerfilEditavel): Promise<Usuario> {
     // COALESCE: campo ausente mantém o que está lá. Sem isso, um PATCH que
     // manda só a OAB apagaria o nome da pessoa.

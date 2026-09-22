@@ -1,5 +1,8 @@
 import type { Usuario } from '../../domain/entities/Usuario.js';
 import { normalizarEmail } from '../../domain/entities/Usuario.js';
+import { assinaturaDeTeste } from '../../domain/entities/Assinatura.js';
+import { PLANO_DO_TESTE } from '../../domain/entities/Plano.js';
+import type { RepositorioAssinaturas } from '../../domain/ports/RepositorioAssinaturas.js';
 import {
   CredenciaisInvalidasError,
   SessaoInvalidaError,
@@ -24,6 +27,15 @@ export interface SessaoAberta {
 
 export interface OpcoesServicoContas {
   readonly repositorio: RepositorioUsuarios;
+  /**
+   * Onde o teste de conta nova é gravado.
+   *
+   * Opcional para que a suíte e a instalação de rede interna montem contas sem
+   * cobrança nenhuma. Ausente, o cadastro segue como sempre foi — e o serviço
+   * de assinaturas trata workspace sem assinatura como irrestrito, então nada
+   * fica pela metade.
+   */
+  readonly assinaturas?: RepositorioAssinaturas;
   readonly senhas: HashDeSenha;
   readonly tokens: TokensDeSessao;
   readonly duracaoSessaoMs: number;
@@ -74,6 +86,7 @@ const DURACAO_RECUPERACAO_MS = 60 * 60 * 1000;
  */
 export class ServicoContas {
   private readonly repositorio: RepositorioUsuarios;
+  private readonly assinaturas: RepositorioAssinaturas | undefined;
   private readonly senhas: HashDeSenha;
   private readonly tokens: TokensDeSessao;
   private readonly duracaoSessaoMs: number;
@@ -83,6 +96,7 @@ export class ServicoContas {
 
   constructor(opcoes: OpcoesServicoContas) {
     this.repositorio = opcoes.repositorio;
+    this.assinaturas = opcoes.assinaturas;
     this.senhas = opcoes.senhas;
     this.tokens = opcoes.tokens;
     this.duracaoSessaoMs = opcoes.duracaoSessaoMs;
@@ -121,6 +135,20 @@ export class ServicoContas {
       nome: dados.nome.trim() || email.split('@')[0] || 'Advogado',
       senhaGuardada,
     });
+
+    // O teste nasce JUNTO da conta, e não numa chamada separada da rota.
+    // Separar abriria a janela em que a conta existe sem assinatura nenhuma —
+    // e quem caísse nessa janela veria um sistema que aceitou o cadastro e
+    // recusa tudo em seguida, sem explicar por quê.
+    if (this.assinaturas) {
+      await this.assinaturas.salvar(
+        assinaturaDeTeste({
+          workspace: usuario.workspace,
+          plano: PLANO_DO_TESTE,
+          agora: new Date(),
+        }),
+      );
+    }
 
     return this.abrirSessao(usuario);
   }
@@ -279,18 +307,20 @@ export class ServicoContas {
     // `void` + `catch` vazio: solta o envio e volta. O `catch` não é
     // negligência — é o que impede um SMTP fora do ar de virar rejeição de
     // promessa não tratada, que em Node derruba o processo inteiro.
-    void this.notificador?.enviar({
-      para: achado.usuario.email,
-      assunto: 'Processo Vivo — redefinir sua senha',
-      texto:
-        `Olá, ${achado.usuario.primeiroNome}.\n\n` +
-        `Alguém pediu para redefinir a senha da sua conta no Processo Vivo. ` +
-        `Se foi você, abra o link abaixo nos próximos ${minutos} minutos:\n\n` +
-        `${link}\n\n` +
-        `O link vale UMA vez e expira depois desse prazo.\n\n` +
-        `Se não foi você, ignore esta mensagem: sua senha continua a mesma e ` +
-        `ninguém consegue entrar sem abrir este link.\n`,
-    })?.catch(() => {});
+    void this.notificador
+      ?.enviar({
+        para: achado.usuario.email,
+        assunto: 'Processo Vivo — redefinir sua senha',
+        texto:
+          `Olá, ${achado.usuario.primeiroNome}.\n\n` +
+          `Alguém pediu para redefinir a senha da sua conta no Processo Vivo. ` +
+          `Se foi você, abra o link abaixo nos próximos ${minutos} minutos:\n\n` +
+          `${link}\n\n` +
+          `O link vale UMA vez e expira depois desse prazo.\n\n` +
+          `Se não foi você, ignore esta mensagem: sua senha continua a mesma e ` +
+          `ninguém consegue entrar sem abrir este link.\n`,
+      })
+      ?.catch(() => {});
   }
 
   /**

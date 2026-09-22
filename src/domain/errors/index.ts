@@ -254,3 +254,68 @@ export class WorkspaceNaoResolvidoError extends DomainError {
     );
   }
 }
+
+/**
+ * O plano do assinante não inclui o recurso pedido.
+ *
+ * Distinto de "assinatura vencida" de propósito, porque as duas ações são
+ * diferentes: aqui o assinante está em dia e precisa TROCAR de plano; lá ele
+ * precisa pagar o que já contratou. Uma mensagem só para os dois casos manda
+ * metade das pessoas fazer a coisa errada.
+ *
+ * A mensagem nomeia o plano que resolve. Erro que diz "não disponível" sem
+ * dizer o que fazer é o mesmo que porta sem maçaneta.
+ */
+export class RecursoNaoIncluidoNoPlanoError extends DomainError {
+  readonly codigo = 'RECURSO_NAO_INCLUIDO_NO_PLANO';
+
+  constructor(
+    readonly recurso: string,
+    readonly planoAtual: string,
+    readonly planoQueInclui: string,
+  ) {
+    super(
+      `Seu plano (${planoAtual}) não inclui ${recurso}. ` +
+        `O plano ${planoQueInclui} inclui — fale com a gente para trocar.`,
+    );
+  }
+}
+
+/**
+ * A assinatura venceu, passou da carência ou foi cancelada.
+ *
+ * Só bloqueia o que CONSOME fonte externa e o que promete vigilância. Ler a
+ * carteira já guardada continua liberado, e isso não é generosidade: trancar
+ * alguém para fora dos próprios dados por atraso de pagamento é o tipo de
+ * coisa que vira reclamação pública e estorno, e não acelera pagamento nenhum.
+ */
+export class AssinaturaInativaError extends DomainError {
+  readonly codigo = 'ASSINATURA_INATIVA';
+
+  constructor(readonly status: string) {
+    super(
+      status === 'cancelada'
+        ? 'Esta assinatura foi cancelada. Seus dados continuam aqui — reative para voltar a consultar e a vigiar.'
+        : 'Sua assinatura venceu e o prazo de carência terminou. A vigilância está parada. ' +
+            'Seus dados continuam aqui — regularize para voltar a consultar e a vigiar.',
+    );
+  }
+}
+
+/**
+ * Código de plano que não existe.
+ *
+ * Só aparece por erro de digitação no comando de liberação ou por banco
+ * editado à mão. Vale ser um erro nomeado mesmo assim: cair como 500 faria
+ * parecer bug do sistema quando é letra trocada.
+ */
+export class PlanoDesconhecidoError extends DomainError {
+  readonly codigo = 'PLANO_DESCONHECIDO';
+
+  constructor(
+    readonly informado: string,
+    readonly conhecidos: readonly string[],
+  ) {
+    super(`Plano "${informado}" não existe. Planos: ${conhecidos.join(', ')}.`);
+  }
+}

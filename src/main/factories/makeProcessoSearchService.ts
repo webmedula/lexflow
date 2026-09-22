@@ -28,7 +28,10 @@ import {
   DataJudAdapter,
   NOME_DATAJUD,
 } from '../../infrastructure/adapters/datajud/DataJudAdapter.js';
-import { DjenAdapter, NOME_DJEN } from '../../infrastructure/adapters/djen/DjenAdapter.js';
+import {
+  DjenAdapter,
+  NOME_DJEN,
+} from '../../infrastructure/adapters/djen/DjenAdapter.js';
 import {
   MockCrawlerAdapter,
   NOME_MOCK_CRAWLER,
@@ -41,9 +44,16 @@ import { pareceValorDeExemplo } from '../../infrastructure/config/placeholder.js
 import { ConsoleLogger } from '../../infrastructure/logging/ConsoleLogger.js';
 import { gerarBackup } from '../../infrastructure/persistencia/backup.js';
 import { ServicoContas } from '../../application/services/ServicoContas.js';
+import { ServicoAssinaturas } from '../../application/services/ServicoAssinaturas.js';
+import type { RepositorioUsuarios } from '../../domain/ports/RepositorioUsuarios.js';
+import type { RepositorioAssinaturas } from '../../domain/ports/RepositorioAssinaturas.js';
+import { RepositorioAssinaturasSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioAssinaturasSqlite.js';
 import { RepositorioUsuariosSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioUsuariosSqlite.js';
 import { hashScrypt } from '../../infrastructure/seguranca/senha.js';
-import { DURACAO_SESSAO_MS, tokensDeSessao } from '../../infrastructure/seguranca/sessao.js';
+import {
+  DURACAO_SESSAO_MS,
+  tokensDeSessao,
+} from '../../infrastructure/seguranca/sessao.js';
 
 export interface Aplicacao {
   readonly buscarProcessoPorNumero: BuscarProcessoPorNumero;
@@ -60,6 +70,24 @@ export interface Aplicacao {
   readonly pecas: ServicoPecas | undefined;
   /** Contas de assinante. Cada uma nasce com o próprio `workspace`. */
   readonly contas: ServicoContas;
+  /**
+   * Planos e vigência.
+   *
+   * Sempre montado: mesmo sem nada vendido, é ele que cria o teste da conta
+   * nova e responde ao console qual plano está valendo. Workspace sem
+   * assinatura — o caso das chaves de API — passa livre por ele.
+   */
+  readonly assinaturas: ServicoAssinaturas;
+  /**
+   * Repositórios crus, para o CLI.
+   *
+   * Expostos porque a liberação manual acontece por e-mail — o operador
+   * conhece o e-mail do advogado, não o `workspace` — e porque listar todas as
+   * assinaturas é diagnóstico, não caso de uso do produto. Nenhuma rota HTTP
+   * deve tocar nestes: o que elas usam é o serviço acima.
+   */
+  readonly usuarios: RepositorioUsuarios;
+  readonly repositorioAssinaturas: RepositorioAssinaturas;
   readonly preferenciasNotificacao: RepositorioNotificacao;
   /**
    * O canal de saída cru, exposto para DIAGNÓSTICO.
@@ -162,8 +190,22 @@ export function montarAplicacao(config: Config): Aplicacao {
   // pools de conexão SMTP para o mesmo servidor.
   const notificador = construirNotificador(config, logger);
 
+  const usuarios = new RepositorioUsuariosSqlite(db);
+  const repositorioAssinaturas = new RepositorioAssinaturasSqlite(db);
+
+  // O notificador vai para cá com a MESMA regra da recuperação de senha: só o
+  // que entrega de verdade. Aviso de assinatura que só existe no log é
+  // exatamente o bloqueio silencioso que a carência foi criada para evitar.
+  const assinaturas = new ServicoAssinaturas({
+    repositorio: repositorioAssinaturas,
+    usuarios,
+    logger,
+    ...(entregaDeVerdade(config) ? { notificador } : {}),
+  });
+
   const contas = new ServicoContas({
-    repositorio: new RepositorioUsuariosSqlite(db),
+    repositorio: usuarios,
+    assinaturas: repositorioAssinaturas,
     senhas: hashScrypt,
     tokens: tokensDeSessao,
     duracaoSessaoMs: DURACAO_SESSAO_MS,
@@ -212,6 +254,21 @@ export function montarAplicacao(config: Config): Aplicacao {
       // peça a mais para manter.
       const limpas = await contas.limparSessoesExpiradas();
       if (limpas > 0) logger.debug('sessões vencidas removidas', { limpas });
+
+      // Aviso de assinatura na MESMA volta, e pelo mesmo motivo do comentário
+      // acima: um agendador separado pode morrer sozinho, e o estado resultante
+      // seria o pior de todos — a vigilância parando por assinatura vencida
+      // enquanto o aviso de que ela vai parar não sai. O silêncio continuaria
+      // parecendo tranquilidade.
+      //
+      // Falha aqui não derruba a varredura: o aviso é importante, o
+      // acompanhamento é o produto.
+      try {
+        await assinaturas.avisarVencimentos();
+      } catch (erro) {
+        logger.error('falha ao avisar vencimentos de assinatura', { erro });
+      }
+
       return r;
     },
   });
@@ -289,6 +346,9 @@ export function montarAplicacao(config: Config): Aplicacao {
     notificacao,
     pecas,
     contas,
+    assinaturas,
+    usuarios,
+    repositorioAssinaturas,
     preferenciasNotificacao,
     notificador,
     agendador,

@@ -179,6 +179,35 @@ const ESQUEMA = [
   `CREATE INDEX IF NOT EXISTS idx_recup_usuario ON recuperacoes_senha(usuario_id)`,
   `CREATE INDEX IF NOT EXISTS idx_recup_expira ON recuperacoes_senha(expira_em)`,
 
+  // Assinatura: UMA por workspace, que é a unidade de isolamento de tudo o
+  // mais. Por usuário criaria um segundo eixo, e no dia em que dois advogados
+  // dividissem o mesmo ambiente ninguém saberia qual assinatura vale.
+  //
+  // **Não existe coluna `status`, e isso é deliberado.** Status gravado precisa
+  // de alguém que o atualize, e esse alguém é sempre uma tarefa agendada que
+  // pode não ter rodado — uma assinatura que venceu às 3h e só é marcada às 6h
+  // são três horas em que o sistema mente. O status sai das datas, na entidade.
+  //
+  // `venceEm` tem índice porque a varredura de avisos pergunta exatamente por
+  // ele: "quem vence nos próximos N dias".
+  `CREATE TABLE IF NOT EXISTS assinaturas (
+     workspace        TEXT PRIMARY KEY,
+     plano            TEXT NOT NULL,
+     inicio_em        TEXT NOT NULL,
+     vence_em         TEXT NOT NULL,
+     eh_teste         INTEGER NOT NULL DEFAULT 0,
+     dias_carencia    INTEGER NOT NULL DEFAULT 0,
+     cancelada_em     TEXT,
+     observacao       TEXT,
+     -- Última etapa de aviso já enviada nesta vigência: 'vencendo', 'carencia'
+     -- ou 'bloqueada'. Existe para que o lembrete saia UMA vez por etapa: sem
+     -- ela, a varredura mandaria o mesmo e-mail a cada volta, e o assinante
+     -- aprenderia a ignorar justamente o remetente que também manda aviso de
+     -- prazo. Renovar zera — a vigência nova começa sem aviso nenhum.
+     ultimo_aviso     TEXT
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_assin_vence ON assinaturas(vence_em)`,
+
   `CREATE INDEX IF NOT EXISTS idx_sessoes_usuario ON sessoes(usuario_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sessoes_expira ON sessoes(expira_em)`,
 ];
@@ -328,6 +357,7 @@ export function abrirBanco(caminho: string): DatabaseSync {
   for (const ddl of ESQUEMA) db.exec(ddl);
   migrarColunas(db);
   preencherPartesTexto(db);
+  retrocarregarAssinaturas(db);
 
   // Segunda passagem: o esquema já existe, então dá para perguntar ao banco se
   // ele tem alguma coisa dentro. É aqui que o caso real é pego — o arquivo
@@ -416,6 +446,63 @@ function preencherPartesTexto(db: DatabaseSync): void {
     // Grava string vazia, e não NULL, para um processo que realmente não tem
     // parte: NULL o traria de volta nesta consulta a cada arranque, para
     // sempre.
-    gravar.run(nomes.length > 0 ? paraBusca(nomes.join(' | ')) : '', linha.workspace, linha.numero);
+    gravar.run(
+      nomes.length > 0 ? paraBusca(nomes.join(' | ')) : '',
+      linha.workspace,
+      linha.numero,
+    );
+  }
+}
+
+/** Quanto tempo de cortesia a retrocarga dá a quem já era assinante. */
+const DIAS_DE_CORTESIA_NA_RETROCARGA = 365;
+
+/**
+ * Toda conta que já existia ganha assinatura ativa.
+ *
+ * **É a parte com risco real desta entrega.** Cobrança que entra sem
+ * retrocarga transforma a atualização num bloqueio em massa: o advogado que
+ * usava o sistema ontem abre hoje e encontra "sua assinatura venceu" sobre uma
+ * carteira que ele montou à mão. Não há mensagem de erro que conserte essa
+ * primeira impressão, e a vigilância dele teria parado em silêncio no meio.
+ *
+ * Quem já estava aqui entrou sem cobrança existir. Cortar seria mudar o trato
+ * unilateralmente e sem aviso, então a retrocarga trata todos como assinantes
+ * pagos do plano mais completo à venda, por um ano. É generoso de propósito: o
+ * número de contas nesta situação é pequeno e conhecido, e cada uma pode ser
+ * ajustada depois com um comando. O oposto — apertar e descobrir pelo
+ * reclamante — não tem desfazer.
+ *
+ * Roda em toda subida e é idempotente: só alcança workspace SEM assinatura.
+ * Conta nova criada depois disto já nasce com o teste, pelo `ServicoContas`.
+ */
+function retrocarregarAssinaturas(db: DatabaseSync): void {
+  const pendentes = db
+    .prepare(
+      `SELECT u.workspace AS workspace
+         FROM usuarios u
+         LEFT JOIN assinaturas a ON a.workspace = u.workspace
+        WHERE a.workspace IS NULL`,
+    )
+    .all() as Array<{ workspace: string }>;
+  if (pendentes.length === 0) return;
+
+  const agora = new Date();
+  const vence = new Date(agora.getTime() + DIAS_DE_CORTESIA_NA_RETROCARGA * 86_400_000);
+  const gravar = db.prepare(
+    `INSERT INTO assinaturas
+       (workspace, plano, inicio_em, vence_em, eh_teste, dias_carencia, observacao)
+     VALUES (?, ?, ?, ?, 0, ?, ?)`,
+  );
+
+  for (const { workspace } of pendentes) {
+    gravar.run(
+      workspace,
+      'pecas',
+      agora.toISOString(),
+      vence.toISOString(),
+      7,
+      'retrocarga: conta anterior à cobrança',
+    );
   }
 }
