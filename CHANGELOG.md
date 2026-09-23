@@ -9,6 +9,51 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.23.0] — 2026-09-23
+
+Tudo aqui saiu de UM processo real com 278 peças. A v0.22.0 pôs o resumo no
+lugar certo e mostrou que o conteúdo dele não servia.
+
+### Corrigido
+
+- **"Origem não identificada" em 111 das 278 peças.** O classificador só olhava
+  o texto do rótulo, e o TJGO manda `descricao="Outros"` nos anexos — 40% da
+  lista sem origem, todas PDF, todas na data de uma petição. Agora a origem é
+  deduzida pelo atributo **`movimento`**, que diz a qual ato o documento
+  pertence: anexo e petição compartilham o número porque foram juntados no
+  mesmo ato. Não é mais um chute de texto — é uma relação que a fonte afirma.
+
+  Três regras mantêm isso honesto: só preenche o que está vazio, movimento com
+  origens conflitantes não deduz nada, e peça sem `movimento` continua
+  desconhecida. A tela diz quantas foram deduzidas, porque o que o tribunal
+  afirmou e o que o sistema concluiu não podem virar a mesma coisa.
+
+- **O resumo mostrava "Outros" quatro vezes.** As 5 mais recentes do processo
+  medido eram 1 petição e 4 documentos sem rótulo — logo abaixo da frase que
+  promete as peças das partes. O cartão passa a mostrar **as das partes**, que
+  é o que ele existe para mostrar.
+
+- **"baixar text/html"** no botão dos documentos do juízo. O rótulo tirava o
+  prefixo `application/` do mimetype, o que resolve PDF e deixa o resto falando
+  jargão. Agora sai PDF, HTML, imagem, documento ou texto.
+
+## [0.22.1] — 2026-09-23
+
+### Corrigido
+
+- **Vão em branco na busca por número.** O resumo de peças da v0.22.0 reserva
+  altura para não empurrar o texto quando a consulta ao tribunal volta — mas a
+  busca avulsa por número nunca carregou peças (só a tela de processo
+  acompanhado carrega), e o espaço reservado ficava vazio entre "Última
+  movimentação" e "Partes".
+
+  A correção não é carregar peças em toda busca: cada consulta ao MNI leva
+  dezenas de segundos e carrega a linha do tempo inteira como pedágio, então
+  quem digitasse cinco números seguidos dispararia cinco chamadas ao tribunal
+  sem ter pedido peça nenhuma. Agora a busca avulsa **oferece** — um cartão com
+  o botão "Buscar peças", que preenche o espaço e só chama o tribunal quando
+  alguém pede.
+
 ## [0.22.0] — 2026-09-23
 
 ### Corrigido

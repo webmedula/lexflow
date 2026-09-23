@@ -655,6 +655,15 @@ Não são detalhes — moldam o código.
   na tela e um botão que não se explica. E o alvo é lido no clique, nunca
   congelado na hora de ligar o evento — com a lista congelada, marcar uma caixa
   depois de desenhar manda o conjunto antigo, e o botão faz o que não disse.
+- **Anexo não tem rótulo, mas tem MOVIMENTO.** O TJGO manda
+  `descricao="Outros"` nos documentos anexos — 111 de 278 num processo real,
+  40% da lista caindo em "origem não identificada". Classificar por texto não
+  tem como resolver isso. O que resolve é o atributo `movimento`: anexo e
+  petição compartilham o número porque foram juntados no mesmo ato, e isso é
+  relação afirmada pela fonte, não semelhança de nome. `herdarOrigemPorMovimento`
+  só preenche vazio, recusa deduzir quando o mesmo movimento tem origens
+  conflitantes, e marca o resultado em `origemDeduzida` — conclusão do sistema
+  nunca se apresenta como afirmação do tribunal.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache

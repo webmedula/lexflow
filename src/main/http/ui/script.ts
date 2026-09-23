@@ -658,8 +658,9 @@ function executarBusca(){
       });
       return;
     }
-    $('res').innerHTML=processoHtml(b,null,{buscaAvulsa:true});
+    $('res').innerHTML=processoHtml(b,null,{buscaAvulsa:true})+'<div id="pecas"></div>';
     ligarBotoesDetalhe(b.numero,false);
+    oferecerPecas(b.numero);
   }).catch(function(e){
     espera(false);$('bt-buscar').disabled=false;$('bt-buscar').textContent='Consultar';
     $('res').innerHTML=erroBloco(e);
@@ -1080,6 +1081,29 @@ function ligarCredenciais(){
  * faria a tela inteira esperar pela mais lenta — e o advogado ficaria sem ver
  * as movimentações, que já estavam prontas.
  */
+/**
+ * Na busca avulsa, as peças são OFERECIDAS — não carregadas sozinhas.
+ *
+ * Carregar direto pareceria melhor e não é: cada consulta ao MNI leva dezenas
+ * de segundos, autentica no tribunal e carrega a linha do tempo inteira como
+ * pedágio. Quem digita cinco números seguidos para conferir alguma coisa
+ * dispararia cinco dessas — contra o tribunal, sem ter pedido peça nenhuma.
+ *
+ * O botão também preenche o espaço que o resumo reserva. Sem ele a tela fica
+ * com um vão em branco onde o bloco apareceria: foi o que esta função veio
+ * consertar.
+ */
+function oferecerPecas(numero){
+  var caixa=$('pecas-resumo'); if(!caixa)return;
+  caixa.innerHTML='<div class="cartao"><div class="titulo-secao" style="margin-bottom:0">'+
+    '<div><h3 class="sec" style="margin:0">Peças do processo</h3>'+
+    '<div class="sub">Petição, contestação, laudo e documentos juntados pelas '+
+    'partes — o que o diário nunca publica.</div></div>'+
+    '<button class="bt bt2" id="bt-ver-pecas">Buscar peças</button></div></div>';
+  var b=$('bt-ver-pecas');
+  if(b)b.addEventListener('click',function(){carregarPecas(numero)});
+}
+
 function carregarPecas(numero){
   var resumo=$('pecas-resumo'), caixa=$('pecas');
   if(!caixa)return;
@@ -1127,9 +1151,17 @@ function carregarPecas(numero){
           ' foram juntadas pelas partes — petições, contestações, laudos e '+
           'documentos. Essas o diário nunca publica.</div>';
       }
-      pecas.slice(0,5).forEach(function(p){rh+=linhaDePeca(p)});
-      if(pecas.length>5){
-        rh+='<div class="nota">Mostrando as 5 mais recentes de '+pecas.length+'.</div>';
+      /* O resumo mostra as das PARTES quando existem.
+
+         Medido num processo real: as 5 mais recentes do geral eram 1 petição e
+         4 "Outros" — logo abaixo da frase que promete justamente as peças das
+         partes. O cartão existe para mostrar o diferencial; preenchê-lo com o
+         que o tribunal não rotulou o transforma em ruído. */
+      var destaque=daParte.length?daParte:pecas;
+      destaque.slice(0,5).forEach(function(p){rh+=linhaDePeca(p)});
+      if(destaque.length>5){
+        rh+='<div class="nota">Mostrando as 5 mais recentes'+
+          (daParte.length?' juntadas pelas partes':'')+', de '+destaque.length+'.</div>';
       }
       rh+='</div>';
       resumo.innerHTML=rh;
@@ -1154,6 +1186,14 @@ function carregarPecas(numero){
         return (p.origem||'DESCONHECIDA')===g.chave});
       if(!doGrupo.length)return;
       h+='<div class="ano">'+g.titulo+' · '+doGrupo.length+'</div>';
+      /* Diz quantas foram DEDUZIDAS. O tribunal não rotula anexo, e o sistema
+         conclui a origem pelo ato que juntou o documento. Concluir é legítimo;
+         apresentar conclusão como se fosse o que a fonte afirmou, não. */
+      var deduzidas=doGrupo.filter(function(p){return p.origemDeduzida}).length;
+      if(deduzidas){
+        h+='<div class="nota">'+deduzidas+' destas o tribunal não rotulou — a '+
+          'origem foi deduzida do ato que as juntou.</div>';
+      }
       doGrupo.forEach(function(p){h+=linhaDePeca(p)});
     });
     h+='</div>';
@@ -1219,8 +1259,26 @@ function linhaDePeca(p){
        peças, inclusive as que baixam sem problema. Se o tribunal recusar, quem
        avisa é o 403 — com o motivo certo, embaixo do próprio botão. */
     '<button class="link" data-peca="'+esc(p.id)+'">baixar '+
-      esc((p.mimetype||'arquivo').replace('application/',''))+'</button>'+
+      esc(formatoDaPeca(p.mimetype))+'</button>'+
     '</div></div>';
+}
+
+/**
+ * O formato em uma palavra que o advogado reconhece.
+ *
+ * Antes saía o mimetype cru com "application/" removido, e nos documentos do
+ * juízo — que o TJGO manda como HTML — o botão dizia "baixar text/html". Tirar
+ * só o prefixo resolvia metade dos casos e deixava a outra metade falando
+ * jargão na cara de quem não é da área.
+ */
+function formatoDaPeca(mime){
+  var m=String(mime||'').toLowerCase();
+  if(m.indexOf('pdf')>=0)return 'PDF';
+  if(m.indexOf('html')>=0)return 'HTML';
+  if(m.indexOf('image/')===0)return 'imagem';
+  if(m.indexOf('word')>=0||m.indexOf('msword')>=0||m.indexOf('officedocument')>=0)return 'documento';
+  if(m.indexOf('text/')===0)return 'texto';
+  return 'arquivo';
 }
 
 /*

@@ -1,4 +1,5 @@
 import { NumeroCNJ } from '../../domain/entities/NumeroCNJ.js';
+import { herdarOrigemPorMovimento } from '../../domain/entities/Peca.js';
 import type { ConteudoPeca, Peca } from '../../domain/entities/Peca.js';
 import { CredencialTribunalInvalidaError } from '../../domain/errors/index.js';
 import type { Logger } from '../../domain/ports/Logger.js';
@@ -43,9 +44,12 @@ export class ServicoPecas {
   }
 
   async listarDoProcesso(workspace: string, numeroProcesso: string): Promise<Peca[]> {
-    return this.registrando(workspace, numeroProcesso, () =>
+    const pecas = await this.registrando(workspace, numeroProcesso, () =>
       this.listar.executar({ workspace, numeroProcesso }),
     );
+    // A dedução por movimento é sobre o CONJUNTO, não sobre uma peça — por isso
+    // acontece aqui e não no mapper, que monta uma de cada vez.
+    return herdarOrigemPorMovimento(pecas);
   }
 
   async baixarPeca(

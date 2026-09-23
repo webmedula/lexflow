@@ -55,6 +55,14 @@ export interface PecaProps {
    * `TeorNaoAutorizadoError`, no download, não aqui.
    */
   readonly conteudoDisponivel?: boolean;
+  /**
+   * Origem deduzida do MOVIMENTO, quando o rótulo não decide.
+   *
+   * Preenchida por `herdarOrigemPorMovimento`, nunca pelo adapter. Fica
+   * separada de propósito: o que veio do tribunal e o que o sistema deduziu
+   * não podem virar o mesmo campo, senão ninguém distingue depois.
+   */
+  readonly origemDoMovimento?: OrigemPeca;
 }
 
 /**
@@ -84,6 +92,7 @@ export class Peca {
   readonly signatarios: readonly string[];
   readonly vinculadas: readonly Peca[];
   readonly conteudoDisponivel: boolean;
+  readonly origemDoMovimento: OrigemPeca | undefined;
 
   constructor(props: PecaProps) {
     this.id = props.id;
@@ -98,6 +107,7 @@ export class Peca {
     this.signatarios = props.signatarios ?? [];
     this.vinculadas = props.vinculadas ?? [];
     this.conteudoDisponivel = props.conteudoDisponivel ?? false;
+    this.origemDoMovimento = props.origemDoMovimento;
 
     Object.freeze(this);
   }
@@ -108,7 +118,38 @@ export class Peca {
   }
 
   get origem(): OrigemPeca {
-    return classificarOrigem(this.tipoLocal, this.descricao);
+    const peloTexto = classificarOrigem(this.tipoLocal, this.descricao);
+    // O rótulo do tribunal vence sempre. A herança do movimento só preenche o
+    // vazio — ela é dedução, e dedução não sobrepõe o que a fonte afirmou.
+    if (peloTexto !== 'DESCONHECIDA') return peloTexto;
+    return this.origemDoMovimento ?? 'DESCONHECIDA';
+  }
+
+  /** Verdadeiro quando a origem veio de dedução, não do rótulo da fonte. */
+  get origemDeduzida(): boolean {
+    return (
+      classificarOrigem(this.tipoLocal, this.descricao) === 'DESCONHECIDA' &&
+      this.origemDoMovimento !== undefined
+    );
+  }
+
+  /** Cópia com a origem deduzida preenchida. A entidade é imutável. */
+  comOrigemDoMovimento(origem: OrigemPeca): Peca {
+    return new Peca({
+      id: this.id,
+      tipo: this.tipo,
+      origemDoMovimento: origem,
+      conteudoDisponivel: this.conteudoDisponivel,
+      signatarios: this.signatarios,
+      vinculadas: this.vinculadas,
+      ...(this.tipoLocal !== undefined ? { tipoLocal: this.tipoLocal } : {}),
+      ...(this.descricao !== undefined ? { descricao: this.descricao } : {}),
+      ...(this.dataHora !== undefined ? { dataHora: this.dataHora } : {}),
+      ...(this.mimetype !== undefined ? { mimetype: this.mimetype } : {}),
+      ...(this.nivelSigilo !== undefined ? { nivelSigilo: this.nivelSigilo } : {}),
+      ...(this.movimento !== undefined ? { movimento: this.movimento } : {}),
+      ...(this.hash !== undefined ? { hash: this.hash } : {}),
+    });
   }
 
   get sigilosa(): boolean {
@@ -123,6 +164,7 @@ export class Peca {
       rotulo: this.rotulo,
       descricao: this.descricao,
       origem: this.origem,
+      origemDeduzida: this.origemDeduzida,
       dataHora: this.dataHora?.toISOString(),
       mimetype: this.mimetype,
       nivelSigilo: this.nivelSigilo,
@@ -226,4 +268,51 @@ function normalizar(texto: string): string {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * Deduz a origem das peças sem rótulo útil, pelo MOVIMENTO que as juntou.
+ *
+ * **Por que isto existe.** Num processo real do TJGO, 111 das 278 peças
+ * chegaram com `descricao="Outros"` — 40% da lista caindo em "origem não
+ * identificada", todas PDF, todas na mesma data de uma petição. São os anexos
+ * das petições, e o tribunal simplesmente não rotula anexo.
+ *
+ * **Por que isto NÃO é mais um chute de texto.** O atributo `movimento` diz a
+ * qual ato o documento pertence: anexo e petição compartilham o mesmo número
+ * porque foram juntados no mesmo ato. Não se está adivinhando pelo nome — se
+ * está lendo uma relação que a fonte afirma.
+ *
+ * As três regras que mantêm isso honesto:
+ *
+ * 1. **Só preenche vazio.** Peça cujo rótulo já decide não é tocada.
+ * 2. **Movimento com origens conflitantes não deduz nada.** Se no mesmo ato há
+ *    peça de parte e peça de juízo, qualquer escolha seria invenção.
+ * 3. **Sem `movimento`, sem dedução.** Peça solta continua DESCONHECIDA, que é
+ *    a resposta honesta.
+ *
+ * E a dedução fica marcada em `origemDeduzida`, para que a tela possa dizer
+ * que aquilo foi inferido — o que a fonte afirmou e o que o sistema concluiu
+ * nunca podem virar a mesma coisa.
+ */
+export function herdarOrigemPorMovimento(pecas: readonly Peca[]): Peca[] {
+  const origensPorMovimento = new Map<number, Set<OrigemPeca>>();
+
+  for (const p of pecas) {
+    if (p.movimento === undefined) continue;
+    const origem = p.origem;
+    if (origem === 'DESCONHECIDA') continue;
+    const atual = origensPorMovimento.get(p.movimento) ?? new Set<OrigemPeca>();
+    atual.add(origem);
+    origensPorMovimento.set(p.movimento, atual);
+  }
+
+  return pecas.map((p) => {
+    if (p.movimento === undefined) return p;
+    if (p.origem !== 'DESCONHECIDA') return p;
+    const conhecidas = origensPorMovimento.get(p.movimento);
+    if (!conhecidas || conhecidas.size !== 1) return p;
+    const [unica] = [...conhecidas];
+    return unica ? p.comOrigemDoMovimento(unica) : p;
+  });
 }

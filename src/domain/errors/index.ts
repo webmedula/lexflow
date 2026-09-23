@@ -319,6 +319,7 @@ export class PlanoDesconhecidoError extends DomainError {
     super(`Plano "${informado}" não existe. Planos: ${conhecidos.join(', ')}.`);
   }
 }
+
 /**
  * O tribunal respondeu, e não liberou o conteúdo do processo.
  *
@@ -348,4 +349,3 @@ export class SemHabilitacaoNosAutosError extends DomainError {
     );
   }
 }
-
