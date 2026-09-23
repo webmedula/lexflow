@@ -111,6 +111,38 @@ export function extrairPecas(
   return lista(processo['documento']).map((d) => montarPeca(d, anexos));
 }
 
+/**
+ * O tribunal entregou a linha do tempo, ou só o cabeçalho?
+ *
+ * É a única pergunta que separa "processo sem peças" de "você não tem acesso
+ * ao conteúdo deste processo", e ela se responde pelos MOVIMENTOS — não pelos
+ * documentos.
+ *
+ * O porquê de ser pelos movimentos: `movimentos: true` é sempre pedido. Se o
+ * tribunal devolve zero, ele não está dizendo "não há" — processo nenhum tem
+ * zero movimentos —, está omitindo. Medido no TJGO: a mesma consulta devolve
+ * 3 KB e zero movimentos para quem não é representante, e 273 KB com 381
+ * movimentos para quem tem procuração. Nos dois casos, `sucesso: true`.
+ *
+ * A condição é OU, e as duas metades existem por motivos diferentes:
+ *
+ * - **movimento > 0** é o sinal principal. Nenhum processo real tem zero
+ *   movimentos, então zero com `movimentos: true` pedido é omissão, não
+ *   ausência.
+ * - **documento > 0** cobre o caso em que veio documento e não veio a linha do
+ *   tempo. Se o arquivo chegou, discutir acesso é absurdo — e sem esta metade
+ *   a regra reprovava respostas legítimas.
+ *
+ * Contar SÓ documentos não serviria: um processo recém-distribuído tem
+ * movimento e ainda não tem documento, e o sistema acusaria falta de
+ * habilitação onde não há.
+ */
+export function tribunalEntregouOConteudo(conteudo: Registro): boolean {
+  const processo = registro(conteudo['processo']);
+  if (!processo) return false;
+  return lista(processo['movimento']).length > 0 || lista(processo['documento']).length > 0;
+}
+
 /** Bytes de um documento específico, quando ele veio na resposta. */
 export function extrairConteudoDoDocumento(
   conteudo: Registro,

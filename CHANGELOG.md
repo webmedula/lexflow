@@ -9,6 +9,100 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.22.0] — 2026-09-23
+
+### Corrigido
+
+- **"Nenhuma peça" deixou de ser dito quando o caso é falta de habilitação.**
+  O MNI devolve `sucesso: true` com o cabeçalho completo e ZERO movimentos
+  quando o acesso cadastrado não consta como representante nos autos — sem
+  código de erro, sem aviso. Medido no TJGO: 3 KB para quem não é
+  representante, 273 KB com 278 documentos para quem tem procuração, mesma
+  consulta. A tela dizia "o tribunal não devolveu nenhuma peça", e o advogado
+  concluía que o processo estava vazio. Agora responde **403
+  `SEM_HABILITACAO_NOS_AUTOS`**, com a mensagem que diz o que conferir.
+- **O botão de acompanhar em lote dizia "Acompanhar todos" e acompanhava os
+  FILTRADOS.** Com um filtro ativo a tela mostrava três números — o total no
+  título, "mostrando X de Y" no aviso e o botão — e só o botão não se
+  explicava. Agora o rótulo conta: *"Acompanhar 7 selecionados"*, *"Acompanhar
+  os 12 filtrados"*, *"Acompanhar os 130"*.
+
+### Adicionado
+
+- **Resumo das peças no topo da página do processo**, logo abaixo da última
+  movimentação. Antes elas ficavam depois de até 381 andamentos: quem não
+  rolasse até o fim concluía que o sistema não tinha peças — a conclusão mais
+  cara possível, porque é o que distingue o produto. O bloco tem altura
+  reservada, para não empurrar o texto quando a consulta ao tribunal volta.
+- **As peças passam a ser ordenadas por data**, da mais recente para a mais
+  antiga. Nem o serviço nem a tela ordenavam; elas saíam na ordem do tribunal,
+  que não é cronológica.
+- **Lista completa agrupada por origem** — juntadas pelas partes primeiro, que
+  é a pergunta que traz o advogado às peças. "Origem não identificada" continua
+  visível: sumir com peça porque a heurística não decidiu é como se perde
+  prazo.
+- **Seleção por caixa na busca por OAB**, com "marcar os N visíveis", selo
+  **já acompanhando** em quem está na carteira (marcado e travado) e
+  confirmação a partir de 20 processos — acompanhar 130 significa 130 consultas
+  ao tribunal por varredura, contra a cota compartilhada do CNJ.
+
+### Notas
+
+- A linha do resultado da busca deixou de ser um `<button>` único: caixa de
+  seleção dentro de botão é HTML inválido e os cliques se atropelam. Agora são
+  duas áreas irmãs — a caixa e o corpo, que continua abrindo o processo.
+- Nenhuma variável de ambiente nova, nenhuma migração de banco.
+
+## [0.21.0] — 2026-09-22
+
+### Adicionado
+
+- **Planos e assinatura.** Três planos: **Acompanhamento** (consulta, carteira,
+  vigilância por OAB e avisos), **Peças** (tudo isso mais as peças do processo)
+  e **IA** (análise com sugestões). O de IA está modelado e **não está à venda**
+  — a funcionalidade ainda não existe, e um teste automatizado falha no dia em
+  que alguém mudar isso sem querer.
+- **Teste de 14 dias em toda conta nova**, no plano Peças. É o plano que mostra
+  o diferencial: um teste que só dá acompanhamento mostra ao advogado
+  exatamente o que o concorrente também faz.
+- **Carência de 7 dias** depois do vencimento, com tudo funcionando. Cortar a
+  vigilância no minuto do vencimento — que costuma ser cartão recusado, não
+  decisão de cancelar — faz o advogado deixar de receber aviso de prazo sem
+  saber que deixou.
+- **Avisos por e-mail** em três etapas: 3 dias antes de vencer, ao entrar em
+  carência e ao ser bloqueado. Uma vez por etapa, e a etapa só é marcada depois
+  que o envio é confirmado. O aviso de bloqueio diz, com todas as letras, que a
+  partir dali **não receber e-mail deixou de significar que nada aconteceu**.
+- `GET /v1/assinatura`: plano em vigor, status, vencimento e os planos à venda.
+- Comando `assinatura` no CLI: `ver`, `liberar`, `cancelar` e `avisar`. A
+  liberação é manual, depois do Pix — **não há rota HTTP para isso**, e é
+  deliberado: ela exigiria um papel de administrador que o sistema não tem, e
+  inventar "administrador" numa API de cadastro aberto é como se constrói uma
+  escalada de privilégio sem perceber.
+- Tarja de assinatura na tela inicial (só quando há o que dizer) e cartão
+  permanente do plano em Minha conta.
+
+### Alterado
+
+- As rotas de peças e de credenciais de tribunal passam a exigir o recurso no
+  plano: **403** com o nome do plano que resolve. Assinatura vencida devolve
+  **402**, que é outra conversa — pagar o que já foi contratado, e não trocar
+  de plano.
+- `DELETE /v1/credenciais/:tribunal` continua liberado sem plano. Exigir plano
+  para apagar credencial seria "pague para poder tirar seus dados".
+
+### Migração
+
+- **Toda conta que já existia ganha assinatura ativa no arranque**, no plano
+  Peças, por um ano, sem ser teste. Sem isso a entrega viraria um bloqueio em
+  massa: o advogado que usou o sistema ontem abriria hoje e encontraria "sua
+  assinatura venceu" sobre a carteira que ele montou à mão. A retrocarga é
+  idempotente e não toca em quem já tem assinatura.
+- **Workspace sem assinatura não é bloqueado.** É o caso das chaves de API, que
+  não têm conta e nunca terão assinatura — tratá-las como bloqueadas derrubaria
+  as integrações no dia do deploy.
+- Nenhuma variável de ambiente nova.
+
 ## [0.20.2] — 2026-09-18
 
 **A mesma tradução enganou de novo, um nível mais fundo.**

@@ -4,6 +4,7 @@ import {
   ProcessoNaoEncontradoError,
   ProviderIndisponivelError,
   RespostaInvalidaError,
+  SemHabilitacaoNosAutosError,
   TeorNaoAutorizadoError,
 } from '../../../domain/errors/index.js';
 import type { Logger } from '../../../domain/ports/Logger.js';
@@ -23,12 +24,13 @@ import {
   envelopeConsultarProcesso,
 } from './mni.envelope.js';
 import {
+  NOME_MNI,
+  XmlIlegivelError,
   abrirEnvelope,
   extrairAssinatura,
   extrairConteudoDoDocumento,
   extrairPecas,
-  NOME_MNI,
-  XmlIlegivelError,
+  tribunalEntregouOConteudo,
 } from './mni.mapper.js';
 import type { RespostaMni } from './mni.mapper.js';
 import { lerRespostaSoap, MultipartInvalidoError } from './mtom.js';
@@ -190,6 +192,16 @@ export class MniAdapter implements ProvedorDePecas {
       ACAO_CONSULTAR_PROCESSO,
       numeroProcesso,
     );
+
+    // ANTES de extrair: o tribunal entregou a linha do tempo?
+    //
+    // Zero movimentos com `movimentos: true` pedido não é "processo vazio", é
+    // negativa de acesso disfarçada de sucesso. Sem esta guarda, a lista volta
+    // vazia e a tela diz ao advogado que o processo não tem peças — quando o
+    // que houve foi o tribunal recusar o conteúdo a quem não tem procuração.
+    if (!tribunalEntregouOConteudo(resposta.conteudo)) {
+      throw new SemHabilitacaoNosAutosError(numeroProcesso);
+    }
 
     const pecas = extrairPecas(resposta.conteudo, anexos);
     this.logger.debug('peças listadas', {

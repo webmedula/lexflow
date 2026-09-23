@@ -43,7 +43,10 @@ var estado={aba:'novidades',chave:'',detalhe:null,eu:null,trilha:null,
   /* null = ainda não perguntamos ao servidor se ele consegue enviar e-mail.
      O link "esqueci minha senha" só aparece quando a resposta for true —
      oferecer e não enviar deixaria a pessoa esperando mensagem que não vem. */
-  recuperacaoDisponivel:null};
+  recuperacaoDisponivel:null,
+  /* null = ainda não carregada. Pode ficar null para sempre numa sessão por
+     chave de API, que não tem assinatura — e isso NÃO é erro. */
+  assinatura:null};
 
 /* ---------------- utilidades ---------------- */
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
@@ -130,7 +133,7 @@ function verNovidades(){
   var trib=window.__f_nv_trib||''; if(trib)q.push('tribunal='+encodeURIComponent(trib));
 
   api('/v1/novidades'+(q.length?'?'+q.join('&'):'')).then(function(r){
-    var h=blocoTrilha();
+    var h=blocoAssinatura()+blocoTrilha();
     /* O número de PROCESSOS entra no subtítulo, antes do de movimentações.
        Esta tela mostra movimentação NOVA, e processo recém-adicionado não gera
        nenhuma — a primeira sincronização é o retrato inicial. Sem este número,
@@ -440,10 +443,33 @@ function desenharBuscaOab(){
     if(p.tribunal&&tribunais.indexOf(p.tribunal)<0)tribunais.push(p.tribunal)});
   tribunais.sort();
 
+  var ja=b.jaAcompanhados||{};
+  var sel=b.sel||{};
+  /* Só conta como selecionado quem está VISÍVEL no filtro atual. Marcar 7,
+     filtrar para outra coisa e clicar acompanharia processos fora da tela —
+     exatamente o que o rótulo diria não estar fazendo. */
+  var selVisiveis=lista.filter(function(p){
+    return sel[String(p.numero)]&&!ja[String(p.numero)]});
+  var novosVisiveis=lista.filter(function(p){return !ja[String(p.numero)]});
+  var alvos=selVisiveis.length?selVisiveis:novosVisiveis;
+
+  /* O rótulo diz o NÚMERO, e é isso que resolve a ambiguidade antiga: o botão
+     dizia "Acompanhar todos" ao lado de um título com o total sem filtro, e
+     acompanhava só os filtrados. Três números na tela e o botão era o único
+     que não se explicava. */
+  var rotuloLote = selVisiveis.length
+    ? 'Acompanhar '+selVisiveis.length+' selecionado(s)'
+    : (lista.length<b.lista.length
+        ? 'Acompanhar os '+novosVisiveis.length+' filtrados'
+        : 'Acompanhar os '+novosVisiveis.length);
+
   var h='<div class="titulo-secao"><div><h2>'+b.lista.length+' processo(s)</h2>'+
     '<div class="sub">Vieram das publicações do diário oficial. Processo sem '+
     'publicação recente não aparece aqui.</div></div>'+
-    '<button class="bt bt2" id="bt-lote">Acompanhar todos</button></div>';
+    (alvos.length
+      ? '<button class="bt bt2" id="bt-lote">'+esc(rotuloLote)+'</button>'
+      : '<span class="selo nv">todos já acompanhados</span>')+
+    '</div>';
 
   h+='<div class="filtros">'+
     '<div style="flex:2 1 240px"><input id="o-txt" placeholder="Filtrar por parte, classe ou número" '+
@@ -453,6 +479,9 @@ function desenharBuscaOab(){
         return '<option'+(b.tribunal===t?' selected':'')+'>'+esc(t)+'</option>'}).join('')+
     '</select></div>'+
     ((b.texto||b.tribunal)?'<div class="compacto"><button class="chip" id="o-limpar">limpar</button></div>':'')+
+    (novosVisiveis.length?'<div class="compacto"><button class="chip" id="o-marcar">'+
+      (selVisiveis.length>=novosVisiveis.length?'desmarcar todos':'marcar os '+novosVisiveis.length+' visíveis')+
+      '</button></div>':'')+
     '</div>';
 
   /* Mostrando X de Y, sempre que houver recorte. A tela nunca mostra um
@@ -472,20 +501,69 @@ function desenharBuscaOab(){
         return '<span class="selo'+(x.polo==='ATIVO'?' nv':'')+'">'+
           esc(rotuloPolo(x.polo))+'</span> '+esc(x.nome)}).join(' · ');
       var resto=(p.partes||[]).length-4;
-      h+='<button class="item" data-num="'+esc(p.numero)+'">'+
-        '<div class="lin1"><span class="n">'+esc(p.numero)+'</span>'+
-        '<span class="selo">'+esc(p.tribunal||'—')+'</span></div>'+
-        '<div class="lin2">'+esc(titulo(p.classe)||'classe não informada')+'</div>'+
-        (partes?'<div class="lin3">'+partes+(resto>0?' · <span class="cp">+'+resto+'</span>':'')+'</div>':
-          '<div class="lin3"><span class="cp">partes não informadas nesta publicação</span></div>')+
-        (um?'<div class="lin3"><span class="cp">'+esc(um.titulo)+' · '+dt(um.data)+'</span></div>':'')+
-        '</button>';
+      /* A linha deixou de ser um <button> só.
+
+         Caixa de seleção dentro de botão é HTML inválido e os cliques se
+         atropelam — o de marcar dispara o de abrir. Agora são duas áreas
+         irmãs: a caixa, e o corpo que continua abrindo o processo. */
+      var n=String(p.numero), jaTem=!!ja[n];
+      h+='<div class="item" style="display:flex;gap:10px;align-items:flex-start">'+
+        '<label style="padding:2px 0 0;cursor:'+(jaTem?'default':'pointer')+'">'+
+          '<input type="checkbox" data-sel="'+esc(n)+'"'+
+          (jaTem?' checked disabled':(sel[n]?' checked':''))+'></label>'+
+        '<button data-num="'+esc(p.numero)+'" style="flex:1;text-align:left;'+
+          'background:none;border:0;padding:0;cursor:pointer;color:inherit;font:inherit">'+
+          '<div class="lin1"><span class="n">'+esc(p.numero)+'</span>'+
+          '<span class="selo">'+esc(p.tribunal||'—')+'</span>'+
+          (jaTem?'<span class="selo nv">já acompanhando</span>':'')+'</div>'+
+          '<div class="lin2">'+esc(titulo(p.classe)||'classe não informada')+'</div>'+
+          (partes?'<div class="lin3">'+partes+(resto>0?' · <span class="cp">+'+resto+'</span>':'')+'</div>':
+            '<div class="lin3"><span class="cp">partes não informadas nesta publicação</span></div>')+
+          (um?'<div class="lin3"><span class="cp">'+esc(um.titulo)+' · '+dt(um.data)+'</span></div>':'')+
+        '</button></div>';
     });
   }
 
   alvo.innerHTML=h;
 
-  ligarAcompanharLote(lista.map(function(p){return p.numero}));
+  /* O lote lê os alvos NA HORA DO CLIQUE, e não no momento da ligação. Com a
+     lista congelada na ligação, marcar uma caixa depois de desenhar mandaria
+     para o servidor o conjunto antigo — o botão diria um número e faria
+     outro. */
+  ligarAcompanharLote(function(){
+    var s=estado.buscaOab.sel||{}, j=estado.buscaOab.jaAcompanhados||{};
+    var marcados=lista.filter(function(p){
+      return s[String(p.numero)]&&!j[String(p.numero)]});
+    var fonte=marcados.length?marcados:lista.filter(function(p){
+      return !j[String(p.numero)]});
+    return fonte.map(function(p){return p.numero});
+  });
+
+  alvo.querySelectorAll('[data-sel]').forEach(function(el){
+    el.addEventListener('change',function(){
+      var n=el.getAttribute('data-sel');
+      if(el.checked)estado.buscaOab.sel[n]=true; else delete estado.buscaOab.sel[n];
+      /* Só o rótulo é repintado. Redesenhar a lista inteira a cada clique
+         jogaria a rolagem para o topo, e numa carteira de 130 processos isso
+         inviabiliza marcar mais de um. */
+      atualizarRotuloLote(lista);
+    });
+  });
+
+  var mk=$('o-marcar');
+  if(mk)mk.addEventListener('click',function(){
+    var j=estado.buscaOab.jaAcompanhados||{};
+    var novos=lista.filter(function(p){return !j[String(p.numero)]});
+    var marcadosAgora=novos.filter(function(p){
+      return estado.buscaOab.sel[String(p.numero)]}).length;
+    var ligar=marcadosAgora<novos.length;
+    novos.forEach(function(p){
+      var n=String(p.numero);
+      if(ligar)estado.buscaOab.sel[n]=true; else delete estado.buscaOab.sel[n];
+    });
+    desenharBuscaOab();
+  });
+
   var t;
   $('o-txt').addEventListener('input',function(){
     var v=this.value;clearTimeout(t);
@@ -561,8 +639,23 @@ function executarBusca(){
          recarregamento — foi assim que um filtro esquecido fez a carteira
          parecer ter um processo em vez de três. Aqui ele nasce com a busca e
          morre com ela. */
-      estado.buscaOab={lista:l,texto:'',tribunal:''};
+      /* "sel" nasce com a busca e morre com ela, pelo mesmo motivo do filtro:
+         seleção que sobrevive à troca de aba faz o advogado acompanhar o que
+         marcou em outra consulta, sem ver o que está marcando. */
+      estado.buscaOab={lista:l,texto:'',tribunal:'',sel:{},jaAcompanhados:null};
       desenharBuscaOab();
+
+      /* Quem já está na carteira precisa aparecer marcado e travado. Sem isso
+         o advogado marca 7, clica, e o resultado diz "4 acompanhados" porque 3
+         já estavam lá — e ele não entende a conta. Falha aqui não quebra a
+         tela: na pior hipótese nenhum aparece como já acompanhado. */
+      api('/v1/acompanhamentos').then(function(r){
+        var m={};
+        (r.acompanhamentos||[]).forEach(function(a){m[String(a.numero)]=true});
+        if(estado.buscaOab){estado.buscaOab.jaAcompanhados=m;desenharBuscaOab()}
+      }).catch(function(){
+        if(estado.buscaOab){estado.buscaOab.jaAcompanhados={};desenharBuscaOab()}
+      });
       return;
     }
     $('res').innerHTML=processoHtml(b,null,{buscaAvulsa:true});
@@ -585,15 +678,41 @@ function executarBusca(){
  * própria varredura. Devagar e mostrando o progresso é melhor do que rápido e
  * pela metade.
  */
-function ligarAcompanharLote(numeros){
+function ligarAcompanharLote(alvosAgora){
   var bt=$('bt-lote'); if(!bt)return;
   bt.addEventListener('click',function(){
+    var numeros=alvosAgora();
+    if(!numeros.length)return;
+
+    /* Confirmação a partir de 20.
+
+       Acompanhar 130 processos não é só uma linha no banco: a próxima
+       varredura vai consultar os 130 no tribunal, com a pausa configurada
+       entre eles, contra a cota compartilhada do CNJ. Não é proibitivo, e
+       merece um aviso — somos convidados no servidor alheio. */
+    if(numeros.length>=20&&!window.confirm(
+      'Acompanhar '+numeros.length+' processos?\n\n'+
+      'Cada um passa a ser consultado no tribunal a cada varredura. '+
+      'Você pode deixar de acompanhar depois, um a um.')){
+      return;
+    }
+
     bt.disabled=true;
     var ok=0,falhou=0,i=0;
     function passo(){
       if(i>=numeros.length){
         bt.innerHTML=ok+' acompanhado(s)'+(falhou?' · '+falhou+' falhou(ram)':'');
-        carregarFacetas();return;
+        carregarFacetas();
+        /* Redesenha para que os recém-acompanhados apareçam travados, com o
+           selo. Sem isto o advogado reclica e o contador diz zero, sem
+           explicar por quê. */
+        if(estado.buscaOab){
+          if(!estado.buscaOab.jaAcompanhados)estado.buscaOab.jaAcompanhados={};
+          numeros.forEach(function(n){estado.buscaOab.jaAcompanhados[String(n)]=true});
+          estado.buscaOab.sel={};
+          setTimeout(desenharBuscaOab,1200);
+        }
+        return;
       }
       bt.innerHTML='<span class="gira"></span>'+(i+1)+'/'+numeros.length;
       api('/v1/acompanhamentos',{method:'POST',body:{numero:numeros[i]}})
@@ -602,6 +721,25 @@ function ligarAcompanharLote(numeros){
     }
     passo();
   });
+}
+
+/**
+ * Repinta só o rótulo do botão de lote.
+ *
+ * Existe porque marcar uma caixa não pode redesenhar a lista: numa carteira de
+ * 130 processos, a rolagem voltaria ao topo a cada clique e seria impossível
+ * marcar o segundo.
+ */
+function atualizarRotuloLote(lista){
+  var bt=$('bt-lote'); if(!bt||!estado.buscaOab)return;
+  var s=estado.buscaOab.sel||{}, j=estado.buscaOab.jaAcompanhados||{};
+  var marcados=lista.filter(function(p){
+    return s[String(p.numero)]&&!j[String(p.numero)]}).length;
+  var novos=lista.filter(function(p){return !j[String(p.numero)]}).length;
+  var filtrado=lista.length<estado.buscaOab.lista.length;
+  bt.textContent = marcados
+    ? 'Acompanhar '+marcados+' selecionado(s)'
+    : (filtrado?'Acompanhar os '+novos+' filtrados':'Acompanhar os '+novos);
 }
 
 /* ---------------- detalhe ---------------- */
@@ -727,6 +865,16 @@ function processoHtml(p,acomp,op){
         'rel="noopener noreferrer">abrir no tribunal</a>':'')+'.</div>':'')+
       '</div>';
   }
+
+  // 2b. Resumo das peças — o diferencial do produto, ACIMA das partes e muito
+  //     acima da linha do tempo. Antes ele ficava no fim da página, depois de
+  //     até 381 andamentos: o advogado que não rolasse até lá concluía que o
+  //     sistema não tinha peças, que é a conclusão mais cara possível.
+  //
+  //     A altura mínima é reservada de propósito. A consulta ao MNI leva
+  //     dezenas de segundos, e um bloco que cresce no meio da página empurra o
+  //     texto que está sendo lido.
+  h+='<div id="pecas-resumo" style="min-height:96px"></div>';
 
   // 3. Partes: quem está do outro lado importa mais que a data de distribuição.
   h+='<div class="cartao"><h3 class="sec">Partes</h3>';
@@ -933,50 +1081,104 @@ function ligarCredenciais(){
  * as movimentações, que já estavam prontas.
  */
 function carregarPecas(numero){
-  var caixa=$('pecas');
+  var resumo=$('pecas-resumo'), caixa=$('pecas');
   if(!caixa)return;
-  caixa.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+
+  var carregando='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
     '<div class="nota"><span class="gira"></span>Consultando o tribunal…</div></div>';
+  if(resumo)resumo.innerHTML=carregando;
+  caixa.innerHTML='';
 
   api('/v1/processos/'+encodeURIComponent(numero)+'/pecas').then(function(r){
-    var pecas=r.pecas||[];
-    var h='<div class="cartao"><h3 class="sec">Peças do processo · '+pecas.length+'</h3>';
+    var pecas=(r.pecas||[]).slice();
 
     if(!pecas.length){
-      h+='<div class="nota">O tribunal não devolveu nenhuma peça para este processo.</div></div>';
-      caixa.innerHTML=h;return;
+      var nada='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+        '<div class="nota">O tribunal respondeu e não há nenhuma peça juntada '+
+        'neste processo até agora.</div></div>';
+      if(resumo)resumo.innerHTML=nada;
+      return;
     }
 
-    var daParte=pecas.filter(function(p){return p.origem==='PARTE'}).length;
-    if(daParte){
-      h+='<div class="nota">'+daParte+' de '+pecas.length+
-        ' foram juntadas pelas partes — petições, contestações, laudos e documentos. '+
-        'Essas o diário nunca publica.</div>';
+    /* Ordena da mais recente para a mais antiga.
+
+       O serviço não ordena e o tribunal devolve na ordem dele — que não é
+       cronológica. Sem isto, "as 5 mais recentes" do resumo seriam 5
+       quaisquer, e o advogado tiraria conclusão sobre o processo a partir de
+       uma amostra arbitrária. Peça sem data vai para o fim, nunca sumindo. */
+    pecas.sort(function(a,b){
+      var x=a.dataHora?Date.parse(a.dataHora):NaN, y=b.dataHora?Date.parse(b.dataHora):NaN;
+      if(isNaN(x)&&isNaN(y))return 0;
+      if(isNaN(x))return 1;
+      if(isNaN(y))return -1;
+      return y-x;
+    });
+
+    var daParte=pecas.filter(function(p){return p.origem==='PARTE'});
+
+    /* ---- resumo, no topo ---- */
+    if(resumo){
+      var rh='<div class="cartao"><div class="titulo-secao" style="margin-bottom:6px">'+
+        '<h3 class="sec" style="margin:0">Peças do processo · '+pecas.length+'</h3>'+
+        (pecas.length>5?'<button class="bt bt2" id="pecas-todas">Ver todas</button>':'')+
+        '</div>';
+      if(daParte.length){
+        rh+='<div class="nota">'+daParte.length+' de '+pecas.length+
+          ' foram juntadas pelas partes — petições, contestações, laudos e '+
+          'documentos. Essas o diário nunca publica.</div>';
+      }
+      pecas.slice(0,5).forEach(function(p){rh+=linhaDePeca(p)});
+      if(pecas.length>5){
+        rh+='<div class="nota">Mostrando as 5 mais recentes de '+pecas.length+'.</div>';
+      }
+      rh+='</div>';
+      resumo.innerHTML=rh;
+      var vt=$('pecas-todas');
+      if(vt)vt.addEventListener('click',function(){
+        caixa.scrollIntoView({behavior:'smooth',block:'start'})});
     }
 
-    pecas.forEach(function(p){
-      var origem = p.origem==='PARTE' ? '<span class="selo nv">da parte</span>'
-                 : p.origem==='JUIZO' ? '<span class="selo">do juízo</span>' : '';
-      h+='<div class="ev"><div class="dt">'+dt(p.dataHora)+'</div><div>'+
-        '<div class="tt">'+esc(p.rotulo)+' '+origem+
-        (p.sigilosa?' <span class="selo al">sigilosa</span>':'')+'</div>'+
-        (p.descricao&&p.descricao!==p.rotulo?'<div class="cp">'+esc(p.descricao)+'</div>':'')+
-        (p.signatarios&&p.signatarios.length?'<div class="cp">assinada por '+
-          esc(p.signatarios.join(', '))+'</div>':'')+
-        // Botão SEMPRE, e não só quando conteudoDisponivel. A listagem do MNI
-        // nunca traz o teor, então aquela condição escondia o download de todas
-        // as peças, inclusive as que baixam sem problema. Se o tribunal recusar,
-        // quem avisa é o 403 — com o motivo certo, embaixo do próprio botão.
-        '<button class="link" data-peca="'+esc(p.id)+'">baixar '+
-          esc((p.mimetype||'arquivo').replace('application/',''))+'</button>'+
-        '</div></div>';
+    /* ---- lista completa, no fim, agrupada por origem ---- */
+    /* A pergunta que traz o advogado às peças quase sempre é "o que a outra
+       parte alegou" — então esse grupo vem primeiro. DESCONHECIDA continua
+       visível: sumir com peça porque a heurística de origem não decidiu é
+       exatamente como se perde prazo. */
+    var grupos=[
+      {chave:'PARTE',titulo:'Juntadas pelas partes'},
+      {chave:'JUIZO',titulo:'Do juízo'},
+      {chave:'DESCONHECIDA',titulo:'Origem não identificada'}
+    ];
+    var h='<div class="cartao"><h3 class="sec">Todas as peças · '+pecas.length+'</h3>';
+    grupos.forEach(function(g){
+      var doGrupo=pecas.filter(function(p){
+        return (p.origem||'DESCONHECIDA')===g.chave});
+      if(!doGrupo.length)return;
+      h+='<div class="ano">'+g.titulo+' · '+doGrupo.length+'</div>';
+      doGrupo.forEach(function(p){h+=linhaDePeca(p)});
     });
     h+='</div>';
     caixa.innerHTML=h;
+
     ligarDownloadDePecas(numero);
   }).catch(function(e){
+    var alvo=resumo||caixa;
+
+    /* Negativa de acesso NÃO é "processo sem peças".
+
+       O tribunal responde sucesso com o cabeçalho e sem a linha do tempo
+       quando o acesso cadastrado não consta nos autos. Dizer "nenhuma peça"
+       aqui faria o advogado concluir que o processo está vazio. */
+    if(e.codigo==='SEM_HABILITACAO_NOS_AUTOS'){
+      alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+        '<div class="nota">'+esc(e.message)+'</div>'+
+        '<div style="margin-top:12px"><button class="bt bt2" id="ir-cred">Conferir meus acessos</button></div></div>';
+      var b0=$('ir-cred');
+      if(b0)b0.addEventListener('click',function(){ir('credenciais')});
+      return;
+    }
+
     if(e.status===428){
-      caixa.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+      alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
         '<div class="nota">Petições, contestações e documentos juntados pelas partes não são '+
         'publicados no diário — só saem do sistema do tribunal, para quem está habilitado nos autos.</div>'+
         '<div style="margin-top:12px"><button class="bt" id="ir-cred">Cadastrar o acesso do advogado</button></div></div>';
@@ -984,14 +1186,41 @@ function carregarPecas(numero){
       if(b)b.addEventListener('click',function(){ir('credenciais')});
       return;
     }
+
+    if(e.status===403){
+      alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+        '<div class="nota">'+esc(e.message)+'</div></div>';
+      return;
+    }
+
     if(e.status===501){
-      caixa.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+      alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
         '<div class="nota">O acesso a peças não está configurado neste servidor.</div></div>';
       return;
     }
-    caixa.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+
+    alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
       '<div class="nota" style="color:var(--erro)">'+esc(explicar(e))+'</div></div>';
   });
+}
+
+/** Uma linha de peça. Mesma forma no resumo e na lista completa. */
+function linhaDePeca(p){
+  var origem = p.origem==='PARTE' ? '<span class="selo nv">da parte</span>'
+             : p.origem==='JUIZO' ? '<span class="selo">do juízo</span>' : '';
+  return '<div class="ev"><div class="dt">'+dt(p.dataHora)+'</div><div>'+
+    '<div class="tt">'+esc(p.rotulo)+' '+origem+
+    (p.sigilosa?' <span class="selo al">sigilosa</span>':'')+'</div>'+
+    (p.descricao&&p.descricao!==p.rotulo?'<div class="cp">'+esc(p.descricao)+'</div>':'')+
+    (p.signatarios&&p.signatarios.length?'<div class="cp">assinada por '+
+      esc(p.signatarios.join(', '))+'</div>':'')+
+    /* Botão SEMPRE, e não só quando conteudoDisponivel. A listagem do MNI
+       nunca traz o teor, então aquela condição escondia o download de todas as
+       peças, inclusive as que baixam sem problema. Se o tribunal recusar, quem
+       avisa é o 403 — com o motivo certo, embaixo do próprio botão. */
+    '<button class="link" data-peca="'+esc(p.id)+'">baixar '+
+      esc((p.mimetype||'arquivo').replace('application/',''))+'</button>'+
+    '</div></div>';
 }
 
 /*
@@ -1284,6 +1513,29 @@ function carregarEu(){
  * Cada passo diz o que DESTRAVA, não o que exige. "Informe sua OAB" é
  * burocracia; "para ser avisado de processo novo no seu nome" é motivo.
  */
+/* Tarja de assinatura.
+
+   Só aparece quando HÁ o que dizer: o servidor manda o campo "aviso" pronto, e
+   ele só vem perto do vencimento, na carência ou depois do bloqueio. Uma tarja
+   permanente dizendo "plano Peças, ativo" é ruído que treina a pessoa a não
+   ler o cabeçalho — e é justamente o cabeçalho onde vai aparecer, um dia, o
+   aviso que importa.
+
+   O texto vem do servidor de propósito. Montá-lo aqui duplicaria a regra de
+   status em JavaScript que nenhuma ferramenta lê, e as duas versões
+   divergiriam na primeira mudança de carência. */
+function blocoAssinatura(){
+  var a=estado.assinatura;
+  if(!a||!a.aviso)return '';
+  var grave=a.status==='vencida'||a.status==='cancelada';
+  return '<div class="cartao" style="border-left:3px solid var('+
+    (grave?'--erro':'--marco')+')">'+
+    '<div class="tt">'+esc(a.aviso)+'</div>'+
+    '<div class="cp" style="margin-top:4px">Plano '+esc(a.nomeDoPlano)+
+    (grave?' · a vigilância está parada':'')+
+    ' <button class="link" data-trilha="conta">Ver minha conta</button></div></div>';
+}
+
 function blocoTrilha(){
   var t=estado.trilha;
   if(!t||!estado.eu)return '';
@@ -1320,9 +1572,32 @@ function verConta(){
     return;
   }
   var u=estado.eu;
+
+  /* O cartão do plano é PERMANENTE aqui, ao contrário da tarja da tela
+     inicial. São perguntas diferentes: a tarja responde "preciso agir agora?"
+     e some quando não; este cartão responde "o que eu contratei mesmo?", que
+     é a pergunta que traz a pessoa até esta tela. */
+  var a=estado.assinatura;
+  var rotulos={teste:'em teste',ativa:'ativa',carencia:'vencida, em carência',
+    vencida:'vencida',cancelada:'cancelada'};
+  var cartaoPlano=a
+    ? '<div class="cartao"><h3 class="sec">Plano</h3>'+
+      '<div class="tt">'+esc(a.nomeDoPlano)+' · '+esc(rotulos[a.status]||a.status)+'</div>'+
+      '<div class="cp" style="margin-top:4px">'+
+      (a.status==='vencida'||a.status==='cancelada'
+        ? 'A vigilância dos seus processos está parada. Enquanto estiver assim, NÃO receber e-mail nosso não significa que nada aconteceu.'
+        : (a.ehTeste?'Teste até ':'Vale até ')+dt(a.venceEm))+
+      '</div>'+
+      (a.aviso?'<div class="nota" style="margin-top:8px">'+esc(a.aviso)+'</div>':'')+
+      '<div class="nota" style="margin-top:8px">Inclui: '+esc(a.recursos.join(', '))+'</div>'+
+      '<div class="nota" style="margin-top:8px">Para trocar de plano ou renovar, '+
+      'responda o e-mail de aviso ou fale com a gente.</div></div>'
+    : '';
+
   $('conteudo').innerHTML=
     '<div class="titulo-secao"><div><h2>Minha conta</h2>'+
     '<div class="sub">'+esc(u.nome)+' · '+esc(u.email)+'</div></div></div>'+
+    cartaoPlano+
 
     '<div class="cartao"><h3 class="sec">Inscrição na OAB</h3>'+
     '<div class="nota">É o que permite achar os processos no seu nome sem você '+
@@ -1507,6 +1782,14 @@ function iniciar(){
   if(saudacao)saudacao.textContent=estado.eu?estado.eu.nome.split(' ')[0]:'';
   var navConta=$('nav-conta');
   if(navConta)navConta.classList.toggle('oculto',!estado.eu);
+  /* Falha aqui não pode derrubar a tela: a assinatura é um aviso, não o
+     produto. Um erro na rota deixaria o advogado sem a carteira por causa de
+     uma tarja. */
+  api('/v1/assinatura').then(function(r){
+    estado.assinatura=r.assinatura;
+    if(estado.assinatura)render();
+  }).catch(function(){});
+
   api('/v1/facetas').then(function(f){
     estado.facetas=f;
     atualizarBolha();

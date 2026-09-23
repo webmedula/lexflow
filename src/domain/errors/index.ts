@@ -254,3 +254,98 @@ export class WorkspaceNaoResolvidoError extends DomainError {
     );
   }
 }
+
+/**
+ * O plano do assinante não inclui o recurso pedido.
+ *
+ * Distinto de "assinatura vencida" de propósito, porque as duas ações são
+ * diferentes: aqui o assinante está em dia e precisa TROCAR de plano; lá ele
+ * precisa pagar o que já contratou. Uma mensagem só para os dois casos manda
+ * metade das pessoas fazer a coisa errada.
+ *
+ * A mensagem nomeia o plano que resolve. Erro que diz "não disponível" sem
+ * dizer o que fazer é o mesmo que porta sem maçaneta.
+ */
+export class RecursoNaoIncluidoNoPlanoError extends DomainError {
+  readonly codigo = 'RECURSO_NAO_INCLUIDO_NO_PLANO';
+
+  constructor(
+    readonly recurso: string,
+    readonly planoAtual: string,
+    readonly planoQueInclui: string,
+  ) {
+    super(
+      `Seu plano (${planoAtual}) não inclui ${recurso}. ` +
+        `O plano ${planoQueInclui} inclui — fale com a gente para trocar.`,
+    );
+  }
+}
+
+/**
+ * A assinatura venceu, passou da carência ou foi cancelada.
+ *
+ * Só bloqueia o que CONSOME fonte externa e o que promete vigilância. Ler a
+ * carteira já guardada continua liberado, e isso não é generosidade: trancar
+ * alguém para fora dos próprios dados por atraso de pagamento é o tipo de
+ * coisa que vira reclamação pública e estorno, e não acelera pagamento nenhum.
+ */
+export class AssinaturaInativaError extends DomainError {
+  readonly codigo = 'ASSINATURA_INATIVA';
+
+  constructor(readonly status: string) {
+    super(
+      status === 'cancelada'
+        ? 'Esta assinatura foi cancelada. Seus dados continuam aqui — reative para voltar a consultar e a vigiar.'
+        : 'Sua assinatura venceu e o prazo de carência terminou. A vigilância está parada. ' +
+            'Seus dados continuam aqui — regularize para voltar a consultar e a vigiar.',
+    );
+  }
+}
+
+/**
+ * Código de plano que não existe.
+ *
+ * Só aparece por erro de digitação no comando de liberação ou por banco
+ * editado à mão. Vale ser um erro nomeado mesmo assim: cair como 500 faria
+ * parecer bug do sistema quando é letra trocada.
+ */
+export class PlanoDesconhecidoError extends DomainError {
+  readonly codigo = 'PLANO_DESCONHECIDO';
+
+  constructor(
+    readonly informado: string,
+    readonly conhecidos: readonly string[],
+  ) {
+    super(`Plano "${informado}" não existe. Planos: ${conhecidos.join(', ')}.`);
+  }
+}
+
+/**
+ * O tribunal respondeu, e não liberou o conteúdo do processo.
+ *
+ * **Distinto de "processo sem peças", e a diferença é a razão de esta classe
+ * existir.** O MNI devolve `sucesso: true` com o cabeçalho completo — partes,
+ * vara, valor da causa — e NENHUM movimento quando o consultante não está
+ * habilitado nos autos. Sem aviso, sem código de erro, sem mensagem.
+ *
+ * Medido no TJGO em 09/2026: 3 KB, `nivelSigilo="0"`, zero `<movimento>`, zero
+ * `<documento>`. O mesmo processo, para quem tem procuração, devolve 273 KB
+ * com 278 documentos.
+ *
+ * Tratar isso como "nenhuma peça" diz ao advogado que o processo está vazio,
+ * quando o que houve foi negativa de acesso. É a mesma confusão que o projeto
+ * já proíbe entre "esse processo não existe" e "não consegui ver esse
+ * processo" — aqui aplicada ao conteúdo em vez de ao processo.
+ */
+export class SemHabilitacaoNosAutosError extends DomainError {
+  readonly codigo = 'SEM_HABILITACAO_NOS_AUTOS';
+
+  constructor(readonly numeroProcesso: string) {
+    super(
+      'O tribunal devolveu apenas os dados públicos deste processo, sem a ' +
+        'movimentação e sem os documentos. Isso acontece quando o acesso ' +
+        'cadastrado não consta como representante nos autos. Confira se a ' +
+        'credencial é do advogado que tem procuração neste processo.',
+    );
+  }
+}
