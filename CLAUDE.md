@@ -706,6 +706,35 @@ Não são detalhes — moldam o código.
   só preenche vazio, recusa deduzir quando o mesmo movimento tem origens
   conflitantes, e marca o resultado em `origemDeduzida` — conclusão do sistema
   nunca se apresenta como afirmação do tribunal.
+- **Coluna nova SEM retrocarga precisa dizer por quê, no código.** A regra de
+  retrocarregar vale para coluna DERIVADA de dado já guardado: sem ela, o filtro
+  novo enxerga só o sincronizado depois da atualização e fica calado sobre o
+  resto. `cliente` é a exceção e o comentário está junto da migração — o
+  tribunal entrega as partes sem dizer qual delas o consultante representa, e
+  deduzir pela OAB poria o nome do ADVERSÁRIO na coluna "Cliente". Vazio ali é a
+  verdade, não esquecimento. Há teste que fixa a ausência, para ninguém
+  "consertar" depois.
+- **Selo que o sistema não consegue sustentar não se põe na tela.** A referência
+  que originou a carteira em tabela trazia "Audiência" e "Trânsito em julgado", e
+  os dois exigiriam ler código da TPU que nunca apareceu numa resposta real
+  deste projeto. Selo errado na tela de um advogado é pior que coluna nenhuma:
+  ele não confere o que o sistema afirmou com convicção. Os quatro que existem
+  (`estadoDaPasta`) saem de dado que temos, e cada um carrega o `motivo` que o
+  produziu.
+- **O aviso de "não verificado" nunca disputa lugar com o estado da pasta.** São
+  duas informações que coexistem — o que fazer hoje e por que não confiar no
+  silêncio — e um selo só teria de escolher qual esconder. Por isso
+  `EstadoDaPasta` tem `rotulo` e `naoVerificado` separados, e a tabela desenha os
+  dois. Mesma raiz da regra do `ServicoNotificacao`.
+- **Janela nas heurísticas que marcam pendência.** "Pede providência" olha os
+  últimos 30 dias (`DIAS_DE_PENDENCIA`). Sem janela, um "intime-se" de 2019
+  deixaria a pasta marcada para sempre, toda linha da carteira antiga ficaria
+  vermelha, e o selo passaria a ser ignorado justamente quando estiver certo.
+  Não é cálculo de prazo e não se apresenta como tal.
+- **Encerramento se decide pelo ato MAIS RECENTE, nunca pelo histórico.**
+  Processo arquivado e depois desarquivado tem os dois atos nos autos; procurar
+  "existe arquivamento" marcaria como encerrada a pasta que voltou a correr — e
+  o advogado deixaria de olhar justamente essa.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache
@@ -741,7 +770,7 @@ banco com verificação de integridade** (v0.17.0),
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 588 testes.
+multi-stage, CI, 606 testes.
 
 **Entrega de e-mail (19/09/2026):** em produção via Resend, domínio
 `processovivo.com.br` verificado com DKIM próprio (`resend._domainkey`),
@@ -750,6 +779,14 @@ continuam apontando para o CyberPanel, que é onde mora a caixa
 `contato@processovivo.com.br` — enviar pelo Resend e receber no servidor
 próprio convivem sem conflito porque os registros do provedor ficam todos em
 subdomínios.
+
+**Casca e carteira (v0.25.0):** barra lateral fixa com contagem, conteúdo até
+1100px, e a carteira em tabela com rótulo de cliente editável na linha, filtro
+por cliente e um estado derivado por pasta (providência, novidade, arquivado,
+em curso) mais o aviso de "não verificado" ao lado. Veio de uma referência
+visual trazida pelo dono do produto; o tema escuro fixo, a tipografia de
+display e o botão de "baixar peças do dia" ficaram de fora, com o motivo de
+cada um no CHANGELOG.
 
 **Régua temporal (v0.24.0):** com a resposta do MNI, a linha do tempo é a
 espinha da tela do processo — cada evento entrega os documentos daquele ato,

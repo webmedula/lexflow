@@ -22,6 +22,14 @@ const ESQUEMA = [
      workspace       TEXT NOT NULL,
      numero          TEXT NOT NULL,
      apelido         TEXT,
+     -- Nome que o advogado dá à pasta: "Grupo Lume", "R. Andrade".
+     --
+     -- Separado de apelido porque servem a coisas diferentes e só um dos dois
+     -- agrupa. Apelido nomeia o CASO ("Ação trabalhista do Silva"); cliente
+     -- nomeia a PESSOA, e é por ela que o escritório organiza a carteira.
+     -- Agrupar por apelido não funcionaria: dois processos do mesmo cliente
+     -- ganham apelidos diferentes e nunca cairiam no mesmo grupo.
+     cliente         TEXT,
      criado_em       TEXT NOT NULL,
      sincronizado_em TEXT,
      erro            TEXT,
@@ -387,7 +395,25 @@ const COLUNAS_ACRESCENTADAS: ReadonlyArray<{
   readonly tabela: string;
   readonly coluna: string;
   readonly tipo: string;
-}> = [{ tabela: 'acompanhamentos', coluna: 'partes_texto', tipo: 'TEXT' }];
+}> = [
+  { tabela: 'acompanhamentos', coluna: 'partes_texto', tipo: 'TEXT' },
+  /*
+   * `cliente` NÃO tem retrocarga, e a ausência é deliberada.
+   *
+   * A regra deste repositório manda retrocarregar coluna nova, e ela existe
+   * para coluna DERIVADA de dado já guardado: sem a retrocarga, o filtro
+   * enxergaria só o que foi sincronizado depois da atualização e ficaria calado
+   * sobre o resto. `partes_texto` é exatamente esse caso — sai do JSON do
+   * processo que já está no banco.
+   *
+   * `cliente` não sai de lugar nenhum. É o nome que o ADVOGADO dá à pasta, e
+   * nenhuma fonte do processo sabe quem é o cliente dele: as partes vêm do
+   * tribunal sem dizer qual delas ele representa, e chutar pela OAB do
+   * advogado seria inventar vínculo de cliente a partir de palpite. Vazio aqui
+   * significa "ainda não rotulado", que é a verdade.
+   */
+  { tabela: 'acompanhamentos', coluna: 'cliente', tipo: 'TEXT' },
+];
 
 function migrarColunas(db: DatabaseSync): void {
   for (const { tabela, coluna, tipo } of COLUNAS_ACRESCENTADAS) {

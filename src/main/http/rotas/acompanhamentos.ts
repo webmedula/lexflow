@@ -2,8 +2,12 @@ import { WorkspaceNaoResolvidoError } from '../../../domain/errors/index.js';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { SincronizacaoEmAndamentoError } from '../../../application/services/ServicoAcompanhamento.js';
 import type { ServicoAcompanhamento } from '../../../application/services/ServicoAcompanhamento.js';
-import type { Acompanhamento, Novidade } from '../../../domain/entities/Acompanhamento.js';
+import type {
+  Acompanhamento,
+  Novidade,
+} from '../../../domain/entities/Acompanhamento.js';
 import type { AcompanhamentoResumido } from '../../../domain/ports/RepositorioAcompanhamentos.js';
+import { estadoDaPasta } from '../../../domain/entities/estadoDaPasta.js';
 
 /**
  * O workspace vem da chave de API, resolvido no plugin de autenticação. Estas
@@ -50,12 +54,35 @@ function resumoJson(a: AcompanhamentoResumido): Record<string, unknown> {
     })),
     totalMovimentacoes: p?.movimentacoes.length ?? 0,
     ultimaMovimentacao: a.ultimaMovimentacao
-      ? { data: a.ultimaMovimentacao.data.toISOString(), titulo: a.ultimaMovimentacao.titulo }
+      ? {
+          data: a.ultimaMovimentacao.data.toISOString(),
+          titulo: a.ultimaMovimentacao.titulo,
+        }
       : null,
     novidadesNaoVistas: a.novidadesNaoVistas,
     criadoEm: a.criadoEm.toISOString(),
     sincronizadoEm: a.sincronizadoEm?.toISOString() ?? null,
     erro: a.erro ?? null,
+    cliente: a.cliente ?? null,
+    // O estado é DERIVADO na resposta, nunca guardado em coluna.
+    //
+    // Mesma razão do status de assinatura: estado em coluna precisa de alguém
+    // que o atualize, e esse alguém é sempre uma tarefa agendada que pode não
+    // ter rodado. Uma pasta cujo prazo venceu às 3h e só é remarcada às 6h são
+    // três horas em que a tela mente.
+    estado: (() => {
+      const e = estadoDaPasta({
+        ...(a.erro !== undefined ? { erro: a.erro } : {}),
+        ...(a.sincronizadoEm !== undefined ? { sincronizadoEm: a.sincronizadoEm } : {}),
+        novidadesNaoVistas: a.novidadesNaoVistas,
+        ...(p ? { movimentacoes: p.movimentacoes } : {}),
+      });
+      return {
+        rotulo: e.rotulo,
+        naoVerificado: e.naoVerificado,
+        motivo: e.motivo ?? null,
+      };
+    })(),
   };
 }
 
@@ -63,6 +90,7 @@ function detalheJson(a: Acompanhamento): Record<string, unknown> {
   return {
     numero: a.processo ? a.processo.numero.formatado : a.numero,
     apelido: a.apelido ?? null,
+    cliente: a.cliente ?? null,
     criadoEm: a.criadoEm.toISOString(),
     sincronizadoEm: a.sincronizadoEm?.toISOString() ?? null,
     erro: a.erro ?? null,
@@ -89,6 +117,7 @@ interface QueryLista {
   /** Nome de uma parte. Filtro próprio, não é o mesmo que `texto` — ver a porta. */
   parte?: string;
   classe?: string;
+  cliente?: string;
   comNovidade?: string;
   ultimosDias?: string;
   ordem?: 'MOVIMENTACAO_RECENTE' | 'ADICIONADO_RECENTE' | 'NUMERO';
@@ -107,32 +136,30 @@ export function rotasDeAcompanhamento(
   servico: ServicoAcompanhamento,
 ): FastifyPluginAsync {
   return async (servidor) => {
-    servidor.get<{ Querystring: QueryLista }>(
-      '/v1/acompanhamentos',
-      async (req) => {
-        const q = req.query;
-        const lista = await servico.listar(workspaceDe(req), {
-          ...(q.texto ? { texto: q.texto } : {}),
-          ...(q.tribunal ? { tribunal: q.tribunal } : {}),
-          ...(q.parte ? { parte: q.parte } : {}),
-          ...(q.classe ? { classe: q.classe } : {}),
-          ...(verdadeiro(q.comNovidade) ? { somenteComNovidade: true } : {}),
-          ...(diasValidos(q.ultimosDias) !== undefined
-            ? { movimentadoNosUltimosDias: diasValidos(q.ultimosDias) as number }
-            : {}),
-          ...(q.ordem ? { ordem: q.ordem } : {}),
-        });
-        return {
-          total: lista.length,
-          // O total SEM filtro vai junto, sempre. É o que permite a tela dizer
-          // "mostrando 1 de 3" em vez de mostrar 1 e calar sobre os outros 2 —
-          // que foi como um filtro esquecido convenceu o dono do produto de que
-          // o sistema tinha perdido processos.
-          totalSemFiltro: await servico.contarAcompanhamentos(workspaceDe(req)),
-          acompanhamentos: lista.map(resumoJson),
-        };
-      },
-    );
+    servidor.get<{ Querystring: QueryLista }>('/v1/acompanhamentos', async (req) => {
+      const q = req.query;
+      const lista = await servico.listar(workspaceDe(req), {
+        ...(q.texto ? { texto: q.texto } : {}),
+        ...(q.tribunal ? { tribunal: q.tribunal } : {}),
+        ...(q.parte ? { parte: q.parte } : {}),
+        ...(q.cliente ? { cliente: q.cliente } : {}),
+        ...(q.classe ? { classe: q.classe } : {}),
+        ...(verdadeiro(q.comNovidade) ? { somenteComNovidade: true } : {}),
+        ...(diasValidos(q.ultimosDias) !== undefined
+          ? { movimentadoNosUltimosDias: diasValidos(q.ultimosDias) as number }
+          : {}),
+        ...(q.ordem ? { ordem: q.ordem } : {}),
+      });
+      return {
+        total: lista.length,
+        // O total SEM filtro vai junto, sempre. É o que permite a tela dizer
+        // "mostrando 1 de 3" em vez de mostrar 1 e calar sobre os outros 2 —
+        // que foi como um filtro esquecido convenceu o dono do produto de que
+        // o sistema tinha perdido processos.
+        totalSemFiltro: await servico.contarAcompanhamentos(workspaceDe(req)),
+        acompanhamentos: lista.map(resumoJson),
+      };
+    });
 
     servidor.post<{ Body: { numero?: string; apelido?: string } }>(
       '/v1/acompanhamentos',
@@ -140,7 +167,10 @@ export function rotasDeAcompanhamento(
         const numero = req.body?.numero?.trim();
         if (!numero) {
           void resposta.code(400);
-          return { erro: 'NUMERO_OBRIGATORIO', mensagem: 'Informe o número do processo.' };
+          return {
+            erro: 'NUMERO_OBRIGATORIO',
+            mensagem: 'Informe o número do processo.',
+          };
         }
         const criado = await servico.acompanhar(
           workspaceDe(req),
@@ -182,6 +212,39 @@ export function rotasDeAcompanhamento(
       },
     );
 
+    /*
+     * O rótulo de cliente. PUT e não PATCH porque o corpo substitui o valor
+     * inteiro, inclusive por vazio: apagar um nome digitado errado tem de ser
+     * possível, e é justamente o que um merge parcial impediria.
+     */
+    servidor.put<{ Params: { numero: string }; Body: { cliente?: string } }>(
+      '/v1/acompanhamentos/:numero/cliente',
+      async (req, resposta) => {
+        const cliente = (req.body?.cliente ?? '').trim();
+        if (cliente.length > 120) {
+          void resposta.code(400);
+          return {
+            erro: 'CLIENTE_MUITO_LONGO',
+            mensagem: 'O nome do cliente deve ter no máximo 120 caracteres.',
+          };
+        }
+        const ok = await servico.rotular(workspaceDe(req), req.params.numero, cliente);
+        if (!ok) {
+          void resposta.code(404);
+          return {
+            erro: 'ACOMPANHAMENTO_NAO_ENCONTRADO',
+            mensagem: 'Este processo não está sendo acompanhado.',
+          };
+        }
+        return { cliente: cliente || null };
+      },
+    );
+
+    servidor.get('/v1/clientes', async (req) => {
+      const lista = await servico.clientes(workspaceDe(req));
+      return { total: lista.length, clientes: lista };
+    });
+
     servidor.get<{ Querystring: QueryNovidades }>('/v1/novidades', async (req) => {
       const q = req.query;
       const ws = workspaceDe(req);
@@ -219,7 +282,17 @@ export function rotasDeAcompanhamento(
       },
     );
 
-    servidor.get('/v1/facetas', async (req) => servico.facetas(workspaceDe(req)));
+    servidor.get('/v1/facetas', async (req) => {
+      const ws = workspaceDe(req);
+      // Os rótulos de cliente entram nas facetas, e não numa chamada própria:
+      // a tela precisa dos três seletores ao mesmo tempo, e três requisições
+      // para montar uma barra de filtros é latência sem contrapartida.
+      const [facetas, clientes] = await Promise.all([
+        servico.facetas(ws),
+        servico.clientes(ws),
+      ]);
+      return { ...facetas, clientes };
+    });
 
     /**
      * Dispara a varredura na hora. Responde 202 e NÃO espera terminar: a

@@ -97,6 +97,25 @@ export class ServicoAcompanhamento {
     return this.repo.deixarDeAcompanhar(workspace, numero.digitos);
   }
 
+  /**
+   * Rotula a pasta com o nome do cliente. String vazia apaga o rótulo.
+   *
+   * O número passa por `NumeroCNJ` como em toda operação daqui: sem isso, um
+   * dígito trocado rotularia silenciosamente nada, e a tela mostraria sucesso.
+   */
+  async rotular(
+    workspace: string,
+    numeroInformado: string,
+    cliente: string,
+  ): Promise<boolean> {
+    const numero = NumeroCNJ.criar(numeroInformado);
+    return this.repo.rotular(workspace, numero.digitos, cliente);
+  }
+
+  async clientes(workspace: string): Promise<string[]> {
+    return this.repo.clientes(workspace);
+  }
+
   async listar(
     workspace: string,
     filtro?: FiltroAcompanhamentos,
@@ -124,9 +143,7 @@ export class ServicoAcompanhamento {
   }
 
   async marcarComoVistas(workspace: string, numeroInformado?: string): Promise<number> {
-    const numero = numeroInformado
-      ? NumeroCNJ.criar(numeroInformado).digitos
-      : undefined;
+    const numero = numeroInformado ? NumeroCNJ.criar(numeroInformado).digitos : undefined;
     return this.repo.marcarComoVistas(workspace, numero);
   }
 
@@ -149,7 +166,9 @@ export class ServicoAcompanhamento {
    *   AGENDADA chama sem ele, de propósito: ela é de todo mundo. A rota HTTP
    *   sempre passa o do chamador.
    */
-  async sincronizar(opcoes: { workspace?: string } = {}): Promise<ResultadoSincronizacao> {
+  async sincronizar(
+    opcoes: { workspace?: string } = {},
+  ): Promise<ResultadoSincronizacao> {
     if (this.sincronizando) {
       throw new SincronizacaoEmAndamentoError();
     }

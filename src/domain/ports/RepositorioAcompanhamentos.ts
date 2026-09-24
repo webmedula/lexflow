@@ -17,6 +17,8 @@ export interface FiltroAcompanhamentos {
    * consta como parte, e é o filtro de "quais processos são do cliente X".
    */
   readonly parte?: string;
+  /** Nome (ou parte) do rótulo de cliente que o advogado deu à pasta. */
+  readonly cliente?: string;
   /** Só os que têm novidade não lida. */
   readonly somenteComNovidade?: boolean;
   /** Última movimentação nos últimos N dias. */
@@ -53,6 +55,22 @@ export interface RepositorioAcompanhamentos {
   ): Promise<Acompanhamento>;
 
   deixarDeAcompanhar(workspace: string, numero: string): Promise<boolean>;
+
+  /**
+   * Grava (ou apaga, com string vazia) o rótulo de cliente da pasta.
+   *
+   * Método próprio em vez de um parâmetro a mais em `acompanhar` porque as duas
+   * operações têm significados diferentes: `acompanhar` é idempotente e usa
+   * COALESCE para não apagar o que já existe ao reacompanhar. Rotular precisa
+   * do contrário — tem de conseguir LIMPAR um rótulo digitado errado, e com
+   * COALESCE isso seria impossível.
+   *
+   * @returns `false` quando não há acompanhamento com esse número.
+   */
+  rotular(workspace: string, numero: string, cliente: string): Promise<boolean>;
+
+  /** Os rótulos de cliente em uso, para alimentar o seletor. */
+  clientes(workspace: string): Promise<string[]>;
 
   buscar(workspace: string, numero: string): Promise<Acompanhamento | undefined>;
 

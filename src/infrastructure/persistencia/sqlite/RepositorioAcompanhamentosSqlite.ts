@@ -69,10 +69,35 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
     return Number(r.changes) > 0;
   }
 
-  async buscar(
-    workspace: string,
-    numero: string,
-  ): Promise<Acompanhamento | undefined> {
+  /**
+   * Grava o rótulo de cliente. String vazia APAGA o rótulo.
+   *
+   * Sem COALESCE, ao contrário de `acompanhar`: aqui é preciso conseguir
+   * limpar um rótulo digitado errado, e COALESCE tornaria isso impossível —
+   * o advogado apagaria o campo, salvaria, e o nome errado continuaria lá.
+   */
+  async rotular(workspace: string, numero: string, cliente: string): Promise<boolean> {
+    const limpo = cliente.trim();
+    const r = this.db
+      .prepare(
+        'UPDATE acompanhamentos SET cliente = ? WHERE workspace = ? AND numero = ?',
+      )
+      .run(limpo || null, workspace, numero);
+    return Number(r.changes) > 0;
+  }
+
+  async clientes(workspace: string): Promise<string[]> {
+    const linhas = this.db
+      .prepare(
+        `SELECT DISTINCT cliente AS v FROM acompanhamentos
+          WHERE workspace = ? AND cliente IS NOT NULL AND TRIM(cliente) <> ''
+          ORDER BY v COLLATE NOCASE`,
+      )
+      .all(workspace) as Linha[];
+    return linhas.map((l) => String(l['v']));
+  }
+
+  async buscar(workspace: string, numero: string): Promise<Acompanhamento | undefined> {
     const linha = this.db
       .prepare('SELECT * FROM acompanhamentos WHERE workspace = ? AND numero = ?')
       .get(workspace, numero) as Linha | undefined;
@@ -103,15 +128,21 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
       args.push(`%${paraBusca(filtro.parte)}%`);
     }
 
+    if (filtro.cliente) {
+      cond.push("IFNULL(a.cliente, '') LIKE ?");
+      args.push(`%${filtro.cliente}%`);
+    }
+
     if (filtro.texto) {
       // O JSON do processo entra na busca livre para pegar vara e assunto sem
       // desnormalizar mais colunas. Volume por workspace é pequeno.
       // Aspas SIMPLES: no SQLite, aspas duplas são identificador, não string.
       cond.push(
-        "(a.numero LIKE ? OR IFNULL(a.apelido,'') LIKE ? OR IFNULL(a.processo,'') LIKE ?)",
+        "(a.numero LIKE ? OR IFNULL(a.apelido,'') LIKE ? OR IFNULL(a.cliente,'') LIKE ? " +
+          "OR IFNULL(a.processo,'') LIKE ?)",
       );
       const alvo = `%${filtro.texto.replace(/\D/g, '') || filtro.texto}%`;
-      args.push(alvo, `%${filtro.texto}%`, `%${filtro.texto}%`);
+      args.push(alvo, `%${filtro.texto}%`, `%${filtro.texto}%`, `%${filtro.texto}%`);
     }
     if (filtro.movimentadoNosUltimosDias !== undefined) {
       const limite = new Date(
@@ -249,11 +280,7 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
     }
   }
 
-  async registrarFalha(
-    workspace: string,
-    numero: string,
-    erro: string,
-  ): Promise<void> {
+  async registrarFalha(workspace: string, numero: string, erro: string): Promise<void> {
     // `sincronizado_em` NÃO avança numa falha — ele é "último sucesso". Mas
     // registramos a tentativa para a fila não ficar presa no mesmo item.
     this.db
@@ -302,7 +329,9 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
       numero: String(l['numero']),
       data: new Date(String(l['data'])),
       titulo: String(l['titulo']),
-      ...(l['codigo_tpu'] !== null && l['codigo_tpu'] !== undefined ? { codigoTpu: Number(l['codigo_tpu']) } : {}),
+      ...(l['codigo_tpu'] !== null && l['codigo_tpu'] !== undefined
+        ? { codigoTpu: Number(l['codigo_tpu']) }
+        : {}),
       ...(texto(l['conteudo']) ? { conteudo: String(l['conteudo']) } : {}),
       detectadaEm: new Date(String(l['detectada_em'])),
       ...(data(l['vista_em']) ? { vistaEm: data(l['vista_em']) as Date } : {}),
@@ -335,9 +364,7 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
     return Number(r.changes);
   }
 
-  async facetas(
-    workspace: string,
-  ): Promise<{ tribunais: string[]; classes: string[] }> {
+  async facetas(workspace: string): Promise<{ tribunais: string[]; classes: string[] }> {
     const col = (nome: string): string[] =>
       (
         this.db
@@ -361,6 +388,7 @@ export class RepositorioAcompanhamentosSqlite implements RepositorioAcompanhamen
       workspace: String(l['workspace']),
       numero: String(l['numero']),
       ...(texto(l['apelido']) ? { apelido: String(l['apelido']) } : {}),
+      ...(texto(l['cliente']) ? { cliente: String(l['cliente']) } : {}),
       criadoEm: new Date(String(l['criado_em'])),
       ...(data(l['sincronizado_em'])
         ? { sincronizadoEm: data(l['sincronizado_em']) as Date }

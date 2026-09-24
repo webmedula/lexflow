@@ -50,7 +50,7 @@ var INTERNOS={12266:1,12265:1,581:1,60:1};
 var MARCOS={26:1,219:1,848:1,12548:1,12455:1,12444:1,14739:1,123:1,1051:1};
 
 var estado={aba:'novidades',chave:'',detalhe:null,eu:null,trilha:null,
-  modoEntrada:'entrar',facetas:{tribunais:[],classes:[]},
+  modoEntrada:'entrar',facetas:{tribunais:[],classes:[],clientes:[]},
   /* null = ainda não perguntamos ao servidor se ele consegue enviar e-mail.
      O link "esqueci minha senha" só aparece quando a resposta for true —
      oferecer e não enviar deixaria a pessoa esperando mensagem que não vem. */
@@ -129,6 +129,11 @@ function atualizarBolha(){
     var b=$('bolha');
     if(r.naoVistas>0){b.textContent=r.naoVistas>99?'99+':r.naoVistas;b.classList.remove('oculto')}
     else b.classList.add('oculto');
+    /* A contagem da carteira vem de graça nesta mesma resposta: acompanhados
+       já era devolvido aqui. Uma chamada só para dois números — a lateral não
+       merece requisição própria. */
+    var c=$('cont-processos');
+    if(c)c.textContent=r.acompanhados>0?String(r.acompanhados):'';
   }).catch(function(){});
 }
 
@@ -208,6 +213,7 @@ function verNovidades(){
       window.__f_nv_trib=this.value;verNovidades()});
     alvo.querySelectorAll('[data-abrir]').forEach(function(el){
       el.addEventListener('click',function(){abrir(el.getAttribute('data-abrir'))})});
+    ligarRotulagem(alvo);
 
     /* Aqui NÃO há restauração de foco, e é de propósito: esta tela não tem
        campo de texto — só um chip e um select, que não perdem digitação. O
@@ -248,6 +254,7 @@ function verProcessos(){
   if(f.texto)q.push('texto='+encodeURIComponent(f.texto));
   if(f.tribunal)q.push('tribunal='+encodeURIComponent(f.tribunal));
   if(f.parte)q.push('parte='+encodeURIComponent(f.parte));
+  if(f.cliente)q.push('cliente='+encodeURIComponent(f.cliente));
   if(f.classe)q.push('classe='+encodeURIComponent(f.classe));
   if(f.novidade)q.push('comNovidade=true');
   if(f.dias)q.push('ultimosDias='+f.dias);
@@ -272,6 +279,9 @@ function verProcessos(){
       '<div><label class="rotulo" for="f-trib">Tribunal</label>'+
         '<select id="f-trib"><option value="">Todos</option>'+
         estado.facetas.tribunais.map(function(t){return '<option'+(f.tribunal===t?' selected':'')+'>'+esc(t)+'</option>'}).join('')+'</select></div>'+
+      '<div><label class="rotulo" for="f-cli">Cliente</label>'+
+        '<select id="f-cli"><option value="">Todos</option>'+
+        (estado.facetas.clientes||[]).map(function(c){return '<option value="'+esc(c)+'"'+(f.cliente===c?' selected':'')+'>'+esc(c)+'</option>'}).join('')+'</select></div>'+
       '<div><label class="rotulo" for="f-cls">Classe</label>'+
         '<select id="f-cls"><option value="">Todas</option>'+
         estado.facetas.classes.map(function(c){return '<option value="'+esc(c)+'"'+(f.classe===c?' selected':'')+'>'+esc(titulo(c))+'</option>'}).join('')+'</select></div>'+
@@ -306,31 +316,7 @@ function verProcessos(){
           :'Busque um processo pelo número e clique em acompanhar. A partir daí o Processo Vivo verifica sozinho e avisa quando houver movimentação nova.'),
         q.length?'':'<button class="bt" onclick="window.__processovivo_ir(\'buscar\')">Buscar processo</button>');
     }else{
-      r.acompanhamentos.forEach(function(a){
-        /* Até quatro partes por linha, com o polo em palavra. A carteira é o
-           lugar onde o advogado procura "os processos do cliente X", e sem os
-           nomes ele abre um por um — o trabalho que o sistema existe para
-           fazer. O resto vira "+N" e fica na tela do processo. */
-        var partes=(a.partes||[]).slice(0,4).map(function(x){
-          return '<span class="selo'+(x.polo==='ATIVO'?' nv':'')+'">'+
-            esc(rotuloPolo(x.polo))+'</span> '+esc(x.nome)}).join(' · ');
-        var resto=(a.partes||[]).length-4;
-        h+='<button class="item'+(a.novidadesNaoVistas>0?' novo':'')+'" data-abrir="'+esc(a.numero)+'">'+
-          '<div class="lin1"><span class="n">'+esc(a.numero)+'</span>'+
-          (a.apelido?'<span class="ap">'+esc(a.apelido)+'</span>':'')+
-          (a.novidadesNaoVistas>0?'<span class="selo nv">'+a.novidadesNaoVistas+' nova(s)</span>':'')+
-          (a.segredoJustica?'<span class="selo al">segredo</span>':'')+
-          (a.erro?'<span class="selo al">erro</span>':'')+'</div>'+
-          '<div class="lin2">'+esc(a.tribunal||'—')+' · '+
-            esc(titulo(a.classe)||'classe não informada')+
-            (a.vara?' · '+esc(a.vara):'')+'</div>'+
-          (partes?'<div class="lin3">'+partes+(resto>0?' · <span class="cp">+'+resto+'</span>':'')+'</div>':'')+
-          '<div class="lin3">'+
-            (a.ultimaMovimentacao
-              ? esc(a.ultimaMovimentacao.titulo)+' · '+dt(a.ultimaMovimentacao.data)+' ('+humano(a.ultimaMovimentacao.data)+')'
-              : (a.erro?'não foi possível consultar: '+esc(a.erro):'aguardando primeira consulta'))+
-          '</div></button>';
-      });
+      h+=tabelaDaCarteira(r.acompanhamentos);
     }
     alvo.innerHTML=h;
 
@@ -353,6 +339,7 @@ function verProcessos(){
     if(lf)lf.addEventListener('click',function(){setF('reset')});
     $('f-trib').addEventListener('change',function(){setF('tribunal',this.value)});
     $('f-cls').addEventListener('change',function(){setF('classe',this.value)});
+    $('f-cli').addEventListener('change',function(){setF('cliente',this.value)});
     $('f-dias').addEventListener('change',function(){setF('dias',this.value)});
     $('f-ord').addEventListener('change',function(){setF('ordem',this.value)});
     $('f-nv').addEventListener('click',function(){setF('novidade',!f.novidade)});
@@ -378,6 +365,134 @@ function verProcessos(){
       if(fc){fc.focus();fc.setSelectionRange(fc.value.length,fc.value.length)}
     }
   }).catch(function(e){alvo.innerHTML=erroBloco(e)});
+}
+
+/**
+ * A carteira em tabela.
+ *
+ * Os cartões empilhados que havia antes funcionavam com dez processos e viravam
+ * rolagem com cento e quarenta: cada pasta ocupava quatro linhas, e comparar
+ * duas exigia percorrer a tela inteira. Uma tabela responde de longe — o olho
+ * desce uma coluna em vez de ler parágrafos.
+ *
+ * O que NÃO se perdeu na troca: as partes. Elas continuam na coluna Cliente
+ * enquanto não houver rótulo, em cinza e identificadas como partes. Era por
+ * elas que o advogado achava "os processos do cliente X", e tirá-las para caber
+ * numa grade seria trocar informação por alinhamento.
+ */
+function tabelaDaCarteira(lista){
+  var h='<div class="cartao sem-borda"><div class="tab-rolo"><table class="tab">'+
+    '<thead><tr>'+
+      '<th>Processo</th><th>Cliente</th><th>Tribunal</th>'+
+      '<th>Última movimentação</th><th>Estado</th>'+
+    '</tr></thead><tbody>';
+
+  lista.forEach(function(a){
+    var e=a.estado||{rotulo:'EM_CURSO',naoVerificado:false};
+    h+='<tr'+(a.novidadesNaoVistas>0?' class="nova"':'')+'>'+
+      '<td class="t-num"><button class="lnh" data-abrir="'+esc(a.numero)+'">'+
+        '<span class="n">'+esc(a.numero)+'</span></button>'+
+        '<div class="t-sub">'+esc(titulo(a.classe)||'classe não informada')+
+        (a.vara?' · '+esc(a.vara):'')+'</div></td>'+
+      '<td class="t-cli">'+celulaDeCliente(a)+'</td>'+
+      '<td class="t-trib">'+esc(a.tribunal||'—')+
+        (a.segredoJustica?' <span class="selo al">segredo</span>':'')+'</td>'+
+      '<td class="t-mov">'+
+        (a.ultimaMovimentacao
+          ? '<div class="t-mov-t">'+esc(a.ultimaMovimentacao.titulo)+'</div>'+
+            '<div class="t-sub">'+dt(a.ultimaMovimentacao.data)+' · '+
+            humano(a.ultimaMovimentacao.data)+'</div>'
+          : '<div class="t-sub">'+(a.erro?'não foi possível consultar'
+              :'aguardando primeira consulta')+'</div>')+
+      '</td>'+
+      '<td class="t-est">'+seloDeEstado(e,a)+'</td>'+
+    '</tr>';
+  });
+  return h+'</tbody></table></div></div>';
+}
+
+/** Os quatro estados, e o aviso de verificação que corre por fora deles. */
+function seloDeEstado(e,a){
+  var m={
+    PROVIDENCIA:['al','providência'],
+    NOVIDADE:['nv',(a.novidadesNaoVistas||0)+' nova(s)'],
+    ARQUIVADO:['','arquivado'],
+    EM_CURSO:['','em curso']
+  };
+  var par=m[e.rotulo]||m.EM_CURSO;
+  var h='<span class="selo'+(par[0]?' '+par[0]:'')+'"'+
+    (e.motivo?' title="'+esc(e.motivo)+'"':'')+'>'+esc(par[1])+'</span>';
+  /* O aviso de "não verificado" é SEPARADO do selo, e não um quinto valor dele.
+     Uma pasta pode ter prazo aberto e estar sem verificação há três dias, e as
+     duas informações importam: uma diz o que fazer hoje, a outra diz para não
+     confiar no silêncio. Colapsá-las esconderia sempre uma. */
+  if(e.naoVerificado){
+    h+=' <span class="selo av" title="'+esc(a.erro||'ainda não sincronizado')+
+      '">não verificado</span>';
+  }
+  return h;
+}
+
+/**
+ * A coluna Cliente: o rótulo quando existe, as partes quando não.
+ *
+ * A distinção fica explícita no texto — "partes:" antes dos nomes — porque as
+ * duas coisas são diferentes. O tribunal entrega as partes sem dizer qual delas
+ * o advogado representa; apresentar uma delas como "o cliente" seria afirmar o
+ * que ninguém afirmou, e o palpite errado põe o nome do adversário ali.
+ */
+function celulaDeCliente(a){
+  if(a.cliente){
+    return '<button class="lnh forte" data-rotular="'+esc(a.numero)+'" '+
+      'title="editar o cliente desta pasta">'+esc(a.cliente)+'</button>';
+  }
+  var nomes=(a.partes||[]).slice(0,2).map(function(x){return esc(x.nome)}).join(' · ');
+  var resto=(a.partes||[]).length-2;
+  return '<button class="lnh vazio" data-rotular="'+esc(a.numero)+'" '+
+    'title="dar um nome de cliente a esta pasta">'+
+    (nomes?'<span class="t-sub">partes: '+nomes+(resto>0?' +'+resto:'')+'</span>'
+         :'<span class="t-sub">rotular</span>')+'</button>';
+}
+
+/**
+ * Edição do rótulo na própria linha.
+ *
+ * Em vez de abrir a pasta para nomear o cliente: rotular cento e quarenta
+ * processos é trabalho de uma sentada, e um ida-e-volta por pasta transformaria
+ * isso numa tarde. Enter grava, Esc cancela, campo vazio APAGA o rótulo — sem
+ * essa última, um nome digitado errado ficaria para sempre.
+ */
+function ligarRotulagem(alvo){
+  alvo.querySelectorAll('[data-rotular]').forEach(function(el){
+    el.addEventListener('click',function(ev){
+      ev.stopPropagation();
+      var numero=el.getAttribute('data-rotular');
+      var atual=el.classList.contains('forte')?el.textContent:'';
+      var celula=el.parentNode;
+      celula.innerHTML='<input class="t-in" maxlength="120" placeholder="nome do cliente">';
+      var campo=celula.firstChild;
+      campo.value=atual;
+      campo.focus();
+      campo.select();
+
+      var fechado=false;
+      var gravar=function(){
+        if(fechado)return; fechado=true;
+        var valor=campo.value.trim();
+        if(valor===atual){verProcessos();return}
+        api('/v1/acompanhamentos/'+encodeURIComponent(numero)+'/cliente',
+            {method:'PUT',body:{cliente:valor}})
+          .then(function(){return carregarFacetas()})
+          .then(verProcessos)
+          .catch(function(e){alert(explicar(e));verProcessos()});
+      };
+      campo.addEventListener('keydown',function(k){
+        if(k.key==='Enter'){k.preventDefault();gravar()}
+        else if(k.key==='Escape'){fechado=true;verProcessos()}
+      });
+      campo.addEventListener('blur',gravar);
+    });
+  });
 }
 
 /* ---------------- aba: buscar ---------------- */
@@ -1462,7 +1577,7 @@ function ligarDownloadDePecas(numero){
 function telaEntrada(modo){
   if(modo)estado.modoEntrada=modo;
   var criar=estado.modoEntrada==='criar';
-  $('barra').classList.add('oculto');
+  $('lateral').classList.add('oculto');
   $('conteudo').innerHTML=
     '<div class="titulo-secao"><div><h2>Processo Vivo</h2><div class="sub">'+
     'Seus processos, suas publicações e as peças das partes — num lugar só.'+
@@ -1544,7 +1659,7 @@ function desenharEsqueci(){
  * esta conta" seria um verificador de quem é assinante do Processo Vivo aberto na
  * internet, e sem nem precisar de senha para consultar. */
 function telaRecuperar(){
-  $('barra').classList.add('oculto');
+  $('lateral').classList.add('oculto');
   $('conteudo').innerHTML=
     '<div class="titulo-secao"><div><h2>Recuperar acesso</h2><div class="sub">'+
     'Enviamos um link para você escolher uma senha nova.</div></div></div>'+
@@ -1589,7 +1704,7 @@ function telaRecuperar(){
  * histórico, num favorito, numa captura de tela e no cabeçalho "Referer" de
  * toda requisição externa que a página fizesse. */
 function telaRedefinir(token){
-  $('barra').classList.add('oculto');
+  $('lateral').classList.add('oculto');
   $('conteudo').innerHTML=
     '<div class="titulo-secao"><div><h2>Escolher nova senha</h2><div class="sub">'+
     'Ao confirmar, todas as sessões abertas nesta conta são encerradas.'+
@@ -1654,7 +1769,7 @@ function telaRedefinir(token){
    navegador para guardar cookie — e cada chave segue sendo seu próprio
    ambiente, do mesmo jeito que era antes das contas. */
 function telaChave(){
-  $('barra').classList.add('oculto');
+  $('lateral').classList.add('oculto');
   $('conteudo').innerHTML=
     '<div class="titulo-secao"><div><h2>Entrar com chave de API</h2>'+
     '<div class="sub">Para integrações. Pessoas entram com e-mail e senha.</div></div></div>'+
@@ -1955,7 +2070,7 @@ function render(){
 }
 
 function iniciar(){
-  $('barra').classList.remove('oculto');
+  $('lateral').classList.remove('oculto');
   var saudacao=$('saudacao');
   if(saudacao)saudacao.textContent=estado.eu?estado.eu.nome.split(' ')[0]:'';
   var navConta=$('nav-conta');
@@ -1977,7 +2092,7 @@ function iniciar(){
     if(e.status===401){
       estado.chave='';try{localStorage.removeItem(CH)}catch(x){}
       estado.eu=null;estado.trilha=null;
-      $('barra').classList.add('oculto');telaEntrada('entrar');return}
+      $('lateral').classList.add('oculto');telaEntrada('entrar');return}
     $('conteudo').innerHTML=erroBloco(e);
   });
 }
@@ -1992,7 +2107,7 @@ $('sair').addEventListener('click',function(){
   var fim=function(){
     estado.chave='';try{localStorage.removeItem(CH)}catch(e){}
     estado.eu=null;estado.trilha=null;
-    $('barra').classList.add('oculto');telaEntrada('entrar');
+    $('lateral').classList.add('oculto');telaEntrada('entrar');
   };
   api('/v1/sessoes',{method:'DELETE'}).then(fim,fim);
 });

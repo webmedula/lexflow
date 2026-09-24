@@ -29,26 +29,34 @@ export function paginaConsole(versao: string): string {
 </head>
 <body>
 
-<div class="barra oculto" id="barra">
-  <div class="barra-int">
-    <div class="logo">Processo Vivo</div>
+<div class="app">
+  <!--
+    A lateral é o elemento escondido quando não há sessão, e o conteúdo fica
+    FORA dela de propósito: a tela de entrada usa o mesmo #conteudo. Se os dois
+    estivessem no mesmo bloco, esconder a navegação esconderia o login junto.
+    A grade some para uma coluna sozinha quando a lateral não está lá.
+  -->
+  <aside class="lateral oculto" id="lateral">
+    <div class="marca">
+      <div class="logo">Processo Vivo</div>
+      <div class="sub">mesa de trabalho</div>
+    </div>
     <nav class="nav">
       <button id="nav-novidades">Atualizações <span class="bolha oculto" id="bolha"></span></button>
-      <button id="nav-processos">Meus processos</button>
+      <button id="nav-processos">Meus processos <span class="cont" id="cont-processos"></span></button>
       <button id="nav-buscar">Buscar</button>
       <button id="nav-vigilancia">Vigilância</button>
       <button id="nav-credenciais">Meus acessos</button>
       <button id="nav-conta" class="oculto">Minha conta</button>
-      <button id="sair" title="Encerrar a sessão">Sair</button>
     </nav>
-  </div>
+    <div class="lateral-pe">
+      <button id="sair" title="Encerrar a sessão">Sair</button>
+      <div class="versao">v${versao} &middot; <a href="/ready">estado das fontes</a></div>
+    </div>
+  </aside>
+
+  <main class="env" id="conteudo"></main>
 </div>
-
-<main class="env" id="conteudo"></main>
-
-<footer style="text-align:center;color:var(--tinta3);font-size:12px;padding:0 0 30px">
-  Processo Vivo v${versao} &middot; <a href="/ready">estado das fontes</a>
-</footer>
 
 <script>${SCRIPT}</script>
 </body>

@@ -9,6 +9,66 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.25.0] — 2026-09-24
+
+A casca do console mudou de forma, a partir de um sistema de referência que o
+dono do produto trouxe. O que veio de lá é a ESTRUTURA — lateral fixa, carteira
+em tabela, um estado por pasta. O que ficou de fora veio junto na referência e
+não entrou de propósito, com motivo em cada caso (ver o fim desta entrada).
+
+### Adicionado
+
+- **Barra lateral fixa** no lugar das abas na barra de cima. Não rola para fora
+  da tela, cabe crescer, e mostra a contagem ao lado de cada destino — que era
+  informação que exigia abrir a tela para descobrir. A contagem da carteira vem
+  da resposta que a tela já pedia; nenhuma requisição nova. Abaixo de 900px ela
+  volta a ser barra superior: numa tela estreita, 228px fixos comeriam um quarto
+  da largura útil da tabela. O conteúdo passou de 900px para 1100px.
+- **A carteira virou tabela** — Processo · Cliente · Tribunal · Última
+  movimentação · Estado. O número em fonte monoespaçada com numeral tabular:
+  os dígitos alinham e o olho acha o processo sem ler. Os cartões empilhados
+  funcionavam com dez pastas e viravam rolagem com cento e quarenta.
+- **Rótulo de cliente por pasta**, editável na própria linha (Enter grava, Esc
+  cancela, vazio apaga), com filtro e busca livre. Rotular cento e quarenta
+  processos é trabalho de uma sentada; um ida-e-volta por pasta viraria uma
+  tarde.
+- **Estado derivado por pasta**: providência, novidade, arquivado, em curso —
+  mais um aviso de **não verificado** que corre por FORA do selo, porque uma
+  pasta pode ter prazo aberto e estar três dias sem verificação, e as duas
+  informações importam. Derivado na resposta, nunca gravado em coluna: mesma
+  razão do status de assinatura.
+
+### O que veio na referência e NÃO entrou
+
+- **Selos de "Audiência" e "Trânsito em julgado".** Exigiriam ler código da TPU
+  que nunca apareceu numa resposta real deste projeto. Um selo que erra na tela
+  de um advogado é pior que coluna nenhuma — ele não confere o que o sistema
+  afirmou com convicção. Entram quando houver captura que os sustente.
+- **Tema escuro fixo e tipografia serifada de display.** O console segue a
+  preferência do sistema, e muito advogado trabalha em sala clara. A serifada
+  come ~120px de altura por título: num app usado o dia inteiro isso é uma
+  linha de tabela por dia. Esse tom vai para a landing page.
+- **Botão "baixar peças do dia".** Prometeria o que não se entrega: cada
+  consulta ao MNI são dezenas de segundos e uma tentativa que conta para o
+  bloqueio da conta do advogado no tribunal. Em 142 processos isso não existe.
+
+### Notas de migração
+
+A coluna `cliente` entra pelo `migrarColunas` e **não tem retrocarga**, ao
+contrário do que a regra geral manda. A regra vale para coluna DERIVADA de dado
+já guardado — `partes_texto` sai do JSON do processo, e sem retrocarga o filtro
+enxergaria só o sincronizado depois. `cliente` não sai de lugar nenhum: o
+tribunal entrega as partes sem dizer qual delas o consultante representa, e
+deduzir pela OAB poria o nome do adversário na coluna. Vazio significa "ainda
+não rotulado", que é a verdade. Há teste que fixa isso.
+
+### Achado, não corrigido
+
+O campo `apelido` existe em `acompanhamentos` desde o começo, é aceito pela rota
+de acompanhar e entra na busca textual — e **não há nenhum lugar no console que
+o preencha**. Segue como está; `cliente` não o substitui (apelido nomeia o caso,
+cliente nomeia a pessoa, e só o segundo agrupa).
+
 ## [0.24.0] — 2026-09-24
 
 A crítica veio de um advogado em exercício usando a tela, e é sobre rotina, não

@@ -29,24 +29,57 @@ body{margin:0;background:var(--fundo);color:var(--tinta);
 a{color:var(--acento);text-decoration:none}
 .oculto{display:none!important}
 
-/* ---------- barra superior ---------- */
-.barra{position:sticky;top:0;z-index:20;background:var(--barra);
-  border-bottom:1px solid var(--linha)}
-.barra-int{max-width:900px;margin:0 auto;padding:0 16px;display:flex;
-  align-items:center;gap:20px;min-height:56px;flex-wrap:wrap}
+/* ---------- casca: lateral fixa + conteúdo ---------- */
+/* A navegação saiu da barra de cima para uma coluna à esquerda na v0.25.0.
+   Três razões, nesta ordem: ela não rola para fora da tela, cabe crescer sem
+   virar segunda linha, e abre espaço para a contagem ao lado de cada destino —
+   que é informação que antes exigia abrir a tela para descobrir. */
+.app{display:grid;grid-template-columns:auto 1fr;align-items:start}
+.lateral{position:sticky;top:0;height:100vh;width:228px;background:var(--barra);
+  border-right:1px solid var(--linha);display:flex;flex-direction:column;
+  padding:18px 12px;gap:18px;overflow-y:auto;z-index:20}
+.marca{padding:0 8px}
 .logo{font-weight:800;letter-spacing:-.03em;font-size:18px}
-.nav{display:flex;gap:2px;margin-left:auto;flex-wrap:wrap}
+.marca .sub{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--tinta3);margin-top:3px}
+.nav{display:flex;flex-direction:column;gap:2px}
 .nav button{background:transparent;border:0;color:var(--tinta2);font:inherit;
-  font-weight:600;font-size:14px;padding:8px 13px;border-radius:8px;cursor:pointer;
-  display:flex;align-items:center;gap:7px}
+  font-weight:600;font-size:14px;padding:9px 12px;border-radius:8px;cursor:pointer;
+  display:flex;align-items:center;gap:7px;width:100%;text-align:left}
 .nav button:hover{background:var(--papel2);color:var(--tinta)}
-.nav button.ativo{background:var(--acento-bg);color:var(--acento)}
+.nav button.ativo{background:var(--acento-bg);color:var(--acento);
+  box-shadow:inset 2px 0 0 var(--acento)}
+/* A contagem é discreta e alinhada à direita: informa sem competir com o nome
+   do destino, que é onde o clique acontece. */
+.cont{margin-left:auto;font-size:12px;color:var(--tinta3);font-weight:600;
+  font-variant-numeric:tabular-nums}
+.lateral-pe{margin-top:auto;display:flex;flex-direction:column;gap:6px;padding:0 4px}
+.lateral-pe button{background:transparent;border:0;color:var(--tinta2);font:inherit;
+  font-size:13px;padding:7px 8px;border-radius:8px;cursor:pointer;text-align:left}
+.lateral-pe button:hover{background:var(--papel2);color:var(--tinta)}
+.versao{font-size:11.5px;color:var(--tinta3);padding:0 8px 4px}
 .bolha{background:var(--novo);color:#fff;font-size:11px;font-weight:800;
   min-width:19px;height:19px;border-radius:10px;display:inline-flex;
   align-items:center;justify-content:center;padding:0 5px}
 @media (prefers-color-scheme:dark){.bolha{color:#08130d}}
 
-.env{max-width:900px;margin:0 auto;padding:22px 16px 80px}
+.env{max-width:1100px;margin:0 auto;padding:22px 22px 80px;width:100%}
+
+/* Abaixo de 900px a lateral volta a ser barra de cima: numa tela estreita,
+   228px fixos comeriam um quarto da largura útil da tabela. */
+@media (max-width:900px){
+  .app{grid-template-columns:1fr}
+  .lateral{position:sticky;height:auto;width:auto;flex-direction:row;
+    align-items:center;gap:10px;border-right:0;
+    border-bottom:1px solid var(--linha);padding:10px 14px;flex-wrap:wrap}
+  .marca .sub{display:none}
+  .nav{flex-direction:row;flex-wrap:wrap;margin-left:auto}
+  .nav button{width:auto;padding:8px 11px}
+  .nav button.ativo{box-shadow:none}
+  .lateral-pe{margin-top:0;flex-direction:row;align-items:center}
+  .versao{display:none}
+  .env{padding:18px 14px 70px}
+}
 
 /* ---------- blocos ---------- */
 .cartao{background:var(--papel);border:1px solid var(--linha);
@@ -148,6 +181,44 @@ h3.sec{font-size:12px;font-weight:700;text-transform:uppercase;
 .ev.marco .dt{color:var(--marco);font-weight:700}
 .ev .cp{font-size:13px;color:var(--tinta2);margin-top:3px}
 .ev .xn{font-size:11px;color:var(--tinta3);font-weight:600}
+/* ---------- carteira em tabela ---------- */
+/* Substituiu os cartões empilhados na v0.25.0: com 142 pastas, quatro linhas
+   por cartão viram rolagem, e comparar duas exigia percorrer a tela. */
+.cartao.sem-borda{padding:0;overflow:hidden}
+.tab-rolo{overflow-x:auto}
+.tab{width:100%;border-collapse:collapse;font-size:14px}
+.tab th{text-align:left;font-size:10.5px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--tinta3);padding:12px 14px;
+  border-bottom:1px solid var(--linha);white-space:nowrap;
+  position:sticky;top:0;background:var(--papel);z-index:1}
+.tab td{padding:11px 14px;border-bottom:1px solid var(--linha2);vertical-align:top}
+.tab tbody tr:last-child td{border-bottom:0}
+.tab tbody tr:hover{background:var(--papel2)}
+/* A marca de novidade é uma régua à esquerda da linha inteira, não um fundo:
+   fundo colorido em várias linhas de uma vez vira ruído e some com o destaque
+   do que pede providência. */
+.tab tr.nova td:first-child{box-shadow:inset 3px 0 0 var(--novo)}
+.tab .n{font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+.t-sub{color:var(--tinta3);font-size:12px;margin-top:3px;line-height:1.4}
+.t-mov-t{line-height:1.35}
+.t-num{min-width:200px}
+.t-cli{min-width:150px;max-width:230px}
+.t-trib{white-space:nowrap;color:var(--tinta2)}
+.t-mov{min-width:240px}
+.t-est{white-space:nowrap}
+/* Botão que não parece botão: a linha inteira é navegável e um contorno por
+   célula transformaria a tabela numa grade de caixas. */
+.lnh{background:transparent;border:0;padding:0;margin:0;font:inherit;color:inherit;
+  cursor:pointer;text-align:left;max-width:100%}
+.lnh:hover{color:var(--acento)}
+.lnh.forte{font-weight:600}
+.lnh.vazio{opacity:.85}
+.lnh.vazio:hover{opacity:1}
+.t-in{width:100%;font:inherit;font-size:13px;padding:5px 8px;border-radius:6px;
+  border:1px solid var(--acento);background:var(--papel);color:var(--tinta)}
+.selo.av{background:var(--marco-bg);color:var(--marco)}
+
 .parte{padding:11px 0;border-top:1px solid var(--linha2)}
 .parte:first-of-type{border-top:0}
 

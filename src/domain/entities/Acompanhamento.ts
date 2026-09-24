@@ -15,6 +15,19 @@ export interface Acompanhamento {
   readonly numero: string;
   /** Nome que o usuário deu ("Ação do cliente Silva"), opcional. */
   readonly apelido?: string;
+  /**
+   * O cliente de quem é esta pasta, como o ADVOGADO o chama.
+   *
+   * Separado de `apelido` porque só um dos dois agrupa: apelido nomeia o caso,
+   * cliente nomeia a pessoa, e dois processos do mesmo cliente ganham apelidos
+   * diferentes que nunca cairiam no mesmo grupo.
+   *
+   * Nenhuma fonte preenche isto, e não é limitação a resolver: o tribunal
+   * entrega as partes sem dizer qual delas o consultante representa. Deduzir
+   * pela OAB seria inventar vínculo de cliente a partir de palpite — e o
+   * palpite errado põe o nome do adversário na coluna "Cliente".
+   */
+  readonly cliente?: string;
   readonly criadoEm: Date;
   /** Última sincronização BEM-SUCEDIDA. Ausente = nunca sincronizou. */
   readonly sincronizadoEm?: Date;

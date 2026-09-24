@@ -31,8 +31,9 @@ describe('banco — migração da coluna de partes', () => {
   it('acrescenta a coluna num banco que já existia', () => {
     const db = bancoNoFormatoAntigo();
     const colunas = () =>
-      (db.prepare('PRAGMA table_info(acompanhamentos)').all() as Array<{ name: string }>)
-        .map((c) => c.name);
+      (
+        db.prepare('PRAGMA table_info(acompanhamentos)').all() as Array<{ name: string }>
+      ).map((c) => c.name);
 
     expect(colunas()).not.toContain('partes_texto');
     db.close();
@@ -113,7 +114,9 @@ describe('banco — retrocarga tolerante', () => {
           'ws1',
           '03115172220158090051',
           new Date().toISOString(),
-          JSON.stringify({ partes: [{ nome: 'Condomínio Sunsquare' }, { nome: 'José' }] }),
+          JSON.stringify({
+            partes: [{ nome: 'Condomínio Sunsquare' }, { nome: 'José' }],
+          }),
         );
       // Estado de quem atualizou o sistema com a base já cheia.
       primeiro.exec('UPDATE acompanhamentos SET partes_texto = NULL');
@@ -143,7 +146,12 @@ describe('banco — retrocarga tolerante', () => {
           `INSERT INTO acompanhamentos (workspace, numero, criado_em, processo)
            VALUES (?, ?, ?, ?)`,
         )
-        .run('ws1', '03115172220158090051', new Date().toISOString(), JSON.stringify({ partes: [] }));
+        .run(
+          'ws1',
+          '03115172220158090051',
+          new Date().toISOString(),
+          JSON.stringify({ partes: [] }),
+        );
       primeiro.exec('UPDATE acompanhamentos SET partes_texto = NULL');
       primeiro.close();
 
@@ -157,5 +165,37 @@ describe('banco — retrocarga tolerante', () => {
     } finally {
       rmSync(dirname(arquivo), { recursive: true, force: true });
     }
+  });
+
+  it('a coluna de cliente também é acrescentada, e NÃO tem retrocarga', () => {
+    /*
+     * A ausência de retrocarga é deliberada, e o teste existe para que ninguém
+     * "conserte" isso depois.
+     *
+     * A regra do repositório manda retrocarregar coluna nova, e vale para
+     * coluna DERIVADA de dado já guardado — `partes_texto` sai do JSON do
+     * processo que já está no banco, e sem a retrocarga o filtro enxergaria só
+     * o que foi sincronizado depois da atualização.
+     *
+     * `cliente` não sai de lugar nenhum: é o nome que o advogado dá à pasta, e
+     * nenhuma fonte sabe quem é o cliente dele — o tribunal entrega as partes
+     * sem dizer qual delas o consultante representa. Preencher com um palpite
+     * poria o nome do adversário na coluna "Cliente".
+     */
+    const db = abrirBanco(':memory:');
+    const colunas = (
+      db.prepare('PRAGMA table_info(acompanhamentos)').all() as Array<{ name: string }>
+    ).map((c) => c.name);
+    expect(colunas).toContain('cliente');
+
+    db.prepare(
+      `INSERT INTO acompanhamentos (workspace, numero, criado_em, processo)
+       VALUES ('w', '00000000000000000000', '2026-01-01T00:00:00.000Z', NULL)`,
+    ).run();
+    const linha = db
+      .prepare('SELECT cliente FROM acompanhamentos WHERE numero = ?')
+      .get('00000000000000000000') as { cliente: string | null };
+    expect(linha.cliente).toBeNull();
+    db.close();
   });
 });
