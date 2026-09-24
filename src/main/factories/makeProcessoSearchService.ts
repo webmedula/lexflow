@@ -295,7 +295,11 @@ export function montarAplicacao(config: Config): Aplicacao {
     );
   }
 
-  const pecas = montarServicoPecas(config, db, logger);
+  // A busca por número entra no serviço de peças para que a régua temporal
+  // tenha as publicações do DJEN que o tribunal não numera. Cai em cache, então
+  // não custa consulta nova quando a tela acabou de carregar o processo.
+  const buscarProcessoPorNumero = new BuscarProcessoPorNumero(provider);
+  const pecas = montarServicoPecas(config, db, logger, buscarProcessoPorNumero);
 
   const agendadorVigilancia =
     vigilancia && config.vigilancia.intervaloHoras > 0
@@ -337,7 +341,7 @@ export function montarAplicacao(config: Config): Aplicacao {
       : undefined;
 
   return {
-    buscarProcessoPorNumero: new BuscarProcessoPorNumero(provider),
+    buscarProcessoPorNumero,
     buscarProcessosPorOab: new BuscarProcessosPorOab(provider),
     orquestrador,
     provider,
@@ -377,6 +381,7 @@ function montarServicoPecas(
   config: Config,
   db: ReturnType<typeof abrirBanco>,
   logger: Logger,
+  processos: BuscarProcessoPorNumero,
 ): ServicoPecas | undefined {
   if (pareceValorDeExemplo(config.mni.chaveDoCofre)) {
     logger.warn(
@@ -426,6 +431,7 @@ function montarServicoPecas(
     baixar: new BaixarPecaDoProcesso(provedor, credenciais),
     credenciais,
     logger,
+    processos,
   });
 }
 

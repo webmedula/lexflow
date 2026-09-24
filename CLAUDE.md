@@ -528,6 +528,48 @@ Não são detalhes — moldam o código.
   porque a expressão regular não reconheceu o verbo é exatamente como se perde
   prazo, e nenhuma heurística merece esse poder. E toda triagem exibida vem
   acompanhada de "confira no ato completo".
+- **O único filtro que ESCONDE decide pelo positivo.** A partir da v0.24.0 há
+  "Apenas andamentos principais", e ele não contradiz a regra acima — foi
+  desenhado contra ela. `!exigeAcao` continua proibido como critério de
+  ocultação, porque é falso em dois casos muito diferentes: "movimento de
+  cartório reconhecido" e "a heurística não reconheceu o verbo". Filtrar por
+  ele esconderia preferencialmente aquilo sobre o que o sistema menos sabe.
+  `ehRuido` casa com a lista de cartório e mais nada; o desconhecido fica na
+  tela; ato que exige ação ou que ENTREGA DOCUMENTO nunca some (um "Juntada de
+  Petição de Contestação" é a peça da outra parte chegando aos autos); o filtro
+  nasce desligado; e a tela diz quantas linhas sumiram.
+- **A junção peça↔andamento só existe DENTRO da resposta do MNI.** Cada
+  `<documento>` aponta para o `identificadorMovimento` de um `<movimento>` da
+  mesma resposta — chave afirmada pelo tribunal, sem custo de consulta, porque
+  `movimentos: true` já é obrigatório para as peças virem. Correlacionar `Peca`
+  com a linha do DataJud ou do DJEN continua impossível e continua proibido:
+  numerações e vocabulários diferentes, sem campo em comum, e casar por data
+  pendura a contestação embaixo do despacho errado. Ao mexer nisso, o teste que
+  vale é `tests/domain/linha-do-tempo.spec.ts`.
+- **A régua degrada, nunca quebra.** Se nenhuma peça casar com movimento
+  nenhum, `montarLinhaDoTempo` devolve `espinha: 'fontes-publicas'` e a tela
+  volta ao desenho anterior. A tela só troca a linha do tempo quando a espinha
+  é a do tribunal — em modo degradado ela manteria os andamentos que já tinha,
+  porque uma régua vazia (consulta às fontes públicas falhando no servidor)
+  apagaria a tela inteira. Entre exibir a régua e não perder andamento, não
+  perder andamento.
+- **Reconciliar duas linhas do tempo NUNCA pode diminuir a contagem de atos.**
+  A comparação é por balde — mesmo dia, mesmo código da TPU (ou, sem código,
+  mesmo título normalizado) — e só se descarta a linha da fonte pública
+  enquanto o tribunal tiver pelo menos tantas linhas naquele balde. Três
+  juntadas no DataJud contra duas do tribunal: a terceira fica. Mesma razão que
+  está em `fusaoProcessos.ts` — duas linhas para o mesmo ato é incômodo visual;
+  uma linha ausente é prazo perdido.
+- **Redesenhar a tela do processo NÃO pode consultar o tribunal de novo.** O
+  redesenho passa por `carregarPecas`, e cada consulta ao MNI são dezenas de
+  segundos e mais uma oportunidade de recusa contra a conta do advogado. A
+  régua fica em cache na página, com botão explícito para atualizar. Qualquer
+  caminho novo que chame `redesenharDetalhe` herda isso — confira antes de
+  ligar um botão a ele.
+- **Evento que entrega documento não se agrupa em "×N".** O agrupador colapsa
+  linhas iguais consecutivas, e colapsar aqui esconderia quatro botões de
+  download distintos atrás de um contador — o problema que a régua veio
+  resolver.
 - **Varredura que falhou não se marca como feita.** `registrarFalha` NÃO toca em
   `varrida_em`: a próxima execução precisa cobrir a janela que esta não
   conseguiu ler. Marcar abriria um buraco silencioso no período exato em que a
@@ -699,7 +741,7 @@ banco com verificação de integridade** (v0.17.0),
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 502 testes.
+multi-stage, CI, 588 testes.
 
 **Entrega de e-mail (19/09/2026):** em produção via Resend, domínio
 `processovivo.com.br` verificado com DKIM próprio (`resend._domainkey`),
@@ -708,6 +750,12 @@ continuam apontando para o CyberPanel, que é onde mora a caixa
 `contato@processovivo.com.br` — enviar pelo Resend e receber no servidor
 próprio convivem sem conflito porque os registros do provedor ficam todos em
 subdomínios.
+
+**Régua temporal (v0.24.0):** com a resposta do MNI, a linha do tempo é a
+espinha da tela do processo — cada evento entrega os documentos daquele ato,
+a decisão salta aos olhos e há filtro de ruído que esconde só o cartório
+reconhecido. A lista de peças no rodapé guarda apenas o que não pôde ser
+pendurado em evento nenhum.
 
 **Cobrança (v0.21.0):** três planos (Acompanhamento, Peças, IA — o último
 modelado e fora de venda), teste de 14 dias no plano Peças para conta nova,

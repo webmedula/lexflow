@@ -1,4 +1,5 @@
 import type { ConteudoPeca, Peca } from '../entities/Peca.js';
+import type { Movimentacao } from '../entities/Movimentacao.js';
 
 /**
  * A credencial do advogado num tribunal.
@@ -56,6 +57,26 @@ export interface ProvedorDePecas {
    */
   listarPecas(numeroProcesso: string, credencial: CredencialTribunal): Promise<Peca[]>;
 
+  /**
+   * As peças MAIS os movimentos que o tribunal entregou na mesma resposta.
+   *
+   * Opcional porque nem toda fonte de peças tem linha do tempo própria. Onde
+   * existe, é o que permite entregar o documento na linha do evento em vez de
+   * numa lista apartada no rodapé — a junção peça↔andamento só é afirmada
+   * dentro de uma resposta do MNI, onde o `<documento>` aponta para o
+   * `identificadorMovimento` do `<movimento>` que o juntou.
+   *
+   * NÃO é uma segunda consulta: `listarPecas` já paga o pedágio de pedir
+   * `movimentos: true` (sem isso o tribunal não devolve documento nenhum) e
+   * jogava os movimentos fora. Quem implementa os dois DEVE fazer
+   * `listarPecas` delegar aqui, senão o tribunal é consultado duas vezes para
+   * montar uma tela — e cada consulta custa dezenas de segundos.
+   */
+  listarAtos?(
+    numeroProcesso: string,
+    credencial: CredencialTribunal,
+  ): Promise<AtosDoProcesso>;
+
   /** O arquivo de UMA peça. */
   obterConteudo(
     numeroProcesso: string,
@@ -75,6 +96,16 @@ export interface ProvedorDePecas {
     numeroProcesso: string,
     credencial: CredencialTribunal,
   ): Promise<AssinaturaDeMudanca>;
+}
+
+/** O que uma resposta do tribunal traz sobre o processo, numa consulta só. */
+export interface AtosDoProcesso {
+  readonly pecas: readonly Peca[];
+  /**
+   * A linha do tempo COMO O TRIBUNAL A NUMERA — é dela que as peças penduram.
+   * Vazia quando a fonte responde sem movimentos.
+   */
+  readonly movimentos: readonly Movimentacao[];
 }
 
 export interface AssinaturaDeMudanca {

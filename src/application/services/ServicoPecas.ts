@@ -1,6 +1,7 @@
 import { NumeroCNJ } from '../../domain/entities/NumeroCNJ.js';
 import { herdarOrigemPorMovimento } from '../../domain/entities/Peca.js';
 import type { ConteudoPeca, Peca } from '../../domain/entities/Peca.js';
+import type { Movimentacao } from '../../domain/entities/Movimentacao.js';
 import { CredencialTribunalInvalidaError } from '../../domain/errors/index.js';
 import type { Logger } from '../../domain/ports/Logger.js';
 import type {
@@ -10,12 +11,25 @@ import type {
 import type { CredencialTribunal } from '../../domain/ports/ProvedorDePecas.js';
 import type { BaixarPecaDoProcesso } from '../../domain/usecases/BaixarPecaDoProcesso.js';
 import type { ListarPecasDoProcesso } from '../../domain/usecases/ListarPecasDoProcesso.js';
+import type { BuscarProcessoPorNumero } from '../../domain/usecases/BuscarProcessoPorNumero.js';
+import {
+  batizarPeloCodigo,
+  montarLinhaDoTempo,
+} from '../../domain/entities/linhaDoTempo.js';
+import type { LinhaDoTempo } from '../../domain/entities/linhaDoTempo.js';
 
 export interface OpcoesServicoPecas {
   readonly listar: ListarPecasDoProcesso;
   readonly baixar: BaixarPecaDoProcesso;
   readonly credenciais: RepositorioCredenciais;
   readonly logger: Logger;
+  /**
+   * Opcional, e só para a régua temporal: é daqui que saem os andamentos das
+   * fontes públicas que o tribunal não cobriu. Sem ele a régua é montada só com
+   * o que o tribunal mandou — completa quanto ao tribunal, e sem as publicações
+   * do DJEN que ele não numera.
+   */
+  readonly processos?: BuscarProcessoPorNumero;
 }
 
 /**
@@ -35,21 +49,77 @@ export class ServicoPecas {
   private readonly baixar: BaixarPecaDoProcesso;
   private readonly credenciais: RepositorioCredenciais;
   private readonly logger: Logger;
+  private readonly processos: BuscarProcessoPorNumero | undefined;
 
   constructor(opcoes: OpcoesServicoPecas) {
     this.listar = opcoes.listar;
     this.baixar = opcoes.baixar;
     this.credenciais = opcoes.credenciais;
     this.logger = opcoes.logger.child({ servico: 'pecas' });
+    this.processos = opcoes.processos;
   }
 
-  async listarDoProcesso(workspace: string, numeroProcesso: string): Promise<Peca[]> {
-    const pecas = await this.registrando(workspace, numeroProcesso, () =>
+  /**
+   * A régua temporal: um evento por ato, cada um já com os seus documentos.
+   *
+   * A consulta às fontes públicas roda em paralelo com a do tribunal e o
+   * fracasso dela NÃO derruba a resposta: a régua do MNI sozinha já é mais
+   * completa do que a tela anterior, e trocar isso por um erro porque o DataJud
+   * oscilou seria piorar o que funciona por causa do que enfeita.
+   */
+  async linhaDoTempoDoProcesso(
+    workspace: string,
+    numeroProcesso: string,
+  ): Promise<LinhaDoTempo> {
+    const [atos, publicas] = await Promise.all([
+      this.listarDoProcesso(workspace, numeroProcesso),
+      this.movimentacoesPublicas(numeroProcesso),
+    ]);
+
+    return montarLinhaDoTempo({
+      movimentacoes: publicas,
+      movimentosDoTribunal: batizarPeloCodigo(atos.movimentos, publicas),
+      pecas: atos.pecas,
+    });
+  }
+
+  private async movimentacoesPublicas(
+    numeroProcesso: string,
+  ): Promise<readonly Movimentacao[]> {
+    if (!this.processos) return [];
+    try {
+      const processo = await this.processos.executar({ numeroProcesso });
+      return processo.movimentacoes;
+    } catch (erro) {
+      this.logger.debug('régua montada sem as fontes públicas', {
+        numeroProcesso,
+        motivo: erro instanceof Error ? erro.message : 'desconhecido',
+      });
+      return [];
+    }
+  }
+
+  /**
+   * As peças do processo e os movimentos que vieram na mesma resposta.
+   *
+   * Os dois juntos porque é assim que o tribunal responde — e porque separá-los
+   * em duas chamadas custaria uma segunda consulta de dezenas de segundos para
+   * montar uma única tela. Os movimentos são o que permite entregar cada
+   * documento na linha do evento que o juntou, em vez de numa lista no rodapé.
+   */
+  async listarDoProcesso(
+    workspace: string,
+    numeroProcesso: string,
+  ): Promise<{ pecas: Peca[]; movimentos: readonly Movimentacao[] }> {
+    const atos = await this.registrando(workspace, numeroProcesso, () =>
       this.listar.executar({ workspace, numeroProcesso }),
     );
     // A dedução por movimento é sobre o CONJUNTO, não sobre uma peça — por isso
     // acontece aqui e não no mapper, que monta uma de cada vez.
-    return herdarOrigemPorMovimento(pecas);
+    return {
+      pecas: herdarOrigemPorMovimento(atos.pecas),
+      movimentos: atos.movimentos,
+    };
   }
 
   async baixarPeca(

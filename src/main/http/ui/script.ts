@@ -10,6 +10,17 @@ export const SCRIPT = String.raw`
 var $=function(i){return document.getElementById(i)};
 var CH='processovivo.chave', VER='processovivo.verinternos';
 var FILTRO_MOV='processovivo.filtroMov';
+var SO_PRINCIPAIS='processovivo.soPrincipais';
+
+/* A régua carregada, guardada por processo.
+   Sem isto, cada clique num chip da linha do tempo redesenha o detalhe, que
+   chama carregarPecas de novo — outra consulta ao MNI, dezenas de segundos, e
+   mais uma chance de recusa contra a conta do advogado no tribunal. O cache
+   vive na página: recarregar limpa, e há botão para atualizar à mão. */
+var regua={numero:'',dados:null};
+/* O mesmo processo chega escrito de dois jeitos — mascarado na lista, só
+   dígitos na URL. Comparar as duas formas cruas faria o cache nunca acertar. */
+function soDigitos(n){return String(n||'').replace(/\D/g,'')}
 /** Textos completos dos andamentos exibidos, para o botão "ler o ato inteiro". */
 var janelaTextos=[];
 
@@ -800,8 +811,11 @@ function ligarBotoesDetalhe(numero,acompanhado){
 function agrupar(movs){
   var out=[],ult=null;
   movs.forEach(function(m){
-    var k=dt(m.data)+'|'+m.titulo;
-    if(ult&&ult.k===k){ult.n++;return}
+    /* Evento que ENTREGA documento nunca se agrupa. "Outros ×4" esconderia
+       quatro botões de download diferentes atrás de um contador — que é
+       exatamente o problema que a régua veio resolver. */
+    var k=(m.pecas&&m.pecas.length)?null:dt(m.data)+'|'+m.titulo;
+    if(k&&ult&&ult.k===k){ult.n++;return}
     ult={k:k,mov:m,n:1};out.push(ult)});
   return out;
 }
@@ -908,24 +922,60 @@ function processoHtml(p,acomp,op){
       p.valorCausa.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'</div></div>':'')+
     '</div>';
 
-  // 5. Linha do tempo, filtrável e expansível.
+  // 5. A régua temporal.
+  /* A régua só substitui a linha do tempo quando a espinha é a DO TRIBUNAL.
+     Degradada — MNI sem movimentos, ou chave que não bateu em peça nenhuma —
+     ela não acrescenta nada que a página já não tenha, e trocar uma pela outra
+     arriscaria apagar andamentos se a consulta às fontes públicas tivesse
+     falhado do lado do servidor. Entre exibir a régua e não perder andamento,
+     não perder andamento. */
+  var r=(regua.dados&&soDigitos(regua.numero)===soDigitos(p.numero)&&
+    regua.dados.resumo&&regua.dados.resumo.espinha==='tribunal')?regua.dados:null;
+  var eventos=r?r.eventos:movs;
+
   var ver=false; try{ver=localStorage.getItem(VER)==='1'}catch(e){}
   var filtro='tudo'; try{filtro=localStorage.getItem(FILTRO_MOV)||'tudo'}catch(e){}
+  var principais=false; try{principais=localStorage.getItem(SO_PRINCIPAIS)==='1'}catch(e){}
 
-  var base=ver?movs:movs.filter(function(m){return !INTERNOS[m.codigoTpu]});
+  var base=ver?eventos:eventos.filter(function(m){return !INTERNOS[m.codigoTpu]});
+  var escond=eventos.length-base.length;
+
+  /* O filtro de ruído decide pelo POSITIVO: some só o que o servidor
+     IDENTIFICOU como cartório (ver domain/entities/triagem.ts). Filtrar por
+     "não exige ação" esconderia também o que a heurística não soube
+     classificar — que é justamente onde ela erra, e onde se perde prazo. */
+  var escondRuido=0;
+  if(principais&&r){
+    var antesDoRuido=base.length;
+    base=base.filter(function(m){return !m.ehRuido});
+    escondRuido=antesDoRuido-base.length;
+  }
+
   var vis=base;
   if(filtro==='acao')vis=base.filter(function(m){return m.exigeAcao});
+  else if(filtro==='docs')vis=base.filter(function(m){return m.pecas&&m.pecas.length});
   else if(filtro==='teor')vis=base.filter(function(m){return m.conteudo});
-  var escond=movs.length-base.length, grupos=agrupar(vis);
+  var grupos=agrupar(vis);
 
   h+='<div class="cartao"><div class="titulo-secao" style="margin-bottom:6px">'+
-    '<h3 class="sec" style="margin:0">Andamentos · '+grupos.length+' de '+movs.length+'</h3>'+
+    '<h3 class="sec" style="margin:0">'+(r?'Linha do tempo':'Andamentos')+' · '+
+      grupos.length+' de '+eventos.length+'</h3>'+
     ((escond>0||ver)?'<button class="bt bt2" id="alternar">'+
       (ver?'Recolher internos':'Mostrar '+escond+' interno(s)')+'</button>':'')+'</div>';
+
+  /* O botão de ruído só aparece com a régua carregada: sem ela o servidor não
+     mandou a marcação, e um botão que não filtra nada é pior que botão nenhum. */
+  if(r){
+    h+='<div style="margin:0 0 10px"><button class="bt bt2" id="so-principais">'+
+      (principais?'Ver histórico completo':'Apenas andamentos principais')+'</button>'+
+      (principais&&escondRuido>0?'<span class="nota" style="margin-left:10px">'+
+        escondRuido+' registro(s) de cartório fora da tela</span>':'')+'</div>';
+  }
 
   h+='<div class="chips">'+
     chip('tudo','Tudo',filtro)+
     chip('acao','Pede providência',filtro)+
+    (r?chip('docs','Com documento',filtro):'')+
     chip('teor','Com inteiro teor',filtro)+
     '</div>';
 
@@ -940,9 +990,11 @@ function processoHtml(p,acomp,op){
     var a=anoDe(g.mov.data);
     if(a!==anoAtual){anoAtual=a;h+='<div class="ano">'+a+'</div>'}
     var m=g.mov, longo=m.conteudo&&m.conteudo.length>320;
-    h+='<div class="ev'+(MARCOS[m.codigoTpu]?' marco':'')+(m.exigeAcao?' pede':'')+'">'+
+    var decisao=m.ehDecisao||MARCOS[m.codigoTpu];
+    h+='<div class="ev'+(decisao?' decisao':'')+(m.exigeAcao?' pede':'')+'">'+
       '<div class="dt">'+dt(m.data)+'</div><div>'+
       '<div class="tt">'+esc(m.titulo)+(g.n>1?' <span class="xn">×'+g.n+'</span>':'')+
+      (decisao?' <span class="selo mc">decisão</span>':'')+
       (m.exigeAcao?' <span class="selo al">providência</span>':'')+'</div>'+
       (m.complementos&&m.complementos.length?'<div class="cp">'+esc(m.complementos.join(' · '))+'</div>':'')+
       (m.conteudo?'<div class="cp" id="tx'+idx+'">'+esc(longo?recorte(m.conteudo,320):m.conteudo)+'</div>'+
@@ -950,6 +1002,7 @@ function processoHtml(p,acomp,op){
       (m.teorIndisponivel?'<div class="nota">Documento não público no diário'+
         (m.url?' — <a href="'+esc(m.url)+'" target="_blank" rel="noopener noreferrer">abrir no tribunal</a>':'')+
         '</div>':'')+
+      documentosDoEvento(m.pecas)+
       '</div></div>';
   });
   h+='</div>';
@@ -964,6 +1017,14 @@ function processoHtml(p,acomp,op){
       try{localStorage.setItem(VER,ver?'0':'1')}catch(e){}
       redesenharDetalhe();
     });
+    var sp=$('so-principais');
+    if(sp)sp.addEventListener('click',function(){
+      try{localStorage.setItem(SO_PRINCIPAIS,principais?'0':'1')}catch(e){}
+      redesenharDetalhe();
+    });
+    // Os botões de download agora vivem DENTRO da linha do tempo, então quem
+    // os liga é quem desenha a linha do tempo.
+    ligarDownloadDePecas(p.numero);
     document.querySelectorAll('[data-chip]').forEach(function(el){
       el.addEventListener('click',function(){
         try{localStorage.setItem(FILTRO_MOV,el.getAttribute('data-chip'))}catch(e){}
@@ -1104,9 +1165,19 @@ function oferecerPecas(numero){
   if(b)b.addEventListener('click',function(){carregarPecas(numero)});
 }
 
-function carregarPecas(numero){
+function carregarPecas(numero,forcar){
   var resumo=$('pecas-resumo'), caixa=$('pecas');
   if(!caixa)return;
+
+  /* Cache antes de tudo.
+     Cada clique num chip da linha do tempo redesenha o detalhe, e o redesenho
+     passa por aqui. Sem o cache, filtrar a tela dispararia outra consulta ao
+     MNI: dezenas de segundos e mais uma oportunidade de recusa contra a conta
+     do advogado no tribunal. */
+  if(!forcar&&regua.dados&&soDigitos(regua.numero)===soDigitos(numero)){
+    desenharPecas(numero,regua.dados);
+    return;
+  }
 
   var carregando='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
     '<div class="nota"><span class="gira"></span>Consultando o tribunal…</div></div>';
@@ -1114,134 +1185,177 @@ function carregarPecas(numero){
   caixa.innerHTML='';
 
   api('/v1/processos/'+encodeURIComponent(numero)+'/pecas').then(function(r){
-    var pecas=(r.pecas||[]).slice();
+    var linha=r.linhaDoTempo||null;
+    regua={numero:numero,dados:linha};
 
-    if(!pecas.length){
-      var nada='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
-        '<div class="nota">O tribunal respondeu e não há nenhuma peça juntada '+
-        'neste processo até agora.</div></div>';
-      if(resumo)resumo.innerHTML=nada;
+    /* Com a espinha do tribunal, a página inteira muda de forma: cada evento
+       passa a entregar o documento dele. Redesenhar é o caminho — e o
+       redesenho volta aqui pelo cache, sem tocar no tribunal de novo. */
+    if(linha&&linha.resumo&&linha.resumo.espinha==='tribunal'){
+      redesenharDetalhe();
       return;
     }
-
-    /* Ordena da mais recente para a mais antiga.
-
-       O serviço não ordena e o tribunal devolve na ordem dele — que não é
-       cronológica. Sem isto, "as 5 mais recentes" do resumo seriam 5
-       quaisquer, e o advogado tiraria conclusão sobre o processo a partir de
-       uma amostra arbitrária. Peça sem data vai para o fim, nunca sumindo. */
-    pecas.sort(function(a,b){
-      var x=a.dataHora?Date.parse(a.dataHora):NaN, y=b.dataHora?Date.parse(b.dataHora):NaN;
-      if(isNaN(x)&&isNaN(y))return 0;
-      if(isNaN(x))return 1;
-      if(isNaN(y))return -1;
-      return y-x;
-    });
-
-    var daParte=pecas.filter(function(p){return p.origem==='PARTE'});
-
-    /* ---- resumo, no topo ---- */
-    if(resumo){
-      var rh='<div class="cartao"><div class="titulo-secao" style="margin-bottom:6px">'+
-        '<h3 class="sec" style="margin:0">Peças do processo · '+pecas.length+'</h3>'+
-        (pecas.length>5?'<button class="bt bt2" id="pecas-todas">Ver todas</button>':'')+
-        '</div>';
-      if(daParte.length){
-        rh+='<div class="nota">'+daParte.length+' de '+pecas.length+
-          ' foram juntadas pelas partes — petições, contestações, laudos e '+
-          'documentos. Essas o diário nunca publica.</div>';
-      }
-      /* O resumo mostra as das PARTES quando existem.
-
-         Medido num processo real: as 5 mais recentes do geral eram 1 petição e
-         4 "Outros" — logo abaixo da frase que promete justamente as peças das
-         partes. O cartão existe para mostrar o diferencial; preenchê-lo com o
-         que o tribunal não rotulou o transforma em ruído. */
-      var destaque=daParte.length?daParte:pecas;
-      destaque.slice(0,5).forEach(function(p){rh+=linhaDePeca(p)});
-      if(destaque.length>5){
-        rh+='<div class="nota">Mostrando as 5 mais recentes'+
-          (daParte.length?' juntadas pelas partes':'')+', de '+destaque.length+'.</div>';
-      }
-      rh+='</div>';
-      resumo.innerHTML=rh;
-      var vt=$('pecas-todas');
-      if(vt)vt.addEventListener('click',function(){
-        caixa.scrollIntoView({behavior:'smooth',block:'start'})});
-    }
-
-    /* ---- lista completa, no fim, agrupada por origem ---- */
-    /* A pergunta que traz o advogado às peças quase sempre é "o que a outra
-       parte alegou" — então esse grupo vem primeiro. DESCONHECIDA continua
-       visível: sumir com peça porque a heurística de origem não decidiu é
-       exatamente como se perde prazo. */
-    var grupos=[
-      {chave:'PARTE',titulo:'Juntadas pelas partes'},
-      {chave:'JUIZO',titulo:'Do juízo'},
-      {chave:'DESCONHECIDA',titulo:'Origem não identificada'}
-    ];
-    var h='<div class="cartao"><h3 class="sec">Todas as peças · '+pecas.length+'</h3>';
-    grupos.forEach(function(g){
-      var doGrupo=pecas.filter(function(p){
-        return (p.origem||'DESCONHECIDA')===g.chave});
-      if(!doGrupo.length)return;
-      h+='<div class="ano">'+g.titulo+' · '+doGrupo.length+'</div>';
-      /* Diz quantas foram DEDUZIDAS. O tribunal não rotula anexo, e o sistema
-         conclui a origem pelo ato que juntou o documento. Concluir é legítimo;
-         apresentar conclusão como se fosse o que a fonte afirmou, não. */
-      var deduzidas=doGrupo.filter(function(p){return p.origemDeduzida}).length;
-      if(deduzidas){
-        h+='<div class="nota">'+deduzidas+' destas o tribunal não rotulou — a '+
-          'origem foi deduzida do ato que as juntou.</div>';
-      }
-      doGrupo.forEach(function(p){h+=linhaDePeca(p)});
-    });
-    h+='</div>';
-    caixa.innerHTML=h;
-
-    ligarDownloadDePecas(numero);
+    desenharPecas(numero,linha);
   }).catch(function(e){
-    var alvo=resumo||caixa;
-
-    /* Negativa de acesso NÃO é "processo sem peças".
-
-       O tribunal responde sucesso com o cabeçalho e sem a linha do tempo
-       quando o acesso cadastrado não consta nos autos. Dizer "nenhuma peça"
-       aqui faria o advogado concluir que o processo está vazio. */
-    if(e.codigo==='SEM_HABILITACAO_NOS_AUTOS'){
-      alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
-        '<div class="nota">'+esc(e.message)+'</div>'+
-        '<div style="margin-top:12px"><button class="bt bt2" id="ir-cred">Conferir meus acessos</button></div></div>';
-      var b0=$('ir-cred');
-      if(b0)b0.addEventListener('click',function(){ir('credenciais')});
-      return;
-    }
-
-    if(e.status===428){
-      alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
-        '<div class="nota">Petições, contestações e documentos juntados pelas partes não são '+
-        'publicados no diário — só saem do sistema do tribunal, para quem está habilitado nos autos.</div>'+
-        '<div style="margin-top:12px"><button class="bt" id="ir-cred">Cadastrar o acesso do advogado</button></div></div>';
-      var b=$('ir-cred');
-      if(b)b.addEventListener('click',function(){ir('credenciais')});
-      return;
-    }
-
-    if(e.status===403){
-      alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
-        '<div class="nota">'+esc(e.message)+'</div></div>';
-      return;
-    }
-
-    if(e.status===501){
-      alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
-        '<div class="nota">O acesso a peças não está configurado neste servidor.</div></div>';
-      return;
-    }
-
-    alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
-      '<div class="nota" style="color:var(--erro)">'+esc(explicar(e))+'</div></div>';
+    regua={numero:'',dados:null};
+    erroDePecas(resumo||caixa,e);
   });
+}
+
+/**
+ * Desenha o cartão do topo e o que sobrou para o rodapé.
+ *
+ * O rodapé encolhe até sumir conforme a junção peça↔andamento funciona: ele
+ * guarda só o que não pôde ser pendurado em evento nenhum. Sumir com essas
+ * peças seria pior que o desenho antigo — elas existem nos autos.
+ */
+function desenharPecas(numero,linha){
+  var resumo=$('pecas-resumo'), caixa=$('pecas');
+  if(!caixa)return;
+  caixa.innerHTML='';
+
+  var res=(linha&&linha.resumo)||{};
+  var soltas=(linha&&linha.pecasSoltas)||[];
+  var naRegua=res.pecasAcopladas||0;
+  var total=naRegua+soltas.length;
+
+  if(!total){
+    var nada='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+      '<div class="nota">O tribunal respondeu e não há nenhuma peça juntada '+
+      'neste processo até agora.</div></div>';
+    if(resumo)resumo.innerHTML=nada;
+    return;
+  }
+
+  if(resumo){
+    var rh='<div class="cartao"><div class="titulo-secao" style="margin-bottom:6px">'+
+      '<h3 class="sec" style="margin:0">Peças do processo · '+total+'</h3>'+
+      '<button class="bt bt2" id="pecas-atualizar">Atualizar</button></div>';
+    if(naRegua){
+      rh+='<div class="nota">'+naRegua+' de '+total+' estão na linha do tempo, '+
+        'no evento que as juntou — o botão de baixar fica na própria linha.'+
+        (res.decisoes?' '+res.decisoes+' decisão(ões) em destaque.':'')+'</div>';
+    }
+    if(soltas.length){
+      rh+='<div class="nota">'+soltas.length+' não puderam ser ligadas a um '+
+        'andamento e ficaram na lista ao fim da página.</div>';
+    }
+    rh+='</div>';
+    resumo.innerHTML=rh;
+    var at=$('pecas-atualizar');
+    if(at)at.addEventListener('click',function(){carregarPecas(numero,true)});
+  }
+
+  if(soltas.length)caixa.innerHTML=listaDePecasHtml(soltas,naRegua?'Peças sem andamento':'Todas as peças');
+  ligarDownloadDePecas(numero);
+}
+
+/* A lista agrupada por origem — o que era a tela inteira das peças e hoje é só
+   o resto. A pergunta que traz o advogado às peças quase sempre é "o que a
+   outra parte alegou", então esse grupo vem primeiro. DESCONHECIDA continua
+   visível: sumir com peça porque a heurística de origem não decidiu é
+   exatamente como se perde prazo. */
+function listaDePecasHtml(pecas,titulo){
+  var lista=pecas.slice();
+  lista.sort(function(a,b){
+    var x=a.dataHora?Date.parse(a.dataHora):NaN, y=b.dataHora?Date.parse(b.dataHora):NaN;
+    if(isNaN(x)&&isNaN(y))return 0;
+    if(isNaN(x))return 1;
+    if(isNaN(y))return -1;
+    return y-x;
+  });
+  var grupos=[
+    {chave:'PARTE',titulo:'Juntadas pelas partes'},
+    {chave:'JUIZO',titulo:'Do juízo'},
+    {chave:'DESCONHECIDA',titulo:'Origem não identificada'}
+  ];
+  var h='<div class="cartao"><h3 class="sec">'+esc(titulo)+' · '+lista.length+'</h3>';
+  grupos.forEach(function(g){
+    var doGrupo=lista.filter(function(p){return (p.origem||'DESCONHECIDA')===g.chave});
+    if(!doGrupo.length)return;
+    h+='<div class="ano">'+g.titulo+' · '+doGrupo.length+'</div>';
+    /* Diz quantas foram DEDUZIDAS. O tribunal não rotula anexo, e o sistema
+       conclui a origem pelo ato que juntou o documento. Concluir é legítimo;
+       apresentar conclusão como se fosse o que a fonte afirmou, não. */
+    var deduzidas=doGrupo.filter(function(p){return p.origemDeduzida}).length;
+    if(deduzidas){
+      h+='<div class="nota">'+deduzidas+' destas o tribunal não rotulou — a '+
+        'origem foi deduzida do ato que as juntou.</div>';
+    }
+    doGrupo.forEach(function(p){h+=linhaDePeca(p)});
+  });
+  return h+'</div>';
+}
+
+/**
+ * O erro das peças traduzido para a ação que resolve.
+ *
+ * Cada ramo existe porque a mensagem genérica mandaria a pessoa ao lugar
+ * errado: negativa de acesso vira "confira de quem é a credencial", falta de
+ * credencial vira "cadastre", plano vira a mensagem do plano, e configuração
+ * ausente é problema nosso, não dela.
+ */
+function erroDePecas(alvo,e){
+  /* Negativa de acesso NÃO é "processo sem peças".
+
+     O tribunal responde sucesso com o cabeçalho e sem a linha do tempo quando
+     o acesso cadastrado não consta nos autos. Dizer "nenhuma peça" aqui faria
+     o advogado concluir que o processo está vazio. */
+  if(e.codigo==='SEM_HABILITACAO_NOS_AUTOS'){
+    alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+      '<div class="nota">'+esc(e.message)+'</div>'+
+      '<div style="margin-top:12px"><button class="bt bt2" id="ir-cred">Conferir meus acessos</button></div></div>';
+    var b0=$('ir-cred');
+    if(b0)b0.addEventListener('click',function(){ir('credenciais')});
+    return;
+  }
+
+  if(e.status===428){
+    alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+      '<div class="nota">Petições, contestações e documentos juntados pelas partes não são '+
+      'publicados no diário — só saem do sistema do tribunal, para quem está habilitado nos autos.</div>'+
+      '<div style="margin-top:12px"><button class="bt" id="ir-cred">Cadastrar o acesso do advogado</button></div></div>';
+    var b=$('ir-cred');
+    if(b)b.addEventListener('click',function(){ir('credenciais')});
+    return;
+  }
+
+  if(e.status===403){
+    alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+      '<div class="nota">'+esc(e.message)+'</div></div>';
+    return;
+  }
+
+  if(e.status===501){
+    alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+      '<div class="nota">O acesso a peças não está configurado neste servidor.</div></div>';
+    return;
+  }
+
+  alvo.innerHTML='<div class="cartao"><h3 class="sec">Peças do processo</h3>'+
+    '<div class="nota" style="color:var(--erro)">'+esc(explicar(e))+'</div></div>';
+}
+
+/**
+ * Os documentos que ESTE ato juntou, na linha dele.
+ *
+ * É o ajuste que o advogado pediu como mais urgente, e a razão é de rotina:
+ * ler "14/09 · Petição da parte", memorizar a data e rolar até o rodapé para
+ * caçar o arquivo no meio de 278 peças não acontece na correria do escritório.
+ *
+ * O rótulo do botão é texto puro de propósito: ligarDownloadDePecas troca o
+ * texto por "baixando…" e o repõe depois, e qualquer marcação aqui dentro
+ * seria perdida na reposição. Origem e sigilo viram CLASSE, não elemento.
+ */
+function documentosDoEvento(pecas){
+  if(!pecas||!pecas.length)return '';
+  var h='<div class="docs">';
+  pecas.forEach(function(p){
+    var cls='doc'+(p.origem==='PARTE'?' parte':'')+(p.sigilosa?' sigilosa':'');
+    h+='<button class="'+cls+'" data-peca="'+esc(p.id)+'">'+
+      esc(formatoDaPeca(p.mimetype))+' · '+esc(recorte(p.rotulo,44))+'</button>';
+  });
+  return h+'</div>';
 }
 
 /** Uma linha de peça. Mesma forma no resumo e na lista completa. */
@@ -1287,6 +1401,12 @@ function formatoDaPeca(mime){
  */
 function ligarDownloadDePecas(numero){
   document.querySelectorAll('[data-peca]').forEach(function(el){
+    /* Os botões passaram a existir em dois lugares (na régua e no rodapé das
+       peças soltas), e as duas funções que desenham chamam esta. Sem a marca,
+       o segundo registro duplicaria o clique — dois downloads e duas trocas de
+       rótulo disputando o mesmo botão. */
+    if(el.getAttribute('data-ligado'))return;
+    el.setAttribute('data-ligado','1');
     el.addEventListener('click',function(){
       var id=el.getAttribute('data-peca');
       var rotulo=el.textContent;

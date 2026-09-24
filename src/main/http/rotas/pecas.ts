@@ -65,12 +65,39 @@ export function rotasDePecas(
       '/v1/processos/:numero/pecas',
       async (req) => {
         await exigirPlano(req);
-        const pecas = await exigirServico().listarDoProcesso(
+        const linha = await exigirServico().linhaDoTempoDoProcesso(
           workspaceDe(req),
           req.params.numero,
         );
+        const pecas = [
+          ...linha.pecasSoltas,
+          ...linha.eventos.flatMap((e) => e.pecas ?? []),
+        ];
 
         return {
+          // A régua é o que a tela desenha: cada evento já com os documentos
+          // daquele ato. `pecas` continua aqui porque a rota é pública para
+          // integração (n8n) e quebrar o contrato dela não tem justificativa —
+          // e porque é o que sobra quando a junção não acontece.
+          linhaDoTempo: {
+            resumo: linha.resumo,
+            eventos: linha.eventos.map((e) => ({
+              data: e.data.toISOString(),
+              titulo: e.titulo,
+              fonte: e.fonte ?? null,
+              exigeAcao: e.exigeAcao === true,
+              ehRuido: e.ehRuido === true,
+              ehDecisao: e.ehDecisao === true,
+              motivoDaTriagem: e.motivoDaTriagem ?? null,
+              conteudo: e.conteudo ?? null,
+              codigoTpu: e.codigoTpu ?? null,
+              complementos: e.complementos ?? [],
+              url: e.url ?? null,
+              teorIndisponivel: e.teorIndisponivel === true,
+              pecas: (e.pecas ?? []).map((p) => p.toJSON()),
+            })),
+            pecasSoltas: linha.pecasSoltas.map((p) => p.toJSON()),
+          },
           total: pecas.length,
           // "Quantas têm arquivo", e NÃO "quantas eu consigo abrir".
           //

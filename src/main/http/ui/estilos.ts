@@ -173,6 +173,31 @@ h3.sec{font-size:12px;font-weight:700;text-transform:uppercase;
   border-bottom:1px solid var(--linha)}
 .acao:last-of-type{border-bottom:0}
 .ev.pede .tt{font-weight:600}
+
+/* ---------- régua temporal ---------- */
+/* Três níveis de ênfase, e só três. A crítica que originou isto foi de um
+   advogado: numa lista de 381 andamentos a decisão de 03/03 estava
+   "visualmente perdida no meio dos Outros ×2". A régua marca o pronunciamento
+   do juízo com fundo, e o que pede providência com a régua de acento à
+   esquerda — o mesmo recurso do cartão de alerta, para a página inteira falar
+   uma língua só. O resto fica neutro de propósito: se tudo salta aos olhos,
+   nada salta. */
+.ev.decisao{background:var(--marco-bg);border-radius:8px;padding:10px 12px;
+  margin:2px 0;border-top:0}
+.ev.decisao .tt{font-weight:700}
+.ev.decisao .dt{color:var(--marco);font-weight:700}
+.ev.pede{border-left:3px solid var(--acento);padding-left:11px}
+
+/* O documento na linha do evento — o que aposentou a lista de anexos no
+   rodapé. Botão de verdade, não link de texto: é a ação mais frequente da
+   tela e precisa de área de clique no celular. */
+.docs{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.doc{background:var(--papel2);border:1px solid var(--linha);color:var(--tinta);
+  border-radius:7px;padding:5px 10px;font-size:12.5px;cursor:pointer;
+  font-family:inherit;text-align:left;max-width:100%;line-height:1.35}
+.doc:hover{border-color:var(--acento);color:var(--acento)}
+.doc.parte{border-left:3px solid var(--novo)}
+.doc.sigilosa{border-left:3px solid var(--erro)}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
 .chip{background:transparent;border:1px solid var(--linha);color:var(--tinta2);
   border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer;

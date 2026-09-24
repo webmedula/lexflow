@@ -10,6 +10,7 @@ import {
 import type { Logger } from '../../../domain/ports/Logger.js';
 import type {
   AssinaturaDeMudanca,
+  AtosDoProcesso,
   CredencialTribunal,
   ProvedorDePecas,
 } from '../../../domain/ports/ProvedorDePecas.js';
@@ -29,6 +30,7 @@ import {
   abrirEnvelope,
   extrairAssinatura,
   extrairConteudoDoDocumento,
+  extrairMovimentos,
   extrairPecas,
   tribunalEntregouOConteudo,
 } from './mni.mapper.js';
@@ -162,10 +164,26 @@ export class MniAdapter implements ProvedorDePecas {
       });
   }
 
+  /**
+   * As peças sozinhas. Delega para `listarAtos` e joga os movimentos fora.
+   *
+   * Continua existindo porque é o que a porta exige de toda fonte de peças, e
+   * porque há chamador que só quer a lista. NÃO faz consulta própria: uma
+   * segunda chamada ao tribunal para montar a mesma tela custaria mais dezenas
+   * de segundos e mais uma oportunidade de recusa contra a conta do advogado.
+   */
   async listarPecas(
     numeroProcesso: string,
     credencial: CredencialTribunal,
   ): Promise<Peca[]> {
+    const { pecas } = await this.listarAtos(numeroProcesso, credencial);
+    return [...pecas];
+  }
+
+  async listarAtos(
+    numeroProcesso: string,
+    credencial: CredencialTribunal,
+  ): Promise<AtosDoProcesso> {
     // `movimentos: true` é OBRIGATÓRIO para a lista de peças aparecer, e isso
     // não está escrito em lugar nenhum do MNI. Medido no TJGO, mesmo processo,
     // mesma credencial, mesmo `incluirDocumentos: true`:
@@ -204,12 +222,14 @@ export class MniAdapter implements ProvedorDePecas {
     }
 
     const pecas = extrairPecas(resposta.conteudo, anexos);
+    const movimentos = extrairMovimentos(resposta.conteudo);
     this.logger.debug('peças listadas', {
       numeroProcesso,
       pecas: pecas.length,
+      movimentos: movimentos.length,
       comTeor: pecas.filter((p) => p.conteudoDisponivel).length,
     });
-    return pecas;
+    return { pecas, movimentos };
   }
 
   async obterConteudo(
@@ -361,11 +381,7 @@ export class MniAdapter implements ProvedorDePecas {
   }
 }
 
-function nomeDeArquivo(
-  numeroProcesso: string,
-  idPeca: string,
-  mimetype: string,
-): string {
+function nomeDeArquivo(numeroProcesso: string, idPeca: string, mimetype: string): string {
   return `${numeroProcesso}-peca-${idPeca}.${extensaoDe(mimetype)}`;
 }
 

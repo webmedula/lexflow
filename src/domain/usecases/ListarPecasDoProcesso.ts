@@ -1,10 +1,9 @@
 import { NumeroCNJ } from '../entities/NumeroCNJ.js';
-import type { Peca } from '../entities/Peca.js';
 import {
   CredencialTribunalAusenteError,
   OperacaoNaoSuportadaError,
 } from '../errors/index.js';
-import type { ProvedorDePecas } from '../ports/ProvedorDePecas.js';
+import type { AtosDoProcesso, ProvedorDePecas } from '../ports/ProvedorDePecas.js';
 import type { RepositorioCredenciais } from '../ports/RepositorioCredenciais.js';
 
 export interface EntradaListarPecas {
@@ -37,15 +36,23 @@ export class ListarPecasDoProcesso {
    * @throws {OperacaoNaoSuportadaError} nenhuma fonte de peças atende esse tribunal
    * @throws {CredencialTribunalAusenteError} o workspace não cadastrou o acesso
    * @throws {CredencialTribunalInvalidaError | ProviderIndisponivelError}
+   * @returns as peças E os movimentos que o tribunal entregou na mesma resposta
    */
-  async executar(entrada: EntradaListarPecas): Promise<Peca[]> {
+  async executar(entrada: EntradaListarPecas): Promise<AtosDoProcesso> {
     const numero = NumeroCNJ.criar(entrada.numeroProcesso);
     const tribunal = this.exigirTribunalAtendido(numero);
 
     const credencial = await this.credenciais.obter(entrada.workspace, tribunal);
     if (!credencial) throw new CredencialTribunalAusenteError(tribunal);
 
-    return this.provedor.listarPecas(numero.digitos, credencial);
+    // `listarAtos` quando a fonte tem linha do tempo própria, e é ela que
+    // permite entregar o documento na linha do evento. Fonte que não tem cai no
+    // caminho antigo e a tela degrada para a lista no rodapé — nunca quebra.
+    if (this.provedor.listarAtos) {
+      return this.provedor.listarAtos(numero.digitos, credencial);
+    }
+    const pecas = await this.provedor.listarPecas(numero.digitos, credencial);
+    return { pecas, movimentos: [] };
   }
 
   /**

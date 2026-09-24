@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { Peca } from '../../../domain/entities/Peca.js';
 import type { PecaProps } from '../../../domain/entities/Peca.js';
+import type { Movimentacao } from '../../../domain/entities/Movimentacao.js';
 import type { AssinaturaDeMudanca } from '../../../domain/ports/ProvedorDePecas.js';
 import { resolverReferencia } from './mtom.js';
 import type { ParteMultipart } from './mtom.js';
@@ -112,6 +113,75 @@ export function extrairPecas(
 }
 
 /**
+ * Extrai os MOVIMENTOS de um `consultarProcessoResposta`.
+ *
+ * Eles já vinham na resposta desde a primeira versão do adapter — `movimentos:
+ * true` é obrigatório para as peças aparecerem — e eram descartados. Descartar
+ * era o que obrigava a lista de documentos a viver num rodapé apartado: sem o
+ * movimento, o documento não tem a que evento pertencer.
+ *
+ * `identificadorMovimento` é a outra ponta do atributo `movimento` que cada
+ * `<documento>` carrega. É a ÚNICA junção peça↔andamento afirmada por uma
+ * fonte: as outras duas linhas do tempo (DataJud e DJEN) numeram movimento de
+ * outro jeito e não têm campo em comum com o MNI. Por isso a espinha da tela,
+ * quando esta resposta existe, é esta lista — e não a montada das fontes
+ * públicas.
+ *
+ * Movimento sem data é descartado: a linha do tempo o colocaria em algum lugar,
+ * e qualquer lugar escolhido seria mentira sobre quando o ato aconteceu.
+ */
+export function extrairMovimentos(conteudo: Registro): Movimentacao[] {
+  const processo = registro(conteudo['processo']);
+  if (!processo) return [];
+
+  const saida: Movimentacao[] = [];
+  for (const bruto of lista(processo['movimento'])) {
+    const data = interpretarDataHora(atributo(bruto, 'dataHora'));
+    if (!data) continue;
+
+    const reg = registro(bruto) ?? {};
+    const local = registro(reg['movimentoLocal']);
+    const nacional = registro(reg['movimentoNacional']);
+
+    const complementos = [
+      ...lista(reg['complemento']),
+      ...lista(nacional?.['complemento']),
+      ...lista(local?.['complemento']),
+    ]
+      .map((c) => texto(c))
+      .filter((c): c is string => Boolean(c));
+
+    const codigoTpu =
+      inteiro(atributo(nacional, 'codigoNacional')) ??
+      inteiro(atributo(local, 'codigoPaiNacional'));
+
+    // O título sai do que o tribunal escreveu COMO NOME DO ATO, e de mais nada.
+    //
+    // O complemento chega perto e não serve: "tipo_de_decisao: liminar" é
+    // qualificador, não nome — viraria o título da linha, e ainda impediria a
+    // troca pelo nome da TPU, porque `batizarPeloCodigo` só mexe em título que
+    // ainda é o código. O último recurso nomeia pelo código de propósito:
+    // linha sem título nenhum seria pior, e esse texto é justamente o que a
+    // TPU do DataJud substitui depois.
+    const identificador = atributo(bruto, 'identificadorMovimento');
+    const titulo =
+      atributo(local, 'descricao') ??
+      texto(reg['descricao']) ??
+      (codigoTpu !== undefined ? `Movimento ${codigoTpu}` : 'Movimento sem descrição');
+
+    saida.push({
+      data,
+      titulo,
+      ...(codigoTpu !== undefined ? { codigoTpu } : {}),
+      ...(complementos.length > 0 ? { complementos } : {}),
+      ...(identificador ? { idExterno: `${NOME_MNI}:${identificador}` } : {}),
+      fonte: NOME_MNI,
+    });
+  }
+  return saida;
+}
+
+/**
  * O tribunal entregou a linha do tempo, ou só o cabeçalho?
  *
  * É a única pergunta que separa "processo sem peças" de "você não tem acesso
@@ -140,7 +210,9 @@ export function extrairPecas(
 export function tribunalEntregouOConteudo(conteudo: Registro): boolean {
   const processo = registro(conteudo['processo']);
   if (!processo) return false;
-  return lista(processo['movimento']).length > 0 || lista(processo['documento']).length > 0;
+  return (
+    lista(processo['movimento']).length > 0 || lista(processo['documento']).length > 0
+  );
 }
 
 /** Bytes de um documento específico, quando ele veio na resposta. */
@@ -190,10 +262,7 @@ function parametroExtra(bruto: unknown, nome: string): string | undefined {
   return undefined;
 }
 
-function montarPeca(
-  bruto: unknown,
-  anexos: ReadonlyMap<string, ParteMultipart>,
-): Peca {
+function montarPeca(bruto: unknown, anexos: ReadonlyMap<string, ParteMultipart>): Peca {
   const reg = registro(bruto) ?? {};
   const vinculadas = lista(reg['documentoVinculado']).map((v) => montarPeca(v, anexos));
 

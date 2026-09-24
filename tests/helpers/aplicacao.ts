@@ -154,6 +154,9 @@ export function aplicacaoDeTeste(
           baixar: new BaixarPecaDoProcesso(provedor, credenciais),
           credenciais,
           logger: loggerSilencioso,
+          // A régua temporal precisa das fontes públicas para as publicações
+          // que o tribunal não numera.
+          processos: new BuscarProcessoPorNumero(orquestrador),
         });
       })()
     : undefined;

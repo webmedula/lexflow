@@ -13,6 +13,14 @@ import type { Movimentacao } from './Movimentacao.js';
  * destacar. Sumir com um ato porque a heurística não reconheceu o verbo é
  * exatamente como se perde prazo, e nenhuma expressão regular merece esse
  * poder. A interface mostra tudo; a triagem só diz o que olhar primeiro.
+ *
+ * Desde a v0.24.0 existe UM filtro que esconde, e ele foi desenhado contra o
+ * parágrafo acima, não apesar dele: `ehRuido` decide pelo POSITIVO (casou com a
+ * lista de cartório), o desconhecido permanece visível, ato que exige ação ou
+ * entrega documento nunca é escondido, o filtro nasce desligado, é o advogado
+ * quem o liga, e a tela diz quantas linhas sumiram. `!exigeAcao` continua
+ * proibido como critério de ocultação — ele esconderia justamente aquilo que a
+ * heurística não soube classificar.
  */
 
 /**
@@ -74,6 +82,65 @@ const TIPOS_DE_CARTORIO = [
   /\bdesarquivamento\b/i,
 ];
 
+/**
+ * O ato é registro de cartório RECONHECIDO como tal?
+ *
+ * Existe separado de `exigeAcao === false` porque os dois não são a mesma
+ * coisa, e confundi-los é o jeito de perder prazo com a tela ajudando. Hoje
+ * `exigeAcao` é falso em DOIS casos muito diferentes:
+ *
+ *   - "Juntada de petição"  → reconhecido como cartório
+ *   - "Redistribuído por prevenção ao juízo da 3ª Vara" → a heurística não
+ *     reconheceu o verbo e devolveu falso por não saber
+ *
+ * Um filtro por `!exigeAcao` esconderia os dois. O segundo é justamente onde a
+ * heurística falha, então o filtro esconderia preferencialmente aquilo sobre o
+ * que o sistema menos sabe. Este predicado responde pelo POSITIVO: só é ruído o
+ * que casou com a lista de cartório. O desconhecido continua na tela.
+ *
+ * Duas recusas absolutas, e as duas vêm do que o advogado disse procurar:
+ *  1. ato que exige ação nunca é ruído, mesmo que o título diga "juntada";
+ *  2. ato que ENTREGA DOCUMENTO nunca é ruído — "Juntada de Petição de
+ *     Contestação" é literalmente a petição da outra parte chegando aos autos,
+ *     e some numa varredura ingênua por "juntada".
+ */
+/**
+ * O ato é um pronunciamento do juízo — sentença, decisão, acórdão, despacho?
+ *
+ * Serve só para DESTACAR. Num processo de 381 andamentos, a decisão de 03/03
+ * fica visualmente indistinguível de "Outros ×2", e foi isso que um advogado
+ * apontou ao usar a tela. É o inverso do ruído: aquele tira da frente, este
+ * puxa para a frente, e nenhum dos dois esconde nada.
+ *
+ * Não inclui intimação, citação e notificação — são atos de comunicação, e
+ * marcá-los como pronunciamento encheria a tela de destaque até o destaque não
+ * significar mais nada.
+ */
+const PRONUNCIAMENTOS = [
+  /\bsenten[çc]a\b/i,
+  /\bdecis[ãa]o\b/i,
+  /\bac[óo]rd[ãa]o\b/i,
+  /\bdespacho\b/i,
+  /\bhomologa[çc][ãa]o\b/i,
+  /\bjulgamento\b/i,
+];
+
+export function ehDecisao(movimentacao: Movimentacao): boolean {
+  // "Juntada de cópia da decisão" é cartório levando a decisão aos autos, não a
+  // decisão sendo proferida. Sem esta linha o destaque vaza para a juntada.
+  if (TIPOS_DE_CARTORIO.some((r) => r.test(movimentacao.titulo))) return false;
+  return PRONUNCIAMENTOS.some((r) => r.test(movimentacao.titulo));
+}
+
+export function ehRuido(
+  movimentacao: Movimentacao,
+  opcoes: { readonly entregaDocumento?: boolean } = {},
+): boolean {
+  if (opcoes.entregaDocumento) return false;
+  if (triar(movimentacao).exigeAcao) return false;
+  return TIPOS_DE_CARTORIO.some((r) => r.test(movimentacao.titulo));
+}
+
 export interface Triagem {
   /** Abre prazo ou pede providência — é o que o advogado precisa olhar. */
   readonly exigeAcao: boolean;
@@ -97,8 +164,7 @@ export function triar(movimentacao: Movimentacao): Triagem {
     return { exigeAcao: true, motivo: 'o ato menciona prazo em dias' };
   }
 
-  const determinacao =
-    temTexto && DETERMINACOES.some((r) => r.test(texto));
+  const determinacao = temTexto && DETERMINACOES.some((r) => r.test(texto));
   if (determinacao) {
     return { exigeAcao: true, motivo: 'o ato contém determinação ao advogado' };
   }
@@ -115,9 +181,7 @@ export function triar(movimentacao: Movimentacao): Triagem {
 }
 
 /** Aplica a triagem numa lista, preservando tudo o mais. */
-export function triarTodas(
-  movimentacoes: readonly Movimentacao[],
-): Movimentacao[] {
+export function triarTodas(movimentacoes: readonly Movimentacao[]): Movimentacao[] {
   return movimentacoes.map((m) => {
     const { exigeAcao } = triar(m);
     return exigeAcao ? { ...m, exigeAcao: true } : m;
@@ -128,9 +192,7 @@ export function triarTodas(
  * Os andamentos que pedem providência, do mais recente para o mais antigo.
  * É o que alimenta o topo da tela e o corpo do e-mail.
  */
-export function pendencias(
-  movimentacoes: readonly Movimentacao[],
-): Movimentacao[] {
+export function pendencias(movimentacoes: readonly Movimentacao[]): Movimentacao[] {
   return movimentacoes
     .filter((m) => triar(m).exigeAcao)
     .slice()

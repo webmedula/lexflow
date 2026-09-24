@@ -9,6 +9,76 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.24.0] — 2026-09-24
+
+A crítica veio de um advogado em exercício usando a tela, e é sobre rotina, não
+sobre estética: ler "14/09 · Petição da parte" no andamento, memorizar a data e
+rolar a página até o rodapé para caçar o arquivo no meio de 278 peças não
+acontece na correria de um escritório. A lista de anexos no rodapé está
+aposentada; a linha do tempo virou a espinha dorsal da tela.
+
+### O obstáculo que eu tinha declarado — e por que ele era o obstáculo errado
+
+Nas versões anteriores eu disse que casar peça com andamento não era
+confiável. A razão continua correta: `Peca.movimento` é o identificador do
+movimento **no MNI**, e a linha do tempo da tela vem do DataJud e do DJEN, que
+numeram movimento de outro jeito e não têm campo em comum. Casar por data
+penduraria a contestação embaixo do despacho errado.
+
+O que faltava ver: **a resposta do MNI que traz as peças também traz os
+movimentos** — 381 num processo real — e o mapper os descartava. Cada
+`<documento>` aponta para o `identificadorMovimento` do `<movimento>` que o
+juntou. A junção não atravessa fontes: é uma chave que o tribunal afirmou,
+dentro de um único XML, sem consulta nova.
+
+### Adicionado
+
+- **Régua temporal: cada evento entrega o documento na própria linha.** Com a
+  resposta do tribunal, a linha do tempo passa a ser montada dos movimentos do
+  MNI, cada um já com os seus documentos e um botão de baixar por documento.
+  `domain/entities/linhaDoTempo.ts`.
+- **Filtro "Apenas andamentos principais".** Decide pelo POSITIVO — some só o
+  que foi *identificado* como cartório (juntada, expedição, conclusão,
+  remessa). Nasce desligado, diz quantas linhas escondeu, e nunca esconde ato
+  que exige providência nem ato que entrega documento.
+- **Destaque da decisão.** Sentença, decisão, acórdão, despacho e homologação
+  ganham fundo e selo próprios; o que pede providência ganha a régua de acento
+  à esquerda, o mesmo recurso do cartão de alerta. "Juntada de cópia da
+  decisão" NÃO é destacada: é cartório levando a decisão aos autos.
+- **Nome do movimento emprestado da TPU.** O MNI manda `codigoNacional` e nem
+  sempre a descrição; o DataJud manda o nome. Mesma tabela do CNJ, então
+  emprestar não é dedução — é ler a tabela numa fonte que a tem. Sem isto a
+  régua exibiria "Movimento 12265".
+- **`listarAtos` na porta `ProvedorDePecas`** (opcional): peças e movimentos na
+  mesma resposta. Fonte que não a implementa segue pelo caminho antigo.
+- **`scripts/sonda-movimentos.mjs`**, para verificar a correspondência no
+  tribunal real. Banco em `readOnly`, uma tentativa sem repetição, recusa de
+  rodar sobre credencial já marcada como recusada.
+
+### Corrigido
+
+- **Clicar num filtro da linha do tempo consultava o MNI de novo.** Redesenhar
+  o detalhe chamava `carregarPecas`, e cada chamada são dezenas de segundos e
+  mais uma oportunidade de recusa contra a conta do advogado no tribunal. A
+  régua agora fica em cache na página, com botão "Atualizar" para forçar.
+- **Evento que entrega documento não é mais agrupado em "×4".** O contador
+  esconderia quatro botões de download diferentes atrás de um número.
+
+### Degradação deliberada
+
+A correspondência `documento.movimento` ↔ `identificadorMovimento` está na
+especificação do MNI 2.2.2 e foi vista num Projudi. O próximo tribunal pode
+numerar de outro jeito, e nesse dia o sistema fica **pior, nunca quebrado**:
+sem casar peça nenhuma, a tela volta a ser exatamente a anterior — linha do
+tempo das fontes públicas e todas as peças na lista. Há teste para isso.
+
+E a contagem de atos nunca diminui: a reconciliação entre a linha do tribunal e
+a das fontes públicas é por balde (mesmo dia, mesmo código da TPU) e só
+descarta enquanto o tribunal tiver pelo menos tantas linhas quanto a fonte
+pública. Se o DataJud tem três juntadas num dia e o tribunal mandou duas, a
+terceira fica. Duas linhas para o mesmo ato é incômodo visual; uma linha
+ausente é prazo perdido.
+
 ## [0.23.0] — 2026-09-23
 
 Tudo aqui saiu de UM processo real com 278 peças. A v0.22.0 pôs o resumo no
