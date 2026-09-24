@@ -735,6 +735,23 @@ Não são detalhes — moldam o código.
   Processo arquivado e depois desarquivado tem os dois atos nos autos; procurar
   "existe arquivamento" marcaria como encerrada a pasta que voltou a correr — e
   o advogado deixaria de olhar justamente essa.
+- **O arquivo da peça NUNCA fica no nosso disco.** `pecas_baixadas` guarda
+  metadado — número, id, rótulo, tamanho, quando —, e o PDF vai do tribunal
+  direto para a máquina do advogado. São autos de processo, muitos em segredo de
+  justiça: custodiá-los criaria obrigação de guarda que o produto não precisa
+  assumir para funcionar, e um vazamento do nosso disco viraria vazamento de
+  processo alheio. Há teste que fixa as chaves devolvidas pela rota.
+- **Bloco de tela só nasce com conteúdo.** A terceira coluna do painel é montada
+  apenas quando há o que pôr nela; sem isso a página fica de uma coluna. Vão em
+  branco reservado não é lido como "ainda não há dados" — é lido como defeito.
+  Foi o que aconteceu na v0.22.0, com 96px reservados para as peças numa tela
+  que nunca as carregava.
+- **Não anuncie prazo enquanto não houver prazo.** O painel conta "pedem
+  providência", que é o ato que ABRE um prazo; a referência visual que originou
+  a tela dizia "prazos em 48h". São coisas diferentes, e um sistema que anuncia
+  contagem de prazo sem contar prazo, para advogado, não volta como reclamação
+  de interface. `tests/http/painel.spec.ts` falha se a palavra entrar no
+  contrato da rota por descuido.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache
@@ -770,7 +787,7 @@ banco com verificação de integridade** (v0.17.0),
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 606 testes.
+multi-stage, CI, 613 testes.
 
 **Entrega de e-mail (19/09/2026):** em produção via Resend, domínio
 `processovivo.com.br` verificado com DKIM próprio (`resend._domainkey`),
@@ -779,6 +796,12 @@ continuam apontando para o CyberPanel, que é onde mora a caixa
 `contato@processovivo.com.br` — enviar pelo Resend e receber no servidor
 próprio convivem sem conflito porque os registros do provedor ficam todos em
 subdomínios.
+
+**Painel (v0.26.0):** data por extenso, hora e a frase da última verificação no
+topo; três cards (ativos, pedem providência, peças baixadas hoje); e um trilho à
+direita com o que já foi puxado do tribunal, montado só quando tem conteúdo. O
+registro de downloads que sustenta isso também marca "já baixado" na régua, o
+que evita repetir uma consulta ao MNI de dezenas de segundos.
 
 **Casca e carteira (v0.25.0):** barra lateral fixa com contagem, conteúdo até
 1100px, e a carteira em tabela com rótulo de cliente editável na linha, filtro

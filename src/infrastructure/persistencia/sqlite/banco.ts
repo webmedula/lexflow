@@ -125,6 +125,29 @@ const ESQUEMA = [
   // varredura terminou bem — o que sustenta o aviso de "faz X horas que não
   // consigo verificar". Precisa estar em disco: é depois de um redeploy que dá
   // para ficar horas sem varrer sem ninguém perceber.
+  `CREATE TABLE IF NOT EXISTS pecas_baixadas (
+     id         INTEGER PRIMARY KEY AUTOINCREMENT,
+     workspace  TEXT NOT NULL,
+     numero     TEXT NOT NULL,
+     peca_id    TEXT NOT NULL,
+     rotulo     TEXT,
+     mimetype   TEXT,
+     bytes      INTEGER NOT NULL,
+     baixada_em TEXT NOT NULL
+     -- METADADO, nunca o arquivo. O PDF vai do tribunal direto para a máquina
+     -- do advogado: são autos de processo, muitos em segredo de justiça, e
+     -- guardá-los aqui criaria uma obrigação de custódia que o produto não
+     -- precisa assumir para funcionar.
+     --
+     -- Sem chave única de propósito: baixar a mesma peça duas vezes são dois
+     -- registros. "Puxei de novo na semana passada" é informação, e um UNIQUE
+     -- aqui a apagaria em silêncio.
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_baixa_ws
+     ON pecas_baixadas (workspace, baixada_em DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_baixa_processo
+     ON pecas_baixadas (workspace, numero)`,
+
   `CREATE TABLE IF NOT EXISTS estado (
      chave TEXT PRIMARY KEY,
      valor TEXT NOT NULL

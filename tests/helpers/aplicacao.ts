@@ -10,6 +10,7 @@ import type { ProcessoProvider } from '../../src/domain/ports/ProcessoProvider.j
 import type { ProvedorDePecas } from '../../src/domain/ports/ProvedorDePecas.js';
 import { BaixarPecaDoProcesso } from '../../src/domain/usecases/BaixarPecaDoProcesso.js';
 import { ListarPecasDoProcesso } from '../../src/domain/usecases/ListarPecasDoProcesso.js';
+import { RepositorioPecasBaixadasSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioPecasBaixadasSqlite.js';
 import { RepositorioCredenciaisSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioCredenciaisSqlite.js';
 import { Cofre } from '../../src/infrastructure/seguranca/cofre.js';
 import type { Notificador } from '../../src/domain/ports/Notificador.js';
@@ -157,6 +158,7 @@ export function aplicacaoDeTeste(
           // A régua temporal precisa das fontes públicas para as publicações
           // que o tribunal não numera.
           processos: new BuscarProcessoPorNumero(orquestrador),
+          baixadas: new RepositorioPecasBaixadasSqlite(db),
         });
       })()
     : undefined;

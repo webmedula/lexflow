@@ -65,16 +65,21 @@ export function rotasDePecas(
       '/v1/processos/:numero/pecas',
       async (req) => {
         await exigirPlano(req);
-        const linha = await exigirServico().linhaDoTempoDoProcesso(
-          workspaceDe(req),
-          req.params.numero,
-        );
+        const servico = exigirServico();
+        const [linha, jaBaixadas] = await Promise.all([
+          servico.linhaDoTempoDoProcesso(workspaceDe(req), req.params.numero),
+          servico.idsJaBaixados(workspaceDe(req), req.params.numero),
+        ]);
         const pecas = [
           ...linha.pecasSoltas,
           ...linha.eventos.flatMap((e) => e.pecas ?? []),
         ];
 
         return {
+          // Quais peças DESTE processo já saíram daqui. A tela marca o botão, e
+          // a marca economiza uma consulta ao tribunal de dezenas de segundos
+          // para quem não lembra se já puxou a contestação.
+          jaBaixadas,
           // A régua é o que a tela desenha: cada evento já com os documentos
           // daquele ato. `pecas` continua aqui porque a rota é pública para
           // integração (n8n) e quebrar o contrato dela não tem justificativa —
@@ -132,6 +137,44 @@ export function rotasDePecas(
           `attachment; filename="${conteudo.nomeArquivo}"`,
         );
         return resposta.send(Buffer.from(conteudo.bytes));
+      },
+    );
+
+    /*
+     * O histórico de downloads. Metadado apenas — o arquivo nunca ficou aqui.
+     *
+     * Não exige plano: é o registro do que a própria pessoa já puxou, e
+     * trancá-lo atrás de assinatura seria cobrar para ver o próprio histórico.
+     */
+    servidor.get<{ Querystring: { numero?: string; limite?: string } }>(
+      '/v1/pecas-baixadas',
+      async (req) => {
+        const ws = workspaceDe(req);
+        const servico = exigirServico();
+        const limite = Number(req.query.limite ?? '10');
+        const inicioDoDia = new Date();
+        inicioDoDia.setHours(0, 0, 0, 0);
+
+        const [lista, hoje] = await Promise.all([
+          servico.historicoDeBaixas(ws, {
+            ...(req.query.numero ? { numeroProcesso: req.query.numero } : {}),
+            ...(Number.isFinite(limite) ? { limite } : {}),
+          }),
+          servico.baixadasDesde(ws, inicioDoDia),
+        ]);
+
+        return {
+          hoje,
+          total: lista.length,
+          pecas: lista.map((p) => ({
+            numero: p.numeroProcesso,
+            idPeca: p.idPeca,
+            rotulo: p.rotulo,
+            mimetype: p.mimetype ?? null,
+            bytes: p.bytes,
+            baixadaEm: p.baixadaEm.toISOString(),
+          })),
+        };
       },
     );
 

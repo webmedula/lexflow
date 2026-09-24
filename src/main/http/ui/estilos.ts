@@ -181,6 +181,38 @@ h3.sec{font-size:12px;font-weight:700;text-transform:uppercase;
 .ev.marco .dt{color:var(--marco);font-weight:700}
 .ev .cp{font-size:13px;color:var(--tinta2);margin-top:3px}
 .ev .xn{font-size:11px;color:var(--tinta3);font-weight:600}
+/* ---------- painel: cabeçalho, cards e trilho ---------- */
+/* A data por extenso é a âncora da leitura: o advogado abre o sistema para
+   decidir o que fazer HOJE, e sem ela "vence às 18h" não diz de que dia. */
+.cabeca{margin-bottom:16px}
+.kicker{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--tinta3);margin-bottom:6px}
+.alerta-txt{color:var(--marco);font-weight:600}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:12px;margin-bottom:18px}
+.card{background:var(--papel);border:1px solid var(--linha);border-radius:var(--r);
+  padding:16px 18px}
+.card .v{font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1.1;
+  font-variant-numeric:tabular-nums}
+.card .k{font-size:13px;color:var(--tinta2);margin-top:2px}
+/* O card de providência só muda de cor quando há providência. Card colorido em
+   zero é alarme permanente, e alarme permanente deixa de ser alarme. */
+.card.al{border-left:3px solid var(--erro)}
+.card.al .v{color:var(--erro)}
+
+/* O trilho NÃO tem largura reservada quando não há conteúdo: quem monta a
+   coluna só usa esta grade se houver bloco para pôr nela. Vão em branco no meio
+   da página não é lido como "ainda não há dados". */
+.duas-colunas{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start}
+.trilho .cartao{margin-bottom:12px}
+.baixa{padding:9px 0;border-top:1px solid var(--linha2)}
+.baixa:first-of-type{border-top:0}
+.baixa .t{font-size:13.5px;font-weight:500;line-height:1.35}
+@media (max-width:1040px){
+  .duas-colunas{grid-template-columns:1fr}
+}
+
 /* ---------- carteira em tabela ---------- */
 /* Substituiu os cartões empilhados na v0.25.0: com 142 pastas, quatro linhas
    por cartão viram rolagem, e comparar duas exigia percorrer a tela. */
@@ -269,6 +301,11 @@ h3.sec{font-size:12px;font-weight:700;text-transform:uppercase;
 .doc:hover{border-color:var(--acento);color:var(--acento)}
 .doc.parte{border-left:3px solid var(--novo)}
 .doc.sigilosa{border-left:3px solid var(--erro)}
+/* Já baixado fica DISCRETO, não desabilitado: a pessoa pode ter perdido o
+   arquivo, e travar o botão a obrigaria a procurar outro caminho para algo a
+   que tem direito. A marca serve para não repetir por engano. */
+.doc.ja{color:var(--tinta3);border-style:dashed}
+.doc.ja:hover{color:var(--acento);border-style:solid}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
 .chip{background:transparent;border:1px solid var(--linha);color:var(--tinta2);
   border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer;

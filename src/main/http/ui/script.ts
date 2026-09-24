@@ -17,7 +17,7 @@ var SO_PRINCIPAIS='processovivo.soPrincipais';
    chama carregarPecas de novo — outra consulta ao MNI, dezenas de segundos, e
    mais uma chance de recusa contra a conta do advogado no tribunal. O cache
    vive na página: recarregar limpa, e há botão para atualizar à mão. */
-var regua={numero:'',dados:null};
+var regua={numero:'',dados:null,baixadas:[]};
 /* O mesmo processo chega escrito de dois jeitos — mascarado na lista, só
    dígitos na URL. Comparar as duas formas cruas faria o cache nunca acertar. */
 function soDigitos(n){return String(n||'').replace(/\D/g,'')}
@@ -74,6 +74,45 @@ function humano(iso){
   if(n<30)return'há '+n+' dias';
   if(n<365){var m=Math.round(n/30);return'há '+m+(m===1?' mês':' meses')}
   var a=Math.floor(n/365);return'há '+a+(a===1?' ano':' anos')}
+/* Dia por extenso e hora, no fuso de Brasília.
+
+   O advogado abre o sistema para decidir o que fazer HOJE, e a data no topo é a
+   âncora dessa leitura — sem ela, "vence às 18h" não diz de que dia. A hora é a
+   do carregamento e está rotulada como tal; relógio correndo na tela seria
+   movimento sem informação. */
+function diaPorExtenso(d){
+  try{return d.toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo',
+    weekday:'long',day:'2-digit',month:'short',year:'numeric'})}
+  catch(e){return ''}
+}
+function horaDe(v){
+  if(!v)return '';
+  try{return new Date(v).toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo',
+    hour:'2-digit',minute:'2-digit'})}
+  catch(e){return ''}
+}
+/* "há 12 min" / "há 3 h" — o humano() existente conta em DIAS, e para a última
+   verificação isso arredonda tudo para "hoje", que é justamente a distinção que
+   importa aqui: verificado há 5 minutos e verificado há 14 horas são estados
+   diferentes de confiança na tela. */
+function desdeAgora(iso){
+  if(!iso)return '';
+  var min=Math.floor((Date.now()-new Date(iso).getTime())/60000);
+  if(isNaN(min))return '';
+  if(min<1)return 'agora há pouco';
+  if(min<60)return 'há '+min+' min';
+  var h=Math.floor(min/60);
+  if(h<24)return 'há '+h+' h';
+  var d=Math.floor(h/24);
+  return 'há '+d+(d===1?' dia':' dias');
+}
+function tamanho(bytes){
+  var b=Number(bytes)||0;
+  if(b<1024)return b+' B';
+  if(b<1048576)return Math.round(b/1024)+' KB';
+  return (b/1048576).toFixed(1).replace('.',',')+' MB';
+}
+
 function mascara(n){var d=String(n||'').replace(/\D/g,'');
   return d.length===20?d.slice(0,7)+'-'+d.slice(7,9)+'.'+d.slice(9,13)+'.'+
     d.slice(13,14)+'.'+d.slice(14,16)+'.'+d.slice(16,20):String(n||'')}
@@ -148,7 +187,15 @@ function verNovidades(){
   if($('f-nv-naovistas')&&$('f-nv-naovistas').classList.contains('on'))q.push('naoVistas=true');
   var trib=window.__f_nv_trib||''; if(trib)q.push('tribunal='+encodeURIComponent(trib));
 
-  api('/v1/novidades'+(q.length?'?'+q.join('&'):'')).then(function(r){
+  /* Duas chamadas em paralelo, e o painel NÃO derruba a tela se falhar: os
+     cards são resumo, o feed é o conteúdo. Trocar a tela inteira por um erro
+     porque a contagem não veio seria perder o que funciona por causa do que
+     enfeita. */
+  Promise.all([
+    api('/v1/novidades'+(q.length?'?'+q.join('&'):'')),
+    api('/v1/painel').catch(function(){return null})
+  ]).then(function(res){
+    var r=res[0], pn=res[1];
     var h=blocoAssinatura()+blocoTrilha();
     /* O número de PROCESSOS entra no subtítulo, antes do de movimentações.
        Esta tela mostra movimentação NOVA, e processo recém-adicionado não gera
@@ -157,14 +204,27 @@ function verNovidades(){
        depois de ela cadastrar três processos. Aconteceu num teste real: o dado
        estava salvo e a interface convenceu o dono de que tinha sumido. */
     var acomp=r.acompanhados||0;
-    h+='<div class="titulo-secao"><div><h2>Atualizações</h2>'+
-      '<div class="sub">'+acomp+' processo(s) acompanhado(s) · '+
-      r.total+' movimentação(ões) desde que você começou'+
-      (r.naoVistas>0?' · '+r.naoVistas+' não lida(s)':'')+'</div></div><div>';
-    if(r.naoVistas>0)h+='<button class="bt bt2" id="marcar">Marcar todas como lidas</button> ';
-    h+='<button class="bt bt2" id="sincronizar">Verificar agora</button></div></div>';
+    var ver=(pn&&pn.verificacao)||{};
 
-    h+='<div class="filtros">'+
+    h+='<div class="cabeca">'+
+      '<div class="kicker">'+esc(diaPorExtenso(new Date()))+' · '+
+        esc(horaDe(new Date().toISOString()))+'</div>'+
+      '<div class="titulo-secao" style="margin-bottom:0"><div>'+
+        '<h2>Últimas atualizações</h2>'+
+        '<div class="sub">'+resumoDaVerificacao(ver,acomp,r)+'</div></div><div>';
+    if(r.naoVistas>0)h+='<button class="bt bt2" id="marcar">Marcar todas como lidas</button> ';
+    h+='<button class="bt bt2" id="sincronizar">Verificar agora</button></div></div></div>';
+
+    if(pn&&pn.cards)h+=cardsDoPainel(pn.cards);
+
+    /* Duas colunas, e o trilho só existe se tiver conteúdo.
+       Reservar espaço para bloco vazio foi erro meu na v0.22.0 — a página
+       ficou com um vão em branco no meio, e ninguém entende vão em branco como
+       "ainda não há dados". */
+    var temTrilho=!!(pn&&pn.pecasBaixadas&&pn.pecasBaixadas.length);
+    h+='<div class="'+(temTrilho?'duas-colunas':'')+'"><div>';
+
+    h+='<div class="filtros">'
        '<div class="compacto"><button class="chip'+
        (window.__f_nv_nv?' on':'')+'" id="f-nv-naovistas">Só não lidas</button></div>'+
        '<div class="compacto"><select id="f-nv-trib" style="min-width:150px">'+
@@ -200,6 +260,9 @@ function verNovidades(){
       });
       h+='</div>';
     }
+    h+='</div>';
+    if(temTrilho)h+='<aside class="trilho">'+blocoPecasBaixadas(pn.pecasBaixadas)+'</aside>';
+    h+='</div>';
     alvo.innerHTML=h;
 
     if($('marcar'))$('marcar').addEventListener('click',function(){
@@ -243,6 +306,75 @@ function dispararSync(){
       },4000);
     })
     .catch(function(e){b.disabled=false;b.textContent='Verificar agora';alert(explicar(e))});
+}
+
+/**
+ * Os três cards do painel.
+ *
+ * Todos saem de dado que existe. A referência visual que originou esta tela
+ * trazia "Prazos em 48h", e esse não entrou: não há prazo cadastrado em lugar
+ * nenhum do sistema. O que temos perto é "pedem providência" — o ato que ABRE
+ * um prazo, não o prazo —, e o card diz exatamente isso. Um sistema que anuncia
+ * contagem de prazo sem contar prazo, para advogado, não volta como reclamação
+ * de interface.
+ */
+function cardsDoPainel(c){
+  var arquivadas=(c.totalPastas||0)-(c.ativos||0);
+  return '<div class="cards">'+
+    card(c.ativos,'Processos ativos',
+      arquivadas>0?arquivadas+' arquivado(s) fora da conta':'')+
+    card(c.pedemProvidencia,'Pedem providência',
+      'ato dos últimos 30 dias que abre prazo','al')+
+    card(c.baixadasHoje,'Peças baixadas hoje','')+
+    '</div>';
+}
+function card(valor,rotulo,nota,cls){
+  return '<div class="card'+(cls&&valor>0?' '+cls:'')+'">'+
+    '<div class="v">'+(valor||0)+'</div>'+
+    '<div class="k">'+esc(rotulo)+'</div>'+
+    (nota?'<div class="t-sub">'+esc(nota)+'</div>':'')+'</div>';
+}
+
+/**
+ * A frase que diz se dá para confiar na tela.
+ *
+ * Vem antes dos números de propósito, e é a mesma razão que obriga o
+ * ServicoNotificacao a avisar quando NÃO conseguiu verificar: a partir do
+ * primeiro aviso enviado, o advogado para de conferir à mão e lê silêncio como
+ * "não houve nada". Silêncio só significa isso enquanto a verificação estiver
+ * de pé.
+ */
+function resumoDaVerificacao(ver,acomp,r){
+  var partes=[];
+  if(ver.emAndamento)partes.push('verificando agora');
+  else if(ver.ultimaEm)partes.push('verificado às '+horaDe(ver.ultimaEm)+', '+desdeAgora(ver.ultimaEm));
+  partes.push(acomp+' processo(s) acompanhado(s)');
+  if(r.naoVistas>0)partes.push(r.naoVistas+' não lida(s)');
+  var txt=esc(partes.join(' · '));
+  if(ver.naoVerificados>0){
+    txt+=' · <span class="alerta-txt">'+ver.naoVerificados+
+      ' sem verificação — o silêncio destas não significa que nada aconteceu</span>';
+  }
+  return txt;
+}
+
+/** O trilho da direita: o que já foi puxado do tribunal. */
+function blocoPecasBaixadas(lista){
+  var h='<div class="cartao"><h3 class="sec">Peças baixadas</h3>';
+  lista.forEach(function(p){
+    h+='<div class="baixa">'+
+      '<div class="t">'+esc(p.rotulo)+'</div>'+
+      '<div class="t-sub"><button class="lnh" data-abrir="'+esc(p.numero)+'">'+
+        esc(mascara(p.numero))+'</button> · '+tamanho(p.bytes)+' · '+
+        esc(horaDe(p.baixadaEm))+' '+esc(humano(p.baixadaEm))+'</div>'+
+      '</div>';
+  });
+  /* Sem botão de rebaixar aqui, e não é esquecimento: baixar de novo custa
+     outra consulta ao tribunal de dezenas de segundos, e um botão convidativo
+     no painel faria isso acontecer por engano. Quem quer o arquivo de novo
+     abre o processo, onde a régua mostra o que já foi puxado. */
+  return h+'<div class="nota">O arquivo não fica guardado aqui — isto é o '+
+    'registro do que você já puxou.</div></div>';
 }
 
 /* ---------------- aba: meus processos ---------------- */
@@ -1301,7 +1433,7 @@ function carregarPecas(numero,forcar){
 
   api('/v1/processos/'+encodeURIComponent(numero)+'/pecas').then(function(r){
     var linha=r.linhaDoTempo||null;
-    regua={numero:numero,dados:linha};
+    regua={numero:numero,dados:linha,baixadas:r.jaBaixadas||[]};
 
     /* Com a espinha do tribunal, a página inteira muda de forma: cada evento
        passa a entregar o documento dele. Redesenhar é o caminho — e o
@@ -1312,7 +1444,7 @@ function carregarPecas(numero,forcar){
     }
     desenharPecas(numero,linha);
   }).catch(function(e){
-    regua={numero:'',dados:null};
+    regua={numero:'',dados:null,baixadas:[]};
     erroDePecas(resumo||caixa,e);
   });
 }
@@ -1462,13 +1594,28 @@ function erroDePecas(alvo,e){
  * texto por "baixando…" e o repõe depois, e qualquer marcação aqui dentro
  * seria perdida na reposição. Origem e sigilo viram CLASSE, não elemento.
  */
+function jaFoiBaixada(id){
+  var l=regua.baixadas||[];
+  for(var i=0;i<l.length;i++){if(l[i]===id)return true}
+  return false;
+}
+
 function documentosDoEvento(pecas){
   if(!pecas||!pecas.length)return '';
   var h='<div class="docs">';
   pecas.forEach(function(p){
-    var cls='doc'+(p.origem==='PARTE'?' parte':'')+(p.sigilosa?' sigilosa':'');
-    h+='<button class="'+cls+'" data-peca="'+esc(p.id)+'">'+
-      esc(formatoDaPeca(p.mimetype))+' · '+esc(recorte(p.rotulo,44))+'</button>';
+    /* "já baixado" não é enfeite: baixar de novo custa outra consulta ao
+       tribunal de dezenas de segundos e mais uma requisição carregando a senha
+       do advogado. Quem não lembra se já puxou a contestação clica de novo — e
+       paga tudo outra vez. O botão continua clicável de propósito: pode ser que
+       a pessoa tenha perdido o arquivo. */
+    var ja=jaFoiBaixada(p.id);
+    var cls='doc'+(p.origem==='PARTE'?' parte':'')+(p.sigilosa?' sigilosa':'')+
+      (ja?' ja':'');
+    h+='<button class="'+cls+'" data-peca="'+esc(p.id)+'"'+
+      (ja?' title="você já baixou esta peça"':'')+'>'+
+      (ja?'✓ ':'')+esc(formatoDaPeca(p.mimetype))+' · '+esc(recorte(p.rotulo,44))+
+      '</button>';
   });
   return h+'</div>';
 }

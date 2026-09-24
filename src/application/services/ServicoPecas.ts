@@ -12,6 +12,10 @@ import type { CredencialTribunal } from '../../domain/ports/ProvedorDePecas.js';
 import type { BaixarPecaDoProcesso } from '../../domain/usecases/BaixarPecaDoProcesso.js';
 import type { ListarPecasDoProcesso } from '../../domain/usecases/ListarPecasDoProcesso.js';
 import type { BuscarProcessoPorNumero } from '../../domain/usecases/BuscarProcessoPorNumero.js';
+import type {
+  PecaBaixada,
+  RepositorioPecasBaixadas,
+} from '../../domain/ports/RepositorioPecasBaixadas.js';
 import {
   batizarPeloCodigo,
   montarLinhaDoTempo,
@@ -30,6 +34,12 @@ export interface OpcoesServicoPecas {
    * do DJEN que ele não numera.
    */
   readonly processos?: BuscarProcessoPorNumero;
+  /**
+   * Histórico de downloads. Opcional: sem ele o download funciona igual e só
+   * não fica registrado — uma instalação sem banco não pode perder a peça por
+   * causa do contador da tela.
+   */
+  readonly baixadas?: RepositorioPecasBaixadas;
 }
 
 /**
@@ -50,6 +60,7 @@ export class ServicoPecas {
   private readonly credenciais: RepositorioCredenciais;
   private readonly logger: Logger;
   private readonly processos: BuscarProcessoPorNumero | undefined;
+  private readonly baixadas: RepositorioPecasBaixadas | undefined;
 
   constructor(opcoes: OpcoesServicoPecas) {
     this.listar = opcoes.listar;
@@ -57,6 +68,7 @@ export class ServicoPecas {
     this.credenciais = opcoes.credenciais;
     this.logger = opcoes.logger.child({ servico: 'pecas' });
     this.processos = opcoes.processos;
+    this.baixadas = opcoes.baixadas;
   }
 
   /**
@@ -127,9 +139,64 @@ export class ServicoPecas {
     numeroProcesso: string,
     idPeca: string,
   ): Promise<ConteudoPeca> {
-    return this.registrando(workspace, numeroProcesso, () =>
+    const conteudo = await this.registrando(workspace, numeroProcesso, () =>
       this.baixar.executar({ workspace, numeroProcesso, idPeca }),
     );
+
+    /*
+     * O registro acontece DEPOIS do sucesso e nunca derruba o download.
+     *
+     * A peça já está nas mãos de quem pediu; falhar aqui por causa do banco
+     * transformaria um download concluído numa tela de erro, e a pessoa
+     * tentaria de novo — outra consulta de dezenas de segundos contra a conta
+     * dela no tribunal, para conseguir o que já tinha conseguido.
+     */
+    try {
+      const numero = NumeroCNJ.tentarCriar(numeroProcesso)?.digitos ?? numeroProcesso;
+      const registro: PecaBaixada = {
+        workspace,
+        numeroProcesso: numero,
+        idPeca,
+        rotulo: conteudo.nomeArquivo || idPeca,
+        ...(conteudo.mimetype ? { mimetype: conteudo.mimetype } : {}),
+        bytes: conteudo.bytes.length,
+        baixadaEm: new Date(),
+      };
+      await this.baixadas?.registrar(registro);
+    } catch (erro) {
+      this.logger.warn('não foi possível registrar a peça baixada', {
+        workspace,
+        motivo: erro instanceof Error ? erro.message : 'desconhecido',
+      });
+    }
+
+    return conteudo;
+  }
+
+  /** O que já foi puxado — do workspace inteiro ou de um processo só. */
+  async historicoDeBaixas(
+    workspace: string,
+    opcoes: { readonly numeroProcesso?: string; readonly limite?: number } = {},
+  ): Promise<PecaBaixada[]> {
+    if (!this.baixadas) return [];
+    const numero = opcoes.numeroProcesso
+      ? (NumeroCNJ.tentarCriar(opcoes.numeroProcesso)?.digitos ?? opcoes.numeroProcesso)
+      : undefined;
+    return this.baixadas.listar(workspace, {
+      ...(numero ? { numeroProcesso: numero } : {}),
+      ...(opcoes.limite !== undefined ? { limite: opcoes.limite } : {}),
+    });
+  }
+
+  async baixadasDesde(workspace: string, desde: Date): Promise<number> {
+    return this.baixadas ? this.baixadas.contarDesde(workspace, desde) : 0;
+  }
+
+  /** Ids já puxados deste processo — a marca de "já baixado" na régua. */
+  async idsJaBaixados(workspace: string, numeroProcesso: string): Promise<string[]> {
+    if (!this.baixadas) return [];
+    const numero = NumeroCNJ.tentarCriar(numeroProcesso)?.digitos ?? numeroProcesso;
+    return this.baixadas.idsDoProcesso(workspace, numero);
   }
 
   async listarCredenciais(workspace: string): Promise<CredencialCadastrada[]> {

@@ -9,6 +9,46 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.26.0] — 2026-09-24
+
+A tela inicial, a partir da mesma referência visual da v0.25.0. Dos quatro
+pedidos, dois tinham dado e dois não tinham — um destes virou funcionalidade e o
+outro continua fora.
+
+### Adicionado
+
+- **Data por extenso e hora no topo do painel**, com a frase que decide se dá
+  para confiar na tela: "verificado às 08:12, há 40 min". A referência põe ali a
+  edição do diário; para nós o número que importa é quando a carteira foi vista
+  pela última vez. Se alguma pasta está com a verificação falhando, a contagem
+  aparece na mesma linha, e o texto diz o que isso significa — que o silêncio
+  daquelas deixou de querer dizer "nada aconteceu".
+- **Três cards**: Processos ativos (arquivados fora da conta), Pedem
+  providência e Peças baixadas hoje.
+- **"Últimas atualizações"** como título do feed, que é o que ele sempre foi.
+- **Registro das peças baixadas** — tabela nova, gravada no momento do
+  download. Guarda METADADO e nunca o arquivo: são autos de processo, muitos em
+  segredo de justiça, e custodiá-los criaria uma obrigação de guarda que o
+  produto não precisa assumir. Destrava o card, o trilho da direita e:
+- **"Já baixado" na régua temporal.** O ganho não é estético: baixar uma peça
+  custa dezenas de segundos e uma requisição que carrega a senha do advogado,
+  contando para o bloqueio da conta dele no tribunal. Quem não lembra se já
+  puxou a contestação clicava de novo e pagava tudo outra vez. O botão continua
+  clicável — a pessoa pode ter perdido o arquivo.
+- **Terceira coluna**, com o que já foi puxado do tribunal. Ela só é montada
+  quando há conteúdo para pôr nela; sem baixa nenhuma, a página fica de uma
+  coluna só. Reservar espaço para bloco vazio foi erro meu na v0.22.0, e vão em
+  branco no meio da página não é lido como "ainda não há dados".
+- **`GET /v1/painel`** e **`GET /v1/pecas-baixadas`**.
+
+### O que continua fora
+
+**"Prazos em 48h" e "Prazos de hoje".** Não existe prazo cadastrado em lugar
+nenhum do sistema — é a próxima entrega da fila. O que temos perto disso é
+"pedem providência", que é o ato que ABRE um prazo, não o prazo, e o card diz
+exatamente isso. Há teste que falha se a palavra entrar no contrato por
+descuido. O segundo bloco do trilho nasce quando os prazos nascerem.
+
 ## [0.25.0] — 2026-09-24
 
 A casca do console mudou de forma, a partir de um sistema de referência que o

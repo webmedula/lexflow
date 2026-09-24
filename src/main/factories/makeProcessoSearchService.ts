@@ -22,6 +22,7 @@ import { BuscarProcessosPorOab } from '../../domain/usecases/BuscarProcessosPorO
 import { BaixarPecaDoProcesso } from '../../domain/usecases/BaixarPecaDoProcesso.js';
 import { ListarPecasDoProcesso } from '../../domain/usecases/ListarPecasDoProcesso.js';
 import { MniAdapter } from '../../infrastructure/adapters/mni/MniAdapter.js';
+import { RepositorioPecasBaixadasSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioPecasBaixadasSqlite.js';
 import { RepositorioCredenciaisSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioCredenciaisSqlite.js';
 import { Cofre } from '../../infrastructure/seguranca/cofre.js';
 import {
@@ -432,6 +433,7 @@ function montarServicoPecas(
     credenciais,
     logger,
     processos,
+    baixadas: new RepositorioPecasBaixadasSqlite(db),
   });
 }
 

@@ -14,6 +14,7 @@ import { rotasDeProcesso } from './rotas/processos.js';
 import { rotasDeAcompanhamento } from './rotas/acompanhamentos.js';
 import { rotasDeVigilancia } from './rotas/vigilancias.js';
 import { rotasDePecas } from './rotas/pecas.js';
+import { rotasDoPainel } from './rotas/painel.js';
 import { rotasDeAssinaturas } from './rotas/assinaturas.js';
 import {
   ROTA_CONTAS,
@@ -110,6 +111,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(rotasDeProcesso(app));
   void servidor.register(rotasDeAcompanhamento(app.acompanhamento));
   void servidor.register(rotasDePecas(app.pecas, app.assinaturas));
+  void servidor.register(rotasDoPainel(app.acompanhamento, app.pecas));
   void servidor.register(rotasDeAssinaturas(app.assinaturas));
   void servidor.register(rotasDeVigilancia(app.vigilancia, app.preferenciasNotificacao));
 
