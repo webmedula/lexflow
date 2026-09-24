@@ -42,6 +42,21 @@ describe('console web — o JavaScript da interface', () => {
         'no-unreachable': 'error',
         'no-const-assign': 'error',
         'no-func-assign': 'error',
+        /*
+         * A regra que pega o `+` perdido no meio de uma concatenação.
+         *
+         * `h+='<a>'` seguido de `'<b>'+ '<c>';` é sintaxe PERFEITAMENTE válida:
+         * a primeira linha termina, e as seguintes viram uma expressão solta que
+         * o motor avalia e joga fora. O HTML some sem erro nenhum, os `id` que os
+         * listeners procuram nunca existem, e o `$('x').addEventListener` estoura
+         * um TypeError DEPOIS de a tela ter sido pintada — dentro de um `.then`,
+         * onde o `.catch` o engole e o exibe como se fosse falha do servidor.
+         *
+         * Aconteceu na v0.26.0, no painel. Nenhuma das outras regras daqui pega:
+         * não há variável indefinida, não há sintaxe quebrada, e o `tsc` só vê
+         * uma string. Esta vê.
+         */
+        'no-unused-expressions': 'error',
       },
     });
   }
@@ -54,6 +69,20 @@ describe('console web — o JavaScript da interface', () => {
     expect(
       problemas.map((m) => `linha ${m.line}: ${m.message}`),
       'variável usada e nunca declarada no script do console',
+    ).toEqual([]);
+  });
+
+  it('não larga pedaço de HTML fora da concatenação', () => {
+    /*
+     * O bug da v0.26.0, em uma linha: um `+` perdido no fim de
+     * `h+='<div class="filtros">'` fez o bloco inteiro dos filtros virar
+     * expressão solta. A tela pintou sem os filtros, e o listener do primeiro
+     * deles estourou num TypeError que a tela exibiu como erro de servidor.
+     */
+    const problemas = analisar().filter((m) => m.ruleId === 'no-unused-expressions');
+    expect(
+      problemas.map((m) => `linha ${m.line}: ${m.message}`),
+      'expressão avaliada e descartada — em geral é um "+" que faltou numa concatenação',
     ).toEqual([]);
   });
 

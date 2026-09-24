@@ -9,6 +9,39 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.26.1] — 2026-09-24
+
+Conserto de um defeito que eu introduzi na v0.26.0, e a trava para a família
+inteira dele.
+
+### Corrigido
+
+- **O painel quebrava ao carregar**, exibindo "Cannot read properties of null
+  (reading 'addEventListener')" duas vezes. A causa foi um `+` perdido no fim de
+  `h+='<div class="filtros">'` ao montar a tela nova: as linhas seguintes viraram
+  uma expressão solta, o motor avaliou e descartou, e o bloco dos filtros nunca
+  entrou no HTML. Os `id` que os listeners procuravam não existiam.
+- **A caixa de erro disfarçava defeito nosso de falha do servidor.** Um
+  TypeError solto dentro de um `.then` era engolido pelo `.catch`, e `erroBloco`
+  imprimia a mensagem dele duas vezes — como título e como explicação, porque
+  `explicar()` cai em `e.message` quando não há status. Era exatamente por isso
+  que a mensagem chegava sem dizer onde. Agora ela distingue erro com `status`
+  (do servidor) de erro de programação, diz que a falha é da interface e mostra
+  a primeira linha da pilha.
+- Data do painel montada por partes: o formato pronto do pt-BR dava
+  "quinta-feira, 24 de set. de 2026", que em versalete espaçado vira uma linha
+  de conectivo. Agora sai "quinta · 24 set 2026 · 18:26".
+
+### A trava
+
+`no-unused-expressions` entrou nas regras que `console-script.spec.ts` roda
+DENTRO da string do console, com teste próprio. Nenhuma das outras pegava este
+caso: não há variável indefinida, não há sintaxe quebrada, e para o `tsc` aquilo
+é texto. Verificado reintroduzindo o bug — a regra aponta a linha exata.
+
+O conserto também foi conferido num navegador de verdade, com Playwright, e não
+só pelo teste.
+
 ## [0.26.0] — 2026-09-24
 
 A tela inicial, a partir da mesma referência visual da v0.25.0. Dos quatro

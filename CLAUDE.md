@@ -622,6 +622,20 @@ Não são detalhes — moldam o código.
   Passou por typecheck limpo, lint limpo e 486 testes verdes.
   `tests/http/console-script.spec.ts` roda o ESLint DENTRO da string e é o
   único lugar que enxerga esse código. Ao mexer no console, rode-o.
+- **Concatenação sem `+` é sintaxe VÁLIDA, e some com a tela.** `h+='<a>'`
+  seguido de `'<b>'+'<c>';` compila, roda, e joga o segundo bloco fora: o HTML
+  desaparece sem erro nenhum, os `id` que os listeners procuram não existem, e o
+  `$('x').addEventListener` estoura DEPOIS de a tela ter sido pintada. Aconteceu
+  na v0.26.0, no painel. A trava é `no-unused-expressions` em
+  `console-script.spec.ts` — nenhuma das outras regras pega, porque não há
+  variável indefinida nem sintaxe quebrada.
+- **Erro de programação não pode se disfarçar de erro do servidor.** Um
+  TypeError lançado dentro de um `.then` é engolido pelo `.catch` da tela e
+  chega em `erroBloco` como se fosse resposta de API. A versão antiga imprimia a
+  mensagem dele DUAS VEZES — como título e como explicação, porque `explicar()`
+  cai em `e.message` quando não há status — e quem relatava o problema não tinha
+  onde. Erro com `status` ou `codigo` é do servidor; o resto é defeito nosso, é
+  anunciado como tal, e leva a primeira linha da pilha junto.
 - **Tradução de erro que chuta é pior que o erro cru.** O nodemailer usa
   `ESOCKET` tanto para falha de TLS quanto para conexão recusada — consertos
   opostos. A primeira versão do diagnóstico de SMTP via o código e culpava o
@@ -787,7 +801,7 @@ banco com verificação de integridade** (v0.17.0),
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 613 testes.
+multi-stage, CI, 614 testes.
 
 **Entrega de e-mail (19/09/2026):** em produção via Resend, domínio
 `processovivo.com.br` verificado com DKIM próprio (`resend._domainkey`),

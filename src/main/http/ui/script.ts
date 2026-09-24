@@ -81,9 +81,17 @@ function humano(iso){
    do carregamento e está rotulada como tal; relógio correndo na tela seria
    movimento sem informação. */
 function diaPorExtenso(d){
-  try{return d.toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo',
-    weekday:'long',day:'2-digit',month:'short',year:'numeric'})}
-  catch(e){return ''}
+  /* Montado por partes em vez de um toLocaleDateString só: o formato pronto do
+     pt-BR devolve "quinta-feira, 24 de set. de 2026", e em versalete com
+     espaçamento de letra aquilo vira uma linha inteira de conectivo. */
+  try{
+    var o={timeZone:'America/Sao_Paulo'};
+    var semana=d.toLocaleDateString('pt-BR',Object.assign({weekday:'long'},o));
+    var dia=d.toLocaleDateString('pt-BR',Object.assign({day:'2-digit'},o));
+    var mes=d.toLocaleDateString('pt-BR',Object.assign({month:'short'},o)).replace('.','');
+    var ano=d.toLocaleDateString('pt-BR',Object.assign({year:'numeric'},o));
+    return semana.replace('-feira','')+' · '+dia+' '+mes+' '+ano;
+  }catch(e){return ''}
 }
 function horaDe(v){
   if(!v)return '';
@@ -147,11 +155,34 @@ function explicar(e){
     503:'Fonte temporariamente indisponível.'};
   return m[e.status]||e.message||'Erro inesperado.';
 }
+/**
+ * A caixa de erro da tela.
+ *
+ * Distingue DOIS erros que antes viravam a mesma caixa, e a confusão custou
+ * caro: erro que veio do servidor (tem status) e erro de programação da
+ * própria interface (um TypeError solto dentro de um .then, que o .catch
+ * engole e traz para cá). No segundo caso a caixa antiga imprimia a mensagem do
+ * TypeError duas vezes — como título E como explicação, porque explicar() cai
+ * em e.message quando não há status — e o resultado era uma tela que dizia
+ * "Cannot read properties of null" duas vezes, sem dizer onde.
+ *
+ * Agora ela diz que a falha é NOSSA e da interface, e imprime a primeira linha
+ * da pilha. Quem relatar o problema passa a ter um endereço para me dar.
+ */
 function erroBloco(e){
+  var doServidor=e&&(e.status!==undefined||e.codigo!==undefined);
+  var titulo=doServidor?(e.message||'Falhou'):'Falha na interface';
+  var detalhe=doServidor
+    ? explicar(e)
+    : (e&&e.message?e.message:'erro inesperado')+
+      ' — isto é defeito do Processo Vivo, não da sua consulta.';
+  var onde=!doServidor&&e&&e.stack?String(e.stack).split('\n')[1]:'';
   return '<div class="cartao" style="border-color:var(--erro);background:var(--erro-bg)">'+
     '<div style="font-weight:700;color:var(--erro);margin-bottom:4px">'+
-    esc(e.message||'Falhou')+'</div><div style="color:var(--tinta2)">'+
-    esc(explicar(e))+'</div></div>';
+    esc(titulo)+'</div><div style="color:var(--tinta2)">'+
+    esc(detalhe)+'</div>'+
+    (onde?'<div class="t-sub" style="margin-top:6px">'+esc(onde.trim())+'</div>':'')+
+    '</div>';
 }
 function vazio(icone,titulo,texto,acao){
   return '<div class="cartao vazio"><div class="ic">'+icone+'</div><h3>'+esc(titulo)+
@@ -224,7 +255,7 @@ function verNovidades(){
     var temTrilho=!!(pn&&pn.pecasBaixadas&&pn.pecasBaixadas.length);
     h+='<div class="'+(temTrilho?'duas-colunas':'')+'"><div>';
 
-    h+='<div class="filtros">'
+    h+='<div class="filtros">'+
        '<div class="compacto"><button class="chip'+
        (window.__f_nv_nv?' on':'')+'" id="f-nv-naovistas">Só não lidas</button></div>'+
        '<div class="compacto"><select id="f-nv-trib" style="min-width:150px">'+
