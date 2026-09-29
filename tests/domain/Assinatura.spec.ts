@@ -5,13 +5,40 @@ import {
   assinaturaDeTeste,
 } from '../../src/domain/entities/Assinatura.js';
 import {
-  CODIGOS_DE_PLANO,
-  PLANOS,
-  PLANO_DO_TESTE,
-  ehCodigoDePlano,
+  PLANOS_INICIAIS,
+  RECURSOS,
+  menorPlanoCom,
   planoInclui,
   planosAVenda,
+  validarPlano,
 } from '../../src/domain/entities/Plano.js';
+import type { Plano } from '../../src/domain/entities/Plano.js';
+import {
+  REGRAS_PADRAO,
+  validarRegras,
+} from '../../src/domain/entities/RegrasDeAssinatura.js';
+import {
+  PlanoInvalidoError,
+  RegrasDeAssinaturaInvalidasError,
+} from '../../src/domain/errors/index.js';
+import { planoInicial } from '../helpers/planos.js';
+
+const ACOMPANHAMENTO = planoInicial('acompanhamento');
+const PECAS = planoInicial('pecas');
+const IA = planoInicial('ia');
+
+function plano(mudancas: Partial<Plano> = {}): Plano {
+  return {
+    codigo: 'pecas-anual',
+    nome: 'Peças anual',
+    resumo: 'O plano Peças, pago por ano.',
+    recursos: ['consulta', 'acompanhamento', 'vigilancia', 'pecas'],
+    disponivelParaContratacao: true,
+    precoMensalCentavos: 8990,
+    ordem: 25,
+    ...mudancas,
+  };
+}
 
 const T0 = new Date('2026-09-22T12:00:00.000Z');
 const dias = (n: number): Date => new Date(T0.getTime() + n * 86_400_000);
@@ -27,44 +54,116 @@ function paga(venceEmDias: number, carencia = DIAS_DE_CARENCIA_PADRAO): Assinatu
   });
 }
 
-describe('Plano', () => {
+describe('Plano — a semente', () => {
   it('cada plano inclui os recursos do anterior', () => {
     // A escada precisa ser cumulativa: um assinante que sobe de plano não pode
     // PERDER nada no caminho. É o tipo de erro que só aparece no dia da troca.
-    for (const recurso of PLANOS.acompanhamento.recursos) {
-      expect(PLANOS.pecas.recursos).toContain(recurso);
-    }
-    for (const recurso of PLANOS.pecas.recursos) {
-      expect(PLANOS.ia.recursos).toContain(recurso);
-    }
+    for (const recurso of ACOMPANHAMENTO.recursos) expect(PECAS.recursos).toContain(recurso);
+    for (const recurso of PECAS.recursos) expect(IA.recursos).toContain(recurso);
   });
 
   it('só o plano de peças para cima inclui peças', () => {
-    expect(planoInclui('acompanhamento', 'pecas')).toBe(false);
-    expect(planoInclui('pecas', 'pecas')).toBe(true);
-    expect(planoInclui('ia', 'pecas')).toBe(true);
+    expect(planoInclui(ACOMPANHAMENTO, 'pecas')).toBe(false);
+    expect(planoInclui(PECAS, 'pecas')).toBe(true);
+    expect(planoInclui(IA, 'pecas')).toBe(true);
   });
 
-  it('o plano de IA NÃO está à venda enquanto a análise não existe', () => {
+  it('o plano de IA nasce fora de venda, e a semente inteira é válida', () => {
+    expect(IA.disponivelParaContratacao).toBe(false);
+    expect(planosAVenda(PLANOS_INICIAIS).map((p) => p.codigo)).toEqual(['acompanhamento', 'pecas']);
+    for (const p of PLANOS_INICIAIS) expect(() => validarPlano(p)).not.toThrow();
+  });
+
+  it('o teste padrão entrega o plano que mostra o diferencial', () => {
+    expect(REGRAS_PADRAO.planoDoTeste).toBe('pecas');
+    expect(REGRAS_PADRAO.diasDeTeste).toBe(14);
+    expect(() => validarRegras(REGRAS_PADRAO, PLANOS_INICIAIS)).not.toThrow();
+  });
+});
+
+describe('Plano — validação', () => {
+  it('a análise com IA está marcada como AINDA NÃO EXISTENTE', () => {
     /*
-     * O teste que protege a promessa. O plano está modelado porque o produto
-     * vai tê-lo, mas vendê-lo antes da funcionalidade existir é cobrar por algo
-     * que não entrega — e com advogado isso não volta como pedido de reembolso,
-     * volta como reclamação formal. Quando a análise ficar pronta, este teste
-     * falha e é a hora de mudá-lo conscientemente.
+     * O teste que protege a promessa. Antes (até a v0.27.0) a trava era um
+     * `false` fixo no plano de IA; agora é do RECURSO, e vale para qualquer
+     * plano que o inclua — inclusive um criado pelo painel. Quando a análise
+     * ficar pronta, este teste falha e é a hora de mudá-lo conscientemente.
      */
-    expect(PLANOS.ia.disponivelParaContratacao).toBe(false);
-    expect(planosAVenda().map((p) => p.codigo)).toEqual(['acompanhamento', 'pecas']);
+    expect(RECURSOS.find((r) => r.recurso === 'analiseIa')?.implementado).toBe(false);
   });
 
-  it('o teste inicial entrega o plano que mostra o diferencial', () => {
-    expect(planoInclui(PLANO_DO_TESTE, 'pecas')).toBe(true);
+  it('recusa colocar à venda um plano com recurso que não existe', () => {
+    expect(() => validarPlano({ ...IA, disponivelParaContratacao: true })).toThrow(
+      PlanoInvalidoError,
+    );
+    expect(() =>
+      validarPlano(plano({ recursos: ['consulta', 'analiseIa'], disponivelParaContratacao: true })),
+    ).toThrow(/ainda não existe/);
   });
 
-  it('reconhece só os códigos que existem', () => {
-    expect(CODIGOS_DE_PLANO.every(ehCodigoDePlano)).toBe(true);
-    expect(ehCodigoDePlano('premium')).toBe(false);
-    expect(ehCodigoDePlano('')).toBe(false);
+  it('o mesmo plano, pausado, é válido — pode ser modelado antes de existir', () => {
+    expect(() => validarPlano({ ...IA, disponivelParaContratacao: false })).not.toThrow();
+  });
+
+  it('aceita um plano novo bem formado', () => {
+    expect(() => validarPlano(plano())).not.toThrow();
+    expect(() => validarPlano(plano({ precoMensalCentavos: null }))).not.toThrow();
+  });
+
+  it.each([
+    ['código com maiúscula', { codigo: 'Pecas' }],
+    ['código com espaço', { codigo: 'pecas anual' }],
+    ['código de uma letra', { codigo: 'p' }],
+    ['nome vazio', { nome: '   ' }],
+    ['descrição vazia', { resumo: '' }],
+    ['nenhum recurso', { recursos: [] }],
+    ['recurso repetido', { recursos: ['consulta', 'consulta'] as Plano['recursos'] }],
+    ['recurso desconhecido', { recursos: ['teletransporte'] as unknown as Plano['recursos'] }],
+    ['preço negativo', { precoMensalCentavos: -1 }],
+    ['preço com fração de centavo', { precoMensalCentavos: 49.5 }],
+    ['preço absurdo', { precoMensalCentavos: 10_000_001 }],
+    ['ordem negativa', { ordem: -1 }],
+  ])('recusa %s', (_nome, mudancas) => {
+    expect(() => validarPlano(plano(mudancas as Partial<Plano>))).toThrow(PlanoInvalidoError);
+  });
+});
+
+describe('Plano — qual sugerir', () => {
+  it('sugere o menor plano À VENDA que inclui o recurso', () => {
+    expect(menorPlanoCom(PLANOS_INICIAIS, 'pecas')?.codigo).toBe('pecas');
+    expect(menorPlanoCom(PLANOS_INICIAIS, 'vigilancia')?.codigo).toBe('acompanhamento');
+  });
+
+  it('se nenhum à venda inclui, cai para o primeiro que inclui', () => {
+    expect(menorPlanoCom(PLANOS_INICIAIS, 'analiseIa')?.codigo).toBe('ia');
+  });
+
+  it('nenhum plano inclui: não inventa sugestão', () => {
+    expect(menorPlanoCom([ACOMPANHAMENTO], 'pecas')).toBeUndefined();
+  });
+});
+
+describe('Regras de assinatura — validação', () => {
+  it.each([
+    ['teste de zero dias', { diasDeTeste: 0 }],
+    ['teste de 91 dias', { diasDeTeste: 91 }],
+    ['carência negativa', { diasDeCarencia: -1 }],
+    ['carência de 61 dias', { diasDeCarencia: 61 }],
+    ['plano do teste inexistente', { planoDoTeste: 'platina' }],
+    ['plano do teste com recurso que não existe', { planoDoTeste: 'ia' }],
+  ])('recusa %s', (_nome, mudancas) => {
+    expect(() => validarRegras({ ...REGRAS_PADRAO, ...mudancas }, PLANOS_INICIAIS)).toThrow(
+      RegrasDeAssinaturaInvalidasError,
+    );
+  });
+
+  it('aceita carência zero e teste no plano mais simples', () => {
+    expect(() =>
+      validarRegras(
+        { diasDeTeste: 7, planoDoTeste: 'acompanhamento', diasDeCarencia: 0 },
+        PLANOS_INICIAIS,
+      ),
+    ).not.toThrow();
   });
 });
 
@@ -86,16 +185,16 @@ describe('Assinatura', () => {
     // decisão de cancelar — e o advogado deixaria de receber aviso de prazo
     // sem saber que deixou.
     const a = paga(10);
-    expect(a.permite('vigilancia', dias(12))).toBe(true);
-    expect(a.permite('pecas', dias(12))).toBe(true);
-    expect(a.permite('vigilancia', dias(20))).toBe(false);
+    expect(a.permite('vigilancia', dias(12), PECAS)).toBe(true);
+    expect(a.permite('pecas', dias(12), PECAS)).toBe(true);
+    expect(a.permite('vigilancia', dias(20), PECAS)).toBe(false);
   });
 
   it('o cancelamento vence qualquer data de vigência', () => {
     const a = paga(90).cancelada(dias(5));
     expect(a.statusEm(dias(4))).toBe('ativa');
     expect(a.statusEm(dias(6))).toBe('cancelada');
-    expect(a.permite('consulta', dias(6))).toBe(false);
+    expect(a.permite('consulta', dias(6), PECAS)).toBe(false);
   });
 
   it('plano vigente não libera recurso que o plano não tem', () => {
@@ -110,8 +209,8 @@ describe('Assinatura', () => {
       ehTeste: false,
       diasDeCarencia: 7,
     });
-    expect(a.permite('acompanhamento', T0)).toBe(true);
-    expect(a.permite('pecas', T0)).toBe(false);
+    expect(a.permite('acompanhamento', T0, ACOMPANHAMENTO)).toBe(true);
+    expect(a.permite('pecas', T0, ACOMPANHAMENTO)).toBe(false);
   });
 
   it('dias para vencer arredonda para cima', () => {
@@ -147,6 +246,22 @@ describe('Assinatura', () => {
     expect(r.venceEm.toISOString()).toBe(esperado.toISOString());
   });
 
+  it('permite recusa o plano de OUTRA assinatura — é erro de programação', () => {
+    expect(() => paga(30).permite('pecas', T0, ACOMPANHAMENTO)).toThrow(/não é o desta/);
+  });
+
+  it('renovar vindo do teste ganha a carência padrão, não a zero do teste', () => {
+    const t = assinaturaDeTeste({ workspace: 'ws1', plano: 'pecas', agora: T0 });
+    expect(t.diasDeCarencia).toBe(0);
+    expect(t.renovada({ meses: 1, agora: dias(3) }).diasDeCarencia).toBe(DIAS_DE_CARENCIA_PADRAO);
+    // Informada, vale a informada — é o que a liberação faz com as regras vigentes.
+    expect(t.renovada({ meses: 1, agora: dias(3), diasDeCarencia: 3 }).diasDeCarencia).toBe(3);
+  });
+
+  it('renovar assinatura paga mantém a carência dela', () => {
+    expect(paga(30, 5).renovada({ meses: 1, agora: T0 }).diasDeCarencia).toBe(5);
+  });
+
   it('renovar encerra o teste', () => {
     const t = assinaturaDeTeste({ workspace: 'ws1', plano: 'pecas', agora: T0 });
     expect(t.statusEm(dias(3))).toBe('teste');
@@ -173,7 +288,7 @@ describe('Assinatura', () => {
     expect(t.diasParaVencer(T0)).toBe(14);
     expect(t.statusEm(dias(13))).toBe('teste');
     expect(t.statusEm(dias(15))).toBe('vencida');
-    expect(t.permite('pecas', dias(15))).toBe(false);
+    expect(t.permite('pecas', dias(15), PECAS)).toBe(false);
   });
 
   it('a entidade é imutável', () => {

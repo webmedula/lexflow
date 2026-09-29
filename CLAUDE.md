@@ -686,10 +686,25 @@ Não são detalhes — moldam o código.
   agendada que pode não ter rodado — uma assinatura que venceu às 3h e só é
   marcada às 6h são três horas em que o sistema mente. Data comparada com
   `agora` acerta em todo instante, inclusive depois de dois dias fora do ar.
-- **Plano que não entrega não se vende.** O plano de IA existe no modelo com
-  `disponivelParaContratacao: false`, e há teste que falha se alguém ligar isso
-  antes de a análise existir. Cobrar assinatura de funcionalidade ausente, com
-  advogado, não volta como pedido de reembolso — volta como reclamação formal.
+- **Plano que não entrega não se vende.** Desde a v0.28.0 os planos são dado
+  (tabela `planos`, editável no painel), então a trava saiu do plano e foi para
+  o RECURSO: `RECURSOS` em `domain/entities/Plano.ts` marca `analiseIa` como
+  `implementado: false`, e `validarPlano` recusa pôr à venda QUALQUER plano que
+  inclua recurso não implementado — o de IA ou um criado amanhã pelo painel.
+  `validarRegras` aplica a mesma trava ao plano do teste. Há teste que falha
+  se alguém virar `implementado` antes de a análise existir. Cobrar assinatura
+  de funcionalidade ausente, com advogado, não volta como pedido de reembolso —
+  volta como reclamação formal.
+- **Planos são dado; recursos são código.** Nome, descrição, preço, combinação
+  de recursos, ordem e "à venda" moram na tabela `planos` e mudam pelo painel
+  sem deploy. O que cada RECURSO faz (e se existe) continua em código, porque
+  nenhum formulário cria funcionalidade. Não há remoção de plano: as
+  assinaturas apontam para o código dele, e pausar (`disponivelParaContratacao
+  = false`) é o jeito de tirar da oferta sem deixar ninguém órfão. A semente
+  (`PLANOS_INICIAIS`) entra UMA vez, com a tabela vazia — depois disso o
+  catálogo é do operador. Regras de teste e carência (tabela
+  `regras_assinatura`) não são retroativas: teste vale para conta nova,
+  carência a partir da próxima liberação.
 - **Liberação de assinatura também existe por HTTP agora (v0.27.0), na área
   administrativa** — mas a regra que gerou este parágrafo continua de pé: o
   que mudou foi COMO a rota se autentica, não a premissa. `/admin/*` usa HTTP
@@ -811,11 +826,19 @@ banco com verificação de integridade** (v0.17.0),
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
 acompanhar em lote e tela do processo orientada a providência,
 **área administrativa** com gestão de assinaturas e de chaves de API por HTTP
-Basic Auth (v0.27.0), Dockerfile multi-stage, CI, 661 testes.
+Basic Auth (v0.27.0), **catálogo de planos editável com preço e regras de
+teste e carência** (v0.28.0), Dockerfile multi-stage, CI, 728 testes.
+
+**Planos editáveis (v0.28.0):** aba Planos no `/admin` — visão geral com
+quantos assinantes cada plano tem (por status derivado), criar plano
+combinando recursos existentes, editar nome/descrição/preço/recursos/ordem,
+pausar e voltar à venda, e ajustar dias de teste, plano do teste e dias de
+carência. O preço (em centavos, `null` = sem preço publicado) aparece para o
+assinante em `GET /v1/assinatura` e na tela da conta.
 
 **Área administrativa (v0.27.0):** página própria em `/admin`, protegida por
 HTTP Basic Auth (`PROCESSOVIVO_ADMIN_USUARIO`/`PROCESSOVIVO_ADMIN_SENHA`) —
-sem senha configurada, a área nem existe (responde 501). Duas abas:
+sem senha configurada, a área nem existe (responde 501). Abas de
 assinaturas (listar, consultar por e-mail, liberar plano, cancelar, disparar
 os avisos de vencimento na hora) e chaves de API (emitir, listar, revogar —
 sem editar `.env` nem reiniciar o serviço). Chave emitida aqui autentica nas
@@ -855,7 +878,8 @@ pendurado em evento nenhum.
 **Cobrança (v0.21.0):** três planos (Acompanhamento, Peças, IA — o último
 modelado e fora de venda), teste de 14 dias no plano Peças para conta nova,
 carência de 7 dias, avisos por e-mail em três etapas e liberação manual pelo
-comando `assinatura` do CLI. Gateway de pagamento **não** entra ainda: com zero
+comando `assinatura` do CLI. (Desde a v0.28.0, planos, teste e carência são
+editáveis no painel; esses são os valores iniciais.) Gateway de pagamento **não** entra ainda: com zero
 assinantes, o Pix com liberação à mão ensina o domínio antes de apostar num
 provedor, e o gateway depois é um adapter atrás de uma porta.
 

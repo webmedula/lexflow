@@ -1,13 +1,15 @@
-import {
-  Assinatura,
-  DIAS_DE_CARENCIA_PADRAO,
-  assinaturaDeTeste,
-} from '../../domain/entities/Assinatura.js';
+import { Assinatura, assinaturaDeTeste } from '../../domain/entities/Assinatura.js';
 import type { StatusAssinatura } from '../../domain/entities/Assinatura.js';
-import { CODIGOS_DE_PLANO, PLANOS, PLANO_DO_TESTE } from '../../domain/entities/Plano.js';
-import type { CodigoPlano, RecursoDoPlano } from '../../domain/entities/Plano.js';
+import {
+  descricaoDoRecurso,
+  menorPlanoCom,
+  ordenarPlanos,
+  planoInclui,
+} from '../../domain/entities/Plano.js';
+import type { CodigoPlano, Plano, RecursoDoPlano } from '../../domain/entities/Plano.js';
 import {
   AssinaturaInativaError,
+  PlanoDesconhecidoError,
   RecursoNaoIncluidoNoPlanoError,
 } from '../../domain/errors/index.js';
 import type { Logger } from '../../domain/ports/Logger.js';
@@ -16,6 +18,10 @@ import type {
   EtapaDeAviso,
   RepositorioAssinaturas,
 } from '../../domain/ports/RepositorioAssinaturas.js';
+import type {
+  RepositorioPlanos,
+  RepositorioRegrasDeAssinatura,
+} from '../../domain/ports/RepositorioPlanos.js';
 import type { RepositorioUsuarios } from '../../domain/ports/RepositorioUsuarios.js';
 
 /** Quantos dias antes do vencimento o primeiro aviso sai. */
@@ -28,6 +34,10 @@ export interface ResumoAssinatura {
   readonly venceEm: string;
   readonly diasParaVencer: number;
   readonly recursos: readonly RecursoDoPlano[];
+  /** Os mesmos recursos, com o nome que a pessoa entende. */
+  readonly nomesDosRecursos: readonly string[];
+  /** `null` quando o plano não tem preço publicado. */
+  readonly precoMensalCentavos: number | null;
   readonly ehTeste: boolean;
   /** Frase pronta para a tela. A interface não deve montar a sua própria. */
   readonly aviso?: string;
@@ -35,6 +45,10 @@ export interface ResumoAssinatura {
 
 export interface OpcoesServicoAssinaturas {
   readonly repositorio: RepositorioAssinaturas;
+  /** O catálogo de planos — de onde sai o que cada código de plano inclui. */
+  readonly planos: RepositorioPlanos;
+  /** Dias de teste, plano do teste e carência — editáveis pelo painel. */
+  readonly regras: RepositorioRegrasDeAssinatura;
   readonly usuarios: RepositorioUsuarios;
   readonly logger: Logger;
   /** Sem notificador, os avisos não saem — e o log diz isso alto. */
@@ -55,6 +69,8 @@ export interface OpcoesServicoAssinaturas {
  */
 export class ServicoAssinaturas {
   private readonly repositorio: RepositorioAssinaturas;
+  private readonly planos: RepositorioPlanos;
+  private readonly regras: RepositorioRegrasDeAssinatura;
   private readonly usuarios: RepositorioUsuarios;
   private readonly logger: Logger;
   private readonly notificador: Notificador | undefined;
@@ -62,6 +78,8 @@ export class ServicoAssinaturas {
 
   constructor(opcoes: OpcoesServicoAssinaturas) {
     this.repositorio = opcoes.repositorio;
+    this.planos = opcoes.planos;
+    this.regras = opcoes.regras;
     this.usuarios = opcoes.usuarios;
     this.logger = opcoes.logger;
     this.notificador = opcoes.notificador;
@@ -70,6 +88,22 @@ export class ServicoAssinaturas {
 
   async doWorkspace(workspace: string): Promise<Assinatura | undefined> {
     return this.repositorio.porWorkspace(workspace);
+  }
+
+  /**
+   * O plano a que a assinatura aponta.
+   *
+   * Um código sem plano no catálogo só acontece com banco editado à mão —
+   * não há remoção de plano. Vira erro nomeado aqui, e não um "plano
+   * undefined" circulando até estourar longe da causa.
+   *
+   * @throws {PlanoDesconhecidoError}
+   */
+  async planoDe(assinatura: Assinatura): Promise<Plano> {
+    const plano = await this.planos.porCodigo(assinatura.plano);
+    if (plano) return plano;
+    const todos = ordenarPlanos(await this.planos.listar());
+    throw new PlanoDesconhecidoError(assinatura.plano, todos.map((p) => p.codigo));
   }
 
   /**
@@ -88,33 +122,54 @@ export class ServicoAssinaturas {
     if (!assinatura.estaVigenteEm(agora)) {
       throw new AssinaturaInativaError(assinatura.statusEm(agora));
     }
-    if (!assinatura.detalhesDoPlano.recursos.includes(recurso)) {
+    const plano = await this.planoDe(assinatura);
+    if (!planoInclui(plano, recurso)) {
+      const sugerido = menorPlanoCom(await this.planos.listar(), recurso);
       throw new RecursoNaoIncluidoNoPlanoError(
-        nomeDoRecurso(recurso),
-        assinatura.detalhesDoPlano.nome,
-        PLANOS[menorPlanoCom(recurso) ?? 'ia'].nome,
+        descricaoDoRecurso(recurso).frase,
+        plano.nome,
+        sugerido?.nome,
       );
     }
   }
 
   /** O teste de conta nova. Chamado pelo cadastro, nunca por rota pública. */
   async criarTeste(workspace: string): Promise<Assinatura> {
+    const regras = await this.regras.ler();
     const teste = assinaturaDeTeste({
       workspace,
-      plano: PLANO_DO_TESTE,
+      plano: regras.planoDoTeste,
+      dias: regras.diasDeTeste,
       agora: this.agora(),
     });
     await this.repositorio.salvar(teste);
     return teste;
   }
 
-  /** Liberação manual, depois do Pix. Cria se não existe, renova se existe. */
+  /**
+   * Liberação manual, depois do Pix. Cria se não existe, renova se existe.
+   *
+   * A carência gravada é a das regras VIGENTES na hora da liberação — mudar a
+   * carência no painel vale a partir da próxima liberação de cada assinante,
+   * nunca retroativamente.
+   *
+   * Plano pausado (fora de venda) PODE ser liberado: é como se mantém um
+   * cliente antigo no plano que ele tinha, ou se faz um piloto. Quem avisa
+   * isso é a interface (o CLI imprime ATENÇÃO; o painel marca "pausado").
+   *
+   * @throws {PlanoDesconhecidoError}
+   */
   async liberar(opcoes: {
     readonly workspace: string;
     readonly plano: CodigoPlano;
     readonly meses: number;
     readonly observacao?: string;
   }): Promise<Assinatura> {
+    if (!(await this.planos.porCodigo(opcoes.plano))) {
+      const todos = ordenarPlanos(await this.planos.listar());
+      throw new PlanoDesconhecidoError(opcoes.plano, todos.map((p) => p.codigo));
+    }
+    const { diasDeCarencia } = await this.regras.ler();
     const agora = this.agora();
     const atual = await this.repositorio.porWorkspace(opcoes.workspace);
 
@@ -123,6 +178,7 @@ export class ServicoAssinaturas {
           plano: opcoes.plano,
           meses: opcoes.meses,
           agora,
+          diasDeCarencia,
           ...(opcoes.observacao !== undefined ? { observacao: opcoes.observacao } : {}),
         })
       : (() => {
@@ -134,7 +190,7 @@ export class ServicoAssinaturas {
             inicioEm: agora,
             venceEm: fim,
             ehTeste: false,
-            diasDeCarencia: DIAS_DE_CARENCIA_PADRAO,
+            diasDeCarencia,
             ...(opcoes.observacao !== undefined ? { observacao: opcoes.observacao } : {}),
           });
         })();
@@ -165,17 +221,20 @@ export class ServicoAssinaturas {
     const a = await this.repositorio.porWorkspace(workspace);
     if (!a) return undefined;
 
+    const plano = await this.planoDe(a);
     const agora = this.agora();
     const status = a.statusEm(agora);
     const aviso = fraseDeAviso(a, status, agora);
 
     return {
       plano: a.plano,
-      nomeDoPlano: a.detalhesDoPlano.nome,
+      nomeDoPlano: plano.nome,
       status,
       venceEm: a.venceEm.toISOString(),
       diasParaVencer: a.diasParaVencer(agora),
-      recursos: a.detalhesDoPlano.recursos,
+      recursos: plano.recursos,
+      nomesDosRecursos: plano.recursos.map((r) => descricaoDoRecurso(r).nome),
+      precoMensalCentavos: plano.precoMensalCentavos,
       ehTeste: a.ehTeste,
       ...(aviso ? { aviso } : {}),
     };
@@ -207,6 +266,9 @@ export class ServicoAssinaturas {
       return { avisados: 0 };
     }
 
+    // O catálogo uma vez por varredura, não uma consulta por e-mail.
+    const nomes = new Map((await this.planos.listar()).map((p) => [p.codigo, p.nome]));
+
     let avisados = 0;
     for (const a of candidatas) {
       const etapa = etapaDe(a, agora);
@@ -219,7 +281,7 @@ export class ServicoAssinaturas {
       const enviado = await this.notificador.enviar({
         para: conta.email,
         assunto: assuntoDoAviso(etapa, a),
-        texto: textoDoAviso(etapa, a, agora),
+        texto: textoDoAviso(etapa, a, agora, nomes.get(a.plano) ?? a.plano),
       });
 
       // Só marca depois de confirmar o envio. Marcar antes transformaria uma
@@ -234,22 +296,6 @@ export class ServicoAssinaturas {
     if (avisados > 0) this.logger.info('avisos de assinatura enviados', { avisados });
     return { avisados };
   }
-}
-
-/** O plano mais barato que inclui o recurso. É o que a mensagem deve sugerir. */
-function menorPlanoCom(recurso: RecursoDoPlano): CodigoPlano | undefined {
-  return CODIGOS_DE_PLANO.find((c) => PLANOS[c].recursos.includes(recurso));
-}
-
-function nomeDoRecurso(recurso: RecursoDoPlano): string {
-  const nomes: Record<RecursoDoPlano, string> = {
-    consulta: 'a consulta de processos',
-    acompanhamento: 'o acompanhamento de processos',
-    vigilancia: 'a vigilância por OAB',
-    pecas: 'as peças do processo',
-    analiseIa: 'a análise com IA',
-  };
-  return nomes[recurso];
 }
 
 function etapaDe(a: Assinatura, agora: Date): EtapaDeAviso | undefined {
@@ -275,9 +321,12 @@ function assuntoDoAviso(etapa: EtapaDeAviso, a: Assinatura): string {
   return 'Processo Vivo — a vigilância dos seus processos foi PARADA';
 }
 
-function textoDoAviso(etapa: EtapaDeAviso, a: Assinatura, agora: Date): string {
-  const plano = a.detalhesDoPlano.nome;
-
+function textoDoAviso(
+  etapa: EtapaDeAviso,
+  a: Assinatura,
+  agora: Date,
+  plano: string,
+): string {
   if (etapa === 'vencendo') {
     const dias = Math.max(a.diasParaVencer(agora), 0);
     const prazo = dias <= 0 ? 'hoje' : dias === 1 ? 'amanhã' : `em ${dias} dias`;

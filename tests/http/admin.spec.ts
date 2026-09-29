@@ -55,6 +55,16 @@ describe('Área administrativa — desligada (sem credencial configurada)', () =
   it('as rotas de API também respondem 501', async () => {
     const r = await servidor.inject({ method: 'GET', url: '/admin/api/assinaturas' });
     expect(r.statusCode).toBe(501);
+    const p = await servidor.inject({ method: 'GET', url: '/admin/api/planos' });
+    expect(p.statusCode).toBe(501);
+  });
+
+  it('a mensagem fala com o operador, não na língua das fontes de dados', async () => {
+    // Na v0.27.0 saía "O provider "admin" não suporta a operação "acessar"…".
+    const r = await servidor.inject({ method: 'GET', url: '/admin' });
+    expect(r.json().erro).toBe('ADMIN_DESLIGADA');
+    expect(r.json().mensagem).not.toMatch(/provider/i);
+    expect(r.json().mensagem).toMatch(/reinicie/);
   });
 });
 
@@ -316,5 +326,203 @@ describe('Área administrativa — chaves de API', () => {
       payload: {},
     });
     expect(r.statusCode).toBe(400);
+  });
+});
+
+describe('Área administrativa — planos e regras', () => {
+  let servidor: FastifyInstance;
+
+  beforeEach(() => {
+    servidor = montar({
+      admin: { usuario: ADMIN_USUARIO, senha: ADMIN_SENHA },
+      comAssinaturas: true,
+    }).servidor;
+  });
+  afterEach(async () => {
+    await servidor.close();
+  });
+
+  const auth = { authorization: basic(ADMIN_USUARIO, ADMIN_SENHA) };
+
+  const NOVO = {
+    codigo: 'escritorio',
+    nome: 'Escritório',
+    resumo: 'Tudo do Peças, para o escritório.',
+    recursos: ['consulta', 'acompanhamento', 'vigilancia', 'pecas'],
+    disponivelParaContratacao: true,
+    precoMensalCentavos: 19900,
+  };
+
+  async function planosAVendaDoAssinante(): Promise<Array<{ codigo: string; precoMensalCentavos: number | null }>> {
+    const r = await servidor.inject({
+      method: 'GET',
+      url: '/v1/assinatura',
+      headers: { 'x-api-key': CHAVE },
+    });
+    expect(r.statusCode).toBe(200);
+    return r.json().planos;
+  }
+
+  it('exige a credencial administrativa', async () => {
+    const r = await servidor.inject({ method: 'GET', url: '/admin/api/planos' });
+    expect(r.statusCode).toBe(401);
+    const put = await servidor.inject({
+      method: 'PUT',
+      url: '/admin/api/planos/pecas',
+      payload: { precoMensalCentavos: 1 },
+    });
+    expect(put.statusCode).toBe(401);
+  });
+
+  it('mostra o catálogo, os recursos que existem e as regras', async () => {
+    const r = await servidor.inject({ method: 'GET', url: '/admin/api/planos', headers: auth });
+    expect(r.statusCode).toBe(200);
+    const corpo = r.json();
+    expect(corpo.planos.map((p: { codigo: string }) => p.codigo)).toEqual([
+      'acompanhamento',
+      'pecas',
+      'ia',
+    ]);
+    expect(corpo.planos[1].assinantes).toBeDefined();
+    expect(corpo.recursos.find((x: { recurso: string }) => x.recurso === 'analiseIa').implementado).toBe(
+      false,
+    );
+    expect(corpo.regras).toEqual({ diasDeTeste: 14, planoDoTeste: 'pecas', diasDeCarencia: 7 });
+  });
+
+  it('cria um plano, e ele aparece à venda para o assinante, com preço', async () => {
+    const r = await servidor.inject({
+      method: 'POST',
+      url: '/admin/api/planos',
+      headers: auth,
+      payload: NOVO,
+    });
+    expect(r.statusCode).toBe(201);
+
+    const aVenda = await planosAVendaDoAssinante();
+    const escritorio = aVenda.find((p) => p.codigo === 'escritorio');
+    expect(escritorio?.precoMensalCentavos).toBe(19900);
+  });
+
+  it('código repetido é 409', async () => {
+    const r = await servidor.inject({
+      method: 'POST',
+      url: '/admin/api/planos',
+      headers: auth,
+      payload: { ...NOVO, codigo: 'pecas' },
+    });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().erro).toBe('PLANO_JA_EXISTE');
+  });
+
+  it('pausar tira da oferta; voltar à venda devolve', async () => {
+    const pausar = await servidor.inject({
+      method: 'PUT',
+      url: '/admin/api/planos/acompanhamento',
+      headers: auth,
+      payload: { disponivelParaContratacao: false },
+    });
+    expect(pausar.statusCode).toBe(200);
+    expect((await planosAVendaDoAssinante()).map((p) => p.codigo)).toEqual(['pecas']);
+
+    await servidor.inject({
+      method: 'PUT',
+      url: '/admin/api/planos/acompanhamento',
+      headers: auth,
+      payload: { disponivelParaContratacao: true },
+    });
+    expect((await planosAVendaDoAssinante()).map((p) => p.codigo)).toEqual([
+      'acompanhamento',
+      'pecas',
+    ]);
+  });
+
+  it('reajuste de preço vale na hora', async () => {
+    const r = await servidor.inject({
+      method: 'PUT',
+      url: '/admin/api/planos/pecas',
+      headers: auth,
+      payload: { precoMensalCentavos: 9990 },
+    });
+    expect(r.json().precoMensalCentavos).toBe(9990);
+    expect((await planosAVendaDoAssinante()).find((p) => p.codigo === 'pecas')?.precoMensalCentavos).toBe(
+      9990,
+    );
+  });
+
+  it('recusa colocar à venda o plano de IA, com a razão', async () => {
+    const r = await servidor.inject({
+      method: 'PUT',
+      url: '/admin/api/planos/ia',
+      headers: auth,
+      payload: { disponivelParaContratacao: true },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().erro).toBe('PLANO_INVALIDO');
+    expect(r.json().mensagem).toMatch(/ainda não existe/);
+  });
+
+  it('recusa preço com fração de centavo (400 no formato)', async () => {
+    const r = await servidor.inject({
+      method: 'PUT',
+      url: '/admin/api/planos/pecas',
+      headers: auth,
+      payload: { precoMensalCentavos: 49.5 },
+    });
+    expect(r.statusCode).toBe(400);
+  });
+
+  it('um plano criado aqui pode ser liberado por e-mail', async () => {
+    await servidor.inject({ method: 'POST', url: '/admin/api/planos', headers: auth, payload: NOVO });
+    await servidor.inject({
+      method: 'POST',
+      url: '/v1/contas',
+      payload: { nome: 'Dora', email: 'dora@escritorio.com.br', senha: SENHA_CONTA },
+    });
+
+    const r = await servidor.inject({
+      method: 'POST',
+      url: '/admin/api/assinaturas/dora@escritorio.com.br/liberar',
+      headers: auth,
+      payload: { plano: 'escritorio', meses: 1 },
+    });
+    expect(r.statusCode).toBe(201);
+    expect(r.json().nomeDoPlano).toBe('Escritório');
+  });
+
+  it('as regras novas valem para a PRÓXIMA conta criada', async () => {
+    const regras = await servidor.inject({
+      method: 'PUT',
+      url: '/admin/api/regras',
+      headers: auth,
+      payload: { diasDeTeste: 7, planoDoTeste: 'acompanhamento', diasDeCarencia: 3 },
+    });
+    expect(regras.statusCode).toBe(200);
+
+    await servidor.inject({
+      method: 'POST',
+      url: '/v1/contas',
+      payload: { nome: 'Eva', email: 'eva@escritorio.com.br', senha: SENHA_CONTA },
+    });
+    const consulta = await servidor.inject({
+      method: 'GET',
+      url: '/admin/api/assinaturas/eva@escritorio.com.br',
+      headers: auth,
+    });
+    const a = consulta.json().assinatura;
+    expect(a.plano).toBe('acompanhamento');
+    expect(a.ehTeste).toBe(true);
+    expect(a.diasParaVencer).toBe(7);
+  });
+
+  it('recusa regras que dariam de teste um plano com recurso que não existe', async () => {
+    const r = await servidor.inject({
+      method: 'PUT',
+      url: '/admin/api/regras',
+      headers: auth,
+      payload: { diasDeTeste: 14, planoDoTeste: 'ia', diasDeCarencia: 7 },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().erro).toBe('REGRAS_DE_ASSINATURA_INVALIDAS');
   });
 });

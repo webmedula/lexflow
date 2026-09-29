@@ -1,8 +1,9 @@
 import type { Usuario } from '../../domain/entities/Usuario.js';
 import { normalizarEmail } from '../../domain/entities/Usuario.js';
 import { assinaturaDeTeste } from '../../domain/entities/Assinatura.js';
-import { PLANO_DO_TESTE } from '../../domain/entities/Plano.js';
+import { REGRAS_PADRAO } from '../../domain/entities/RegrasDeAssinatura.js';
 import type { RepositorioAssinaturas } from '../../domain/ports/RepositorioAssinaturas.js';
+import type { RepositorioRegrasDeAssinatura } from '../../domain/ports/RepositorioPlanos.js';
 import {
   CredenciaisInvalidasError,
   SessaoInvalidaError,
@@ -36,6 +37,11 @@ export interface OpcoesServicoContas {
    * fica pela metade.
    */
   readonly assinaturas?: RepositorioAssinaturas;
+  /**
+   * Dias de teste e plano do teste, como o operador configurou no painel.
+   * Ausente, valem as `REGRAS_PADRAO` — 14 dias no plano Peças.
+   */
+  readonly regras?: RepositorioRegrasDeAssinatura;
   readonly senhas: HashDeSenha;
   readonly tokens: TokensDeSessao;
   readonly duracaoSessaoMs: number;
@@ -87,6 +93,7 @@ const DURACAO_RECUPERACAO_MS = 60 * 60 * 1000;
 export class ServicoContas {
   private readonly repositorio: RepositorioUsuarios;
   private readonly assinaturas: RepositorioAssinaturas | undefined;
+  private readonly regras: RepositorioRegrasDeAssinatura | undefined;
   private readonly senhas: HashDeSenha;
   private readonly tokens: TokensDeSessao;
   private readonly duracaoSessaoMs: number;
@@ -97,6 +104,7 @@ export class ServicoContas {
   constructor(opcoes: OpcoesServicoContas) {
     this.repositorio = opcoes.repositorio;
     this.assinaturas = opcoes.assinaturas;
+    this.regras = opcoes.regras;
     this.senhas = opcoes.senhas;
     this.tokens = opcoes.tokens;
     this.duracaoSessaoMs = opcoes.duracaoSessaoMs;
@@ -141,10 +149,12 @@ export class ServicoContas {
     // e quem caísse nessa janela veria um sistema que aceitou o cadastro e
     // recusa tudo em seguida, sem explicar por quê.
     if (this.assinaturas) {
+      const regras = this.regras ? await this.regras.ler() : REGRAS_PADRAO;
       await this.assinaturas.salvar(
         assinaturaDeTeste({
           workspace: usuario.workspace,
-          plano: PLANO_DO_TESTE,
+          plano: regras.planoDoTeste,
+          dias: regras.diasDeTeste,
           agora: new Date(),
         }),
       );

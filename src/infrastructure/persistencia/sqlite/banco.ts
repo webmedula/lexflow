@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { PLANOS_INICIAIS } from '../../../domain/entities/Plano.js';
 import { paraBusca } from '../normalizacaoBusca.js';
 
 /**
@@ -252,6 +253,35 @@ const ESQUEMA = [
      revogada_em  TEXT
    )`,
 
+  // O catálogo de planos, editável pela área administrativa desde a v0.28.0.
+  //
+  // `codigo` é a chave e não muda: `assinaturas.plano` aponta para ele. Não há
+  // FOREIGN KEY daquele lado de propósito — a tabela `assinaturas` é anterior
+  // a esta, e recriar a tabela de assinaturas em produção para ganhar uma
+  // restrição é o tipo de migração que dá errado em silêncio. A integridade é
+  // garantida por não existir remoção de plano (ver `RepositorioPlanos`).
+  //
+  // `recursos` é um array JSON de códigos de recurso. `preco_mensal_centavos`
+  // NULL significa "sem preço publicado".
+  `CREATE TABLE IF NOT EXISTS planos (
+     codigo                 TEXT PRIMARY KEY,
+     nome                   TEXT NOT NULL,
+     resumo                 TEXT NOT NULL,
+     recursos               TEXT NOT NULL,
+     disponivel             INTEGER NOT NULL DEFAULT 0,
+     preco_mensal_centavos  INTEGER,
+     ordem                  INTEGER NOT NULL DEFAULT 0
+   )`,
+
+  // Regras de teste e carência. Uma linha só (`id = 1`, garantido pelo
+  // CHECK); sem ela, valem as `REGRAS_PADRAO` do domínio.
+  `CREATE TABLE IF NOT EXISTS regras_assinatura (
+     id                INTEGER PRIMARY KEY CHECK (id = 1),
+     dias_de_teste     INTEGER NOT NULL,
+     plano_do_teste    TEXT NOT NULL,
+     dias_de_carencia  INTEGER NOT NULL
+   )`,
+
   `CREATE INDEX IF NOT EXISTS idx_sessoes_usuario ON sessoes(usuario_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sessoes_expira ON sessoes(expira_em)`,
 ];
@@ -401,6 +431,7 @@ export function abrirBanco(caminho: string): DatabaseSync {
   for (const ddl of ESQUEMA) db.exec(ddl);
   migrarColunas(db);
   preencherPartesTexto(db);
+  semearPlanos(db);
   retrocarregarAssinaturas(db);
 
   // Segunda passagem: o esquema já existe, então dá para perguntar ao banco se
@@ -512,6 +543,43 @@ function preencherPartesTexto(db: DatabaseSync): void {
       nomes.length > 0 ? paraBusca(nomes.join(' | ')) : '',
       linha.workspace,
       linha.numero,
+    );
+  }
+}
+
+/**
+ * Os planos com que o sistema nasceu entram no catálogo — UMA vez.
+ *
+ * Só com a tabela vazia, e não com `INSERT OR IGNORE` a cada subida: depois
+ * que o catálogo existe, ele é do operador. Reinserir a semente a cada
+ * arranque não desfaria edições (o IGNORE preservaria as linhas), mas passaria
+ * a ideia errada de que o código ainda manda na lista — e o dia em que a
+ * semente mudasse, ela voltaria a aparecer num catálogo que alguém organizou.
+ *
+ * É o que mantém válidas as assinaturas gravadas antes da v0.28.0: elas
+ * apontam para `acompanhamento`, `pecas` e `ia`, e os três passam a existir
+ * como linha antes da primeira requisição.
+ */
+function semearPlanos(db: DatabaseSync): void {
+  const { total } = db.prepare('SELECT COUNT(*) AS total FROM planos').get() as {
+    total: number;
+  };
+  if (total > 0) return;
+
+  const gravar = db.prepare(
+    `INSERT INTO planos
+       (codigo, nome, resumo, recursos, disponivel, preco_mensal_centavos, ordem)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const p of PLANOS_INICIAIS) {
+    gravar.run(
+      p.codigo,
+      p.nome,
+      p.resumo,
+      JSON.stringify(p.recursos),
+      p.disponivelParaContratacao ? 1 : 0,
+      p.precoMensalCentavos,
+      p.ordem,
     );
   }
 }

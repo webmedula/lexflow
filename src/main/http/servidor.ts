@@ -122,12 +122,13 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(rotasDeAcompanhamento(app.acompanhamento));
   void servidor.register(rotasDePecas(app.pecas, app.assinaturas));
   void servidor.register(rotasDoPainel(app.acompanhamento, app.pecas));
-  void servidor.register(rotasDeAssinaturas(app.assinaturas));
+  void servidor.register(rotasDeAssinaturas(app.assinaturas, app.planos));
   void servidor.register(rotasDeVigilancia(app.vigilancia, app.preferenciasNotificacao));
   void servidor.register(
     rotasDeAdmin({
       ...(app.adminCredenciais ? { credenciais: app.adminCredenciais } : {}),
       assinaturas: app.assinaturas,
+      planos: app.planos,
       repositorioAssinaturas: app.repositorioAssinaturas,
       usuarios: app.usuarios,
       chavesApi: app.chavesApi,

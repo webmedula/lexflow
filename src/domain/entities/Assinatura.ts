@@ -1,4 +1,4 @@
-import { PLANOS, planoInclui } from './Plano.js';
+import { planoInclui } from './Plano.js';
 import type { CodigoPlano, Plano, RecursoDoPlano } from './Plano.js';
 
 /**
@@ -66,10 +66,6 @@ export class Assinatura {
     Object.freeze(this);
   }
 
-  get detalhesDoPlano(): Plano {
-    return PLANOS[this.plano];
-  }
-
   /** Instante em que a carência acaba e o acesso fecha. */
   get fimDaCarencia(): Date {
     return new Date(this.venceEm.getTime() + this.diasDeCarencia * 86_400_000);
@@ -106,9 +102,19 @@ export class Assinatura {
    * Duas perguntas em uma, e as duas precisam ser verdadeiras: a assinatura
    * está vigente E o plano inclui o recurso. Quem chama não deve reimplementar
    * essa conjunção — foi para isso que ela veio parar aqui.
+   *
+   * O plano entra como argumento desde que os planos passaram a morar no
+   * banco (v0.28.0): a entidade guarda o CÓDIGO, e quem chama traz os
+   * detalhes. Passar o plano de outra assinatura é erro de programação, e
+   * estoura aqui em vez de responder errado.
    */
-  permite(recurso: RecursoDoPlano, agora: Date): boolean {
-    return this.estaVigenteEm(agora) && planoInclui(this.plano, recurso);
+  permite(recurso: RecursoDoPlano, agora: Date, plano: Plano): boolean {
+    if (plano.codigo !== this.plano) {
+      throw new Error(
+        `plano "${plano.codigo}" não é o desta assinatura ("${this.plano}")`,
+      );
+    }
+    return this.estaVigenteEm(agora) && planoInclui(plano, recurso);
   }
 
   /**
@@ -128,6 +134,13 @@ export class Assinatura {
     readonly meses: number;
     readonly agora: Date;
     readonly observacao?: string;
+    /**
+     * Carência da vigência nova. Sem informar, mantém a atual — exceto vindo
+     * do teste, que tem carência zero: sem este cuidado, quem assinava depois
+     * do teste herdava ZERO dias de carência e perdia a vigilância no minuto
+     * do primeiro vencimento. Era o defeito até a v0.27.0.
+     */
+    readonly diasDeCarencia?: number;
   }): Assinatura {
     // Renovar a partir do vencimento (e não de hoje) é o que impede o
     // assinante em dia de PERDER dias por renovar cedo. Se já venceu, começa
@@ -144,7 +157,9 @@ export class Assinatura {
       venceEm: fim,
       // Renovar encerra o teste: a partir daqui é assinatura paga.
       ehTeste: false,
-      diasDeCarencia: this.diasDeCarencia,
+      diasDeCarencia:
+        opcoes.diasDeCarencia ??
+        (this.ehTeste ? DIAS_DE_CARENCIA_PADRAO : this.diasDeCarencia),
       ...(opcoes.observacao !== undefined ? { observacao: opcoes.observacao } : {}),
     });
   }

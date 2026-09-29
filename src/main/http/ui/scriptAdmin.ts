@@ -15,7 +15,8 @@ export const SCRIPT_ADMIN = String.raw`
 (function(){
 var $=function(i){return document.getElementById(i)};
 
-var estado={aba:'assinaturas',assinaturas:null,chaves:null,chaveEmitida:null};
+var estado={aba:'assinaturas',assinaturas:null,chaves:null,chaveEmitida:null,
+  catalogo:null,editando:null,avisoPlanos:null};
 
 /* ---------------- utilidades (mesmas convenções de ui/script.ts) ---------------- */
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
@@ -26,10 +27,29 @@ function dth(iso){if(!iso)return'—';var d=new Date(iso);return isNaN(d)?'—':
   d.toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',
     month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}
 
+/* Dinheiro em CENTAVOS do servidor para a tela, e de volta. null é "sem preço". */
+function fmtPreco(c){
+  if(c==null)return 'sem preço';
+  return (c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+}
+function paraCentavos(txt){
+  var t=String(txt||'').replace(/R\$/g,'').replace(/\s/g,'');
+  if(t==='')return null;
+  /* "1.234,56" e "49,90" são o jeito brasileiro; "49.90" também vale. */
+  if(t.indexOf(',')>=0)t=t.replace(/\./g,'').replace(',','.');
+  if(!/^\d+(\.\d{1,2})?$/.test(t))return NaN;
+  return Math.round(Number(t)*100);
+}
+function precoParaCampo(c){
+  if(c==null)return '';
+  return (c/100).toFixed(2).replace('.',',');
+}
+
 function api(caminho,opcoes){
   opcoes=opcoes||{};
   var h={};
   if(opcoes.body)h['content-type']='application/json';
+  /* opcoes.method pode ser PUT: as rotas de plano e de regras usam. */
   return fetch(caminho,{method:opcoes.method||'GET',headers:h,
     body:opcoes.body?JSON.stringify(opcoes.body):undefined})
     .then(function(r){return r.json().catch(function(){return{}})
@@ -50,21 +70,36 @@ function irPara(aba){
   estado.aba=aba;
   $('nav-assinaturas').className=aba==='assinaturas'?'ativo':'';
   $('nav-chaves').className=aba==='chaves'?'ativo':'';
+  $('nav-planos').className=aba==='planos'?'ativo':'';
   render();
 }
 
 function render(){
   var c=$('conteudo');
   c.innerHTML='<div class="vazio"><span class="gira"></span>carregando…</div>';
-  if(estado.aba==='chaves'){renderChaves()}else{renderAssinaturas()}
+  if(estado.aba==='chaves'){renderChaves()}
+  else if(estado.aba==='planos'){renderPlanos()}
+  else{renderAssinaturas()}
 }
 
 /* ---------------- assinaturas ---------------- */
 function renderAssinaturas(){
-  api('/admin/api/assinaturas').then(function(r){
-    estado.assinaturas=r.assinaturas||[];
+  Promise.all([api('/admin/api/assinaturas'),api('/admin/api/planos')]).then(function(rs){
+    estado.assinaturas=rs[0].assinaturas||[];
+    estado.catalogo=rs[1];
     desenharAssinaturas();
   }).catch(function(e){$('conteudo').innerHTML=erroBloco(e)});
+}
+
+/* Todos os planos, à venda ou não: liberar plano pausado é como se mantém um
+   cliente antigo no plano dele. O rótulo diz qual é qual. */
+function opcoesDePlano(selecionado){
+  var planos=(estado.catalogo&&estado.catalogo.planos)||[];
+  return planos.map(function(p){
+    return '<option value="'+esc(p.codigo)+'"'+(p.codigo===selecionado?' selected':'')+'>'+
+      esc(p.nome)+(p.disponivelParaContratacao?'':' (pausado)')+
+      ' · '+esc(fmtPreco(p.precoMensalCentavos))+'</option>';
+  }).join('');
 }
 
 function linhaAssinatura(a){
@@ -96,10 +131,9 @@ function desenharAssinaturas(){
   h+='<div><label class="rotulo">E-mail da conta</label><input id="in-email" placeholder="ana@escritorio.com.br"></div>';
   h+='</div>';
   h+='<div class="grade" style="margin-top:10px">';
+  var doTeste=estado.catalogo&&estado.catalogo.regras?estado.catalogo.regras.planoDoTeste:'';
   h+='<div><label class="rotulo">Plano</label><select id="in-plano">'+
-    '<option value="acompanhamento">Acompanhamento</option>'+
-    '<option value="pecas" selected>Peças</option>'+
-    '<option value="ia">IA</option></select></div>';
+    opcoesDePlano(doTeste)+'</select></div>';
   h+='<div><label class="rotulo">Meses</label><input id="in-meses" type="number" min="1" max="60" value="12"></div>';
   h+='<div><label class="rotulo">Observação (opcional)</label><input id="in-obs" placeholder="Pix 22/09"></div>';
   h+='</div>';
@@ -150,6 +184,211 @@ function desenharAssinaturas(){
         renderAssinaturas();
       }).catch(function(e){$('resultado-gerenciar').innerHTML=erroBloco(e)});
   });
+}
+
+/* ---------------- planos ---------------- */
+function renderPlanos(){
+  api('/admin/api/planos').then(function(r){
+    estado.catalogo=r;
+    desenharPlanos();
+  }).catch(function(e){$('conteudo').innerHTML=erroBloco(e)});
+}
+
+function vigentes(p){return p.assinantes.teste+p.assinantes.ativa+p.assinantes.carencia}
+
+function nomeRecurso(codigo){
+  var rs=estado.catalogo.recursos;
+  for(var i=0;i<rs.length;i++){if(rs[i].recurso===codigo)return rs[i].nome}
+  return codigo;
+}
+
+function linhaPlano(p){
+  var sit=p.disponivelParaContratacao
+    ?'<span class="selo">à venda</span>':'<span class="selo al">pausado</span>';
+  var a=p.assinantes;
+  var detalhe=[];
+  if(a.ativa)detalhe.push(a.ativa+' ativa(s)');
+  if(a.teste)detalhe.push(a.teste+' em teste');
+  if(a.carencia)detalhe.push(a.carencia+' em carência');
+  if(a.vencida)detalhe.push(a.vencida+' vencida(s)');
+  if(a.cancelada)detalhe.push(a.cancelada+' cancelada(s)');
+  return '<tr>'+
+    '<td><strong>'+esc(p.nome)+'</strong>'+
+      '<div class="t-sub">'+esc(p.codigo)+'</div>'+
+      (p.ehPlanoDoTeste?'<div style="margin-top:4px"><span class="selo nv">plano do teste</span></div>':'')+'</td>'+
+    '<td>'+esc(fmtPreco(p.precoMensalCentavos))+'</td>'+
+    '<td class="t-sub">'+esc(p.recursos.map(nomeRecurso).join(', '))+'</td>'+
+    '<td>'+sit+'</td>'+
+    '<td><strong>'+vigentes(p)+'</strong> com acesso'+
+      (detalhe.length?'<div class="t-sub">'+esc(detalhe.join(' · '))+'</div>':'')+'</td>'+
+    '<td style="white-space:nowrap">'+
+      '<button class="bt3" data-editar="'+esc(p.codigo)+'">editar</button>'+
+      '<button class="bt3" data-venda="'+esc(p.codigo)+'">'+
+        (p.disponivelParaContratacao?'pausar':'colocar à venda')+'</button></td>'+
+    '</tr>';
+}
+
+function planoPorCodigo(codigo){
+  var ps=estado.catalogo.planos;
+  for(var i=0;i<ps.length;i++){if(ps[i].codigo===codigo)return ps[i]}
+  return null;
+}
+
+function formularioPlano(){
+  var novo=estado.editando==='novo';
+  var p=novo?{codigo:'',nome:'',resumo:'',recursos:['consulta','acompanhamento','vigilancia'],
+    disponivelParaContratacao:false,precoMensalCentavos:null,ordem:''}:planoPorCodigo(estado.editando);
+  if(!p)return '';
+  var marcas=estado.catalogo.recursos.map(function(r){
+    var marcado=p.recursos.indexOf(r.recurso)>=0;
+    return '<label><input type="checkbox" data-recurso="'+esc(r.recurso)+'"'+(marcado?' checked':'')+'>'+
+      esc(r.nome)+(r.implementado?'':' <span class="t-sub">— ainda não existe no sistema</span>')+'</label>';
+  }).join('');
+
+  var h='<div class="cartao"><h3 class="sec">'+(novo?'Novo plano':'Editar plano '+esc(p.nome))+'</h3>';
+  if(!novo&&vigentes(p)>0){
+    h+='<div class="aviso" style="margin-bottom:12px">Este plano tem '+vigentes(p)+
+      ' assinante(s) com acesso aberto. O que mudar aqui vale na hora para eles.</div>';
+  }
+  h+='<div class="grade">';
+  if(novo){
+    h+='<div><label class="rotulo" for="pl-codigo">Código</label>'+
+      '<input id="pl-codigo" placeholder="pecas-anual" maxlength="30">'+
+      '<div class="nota">Minúsculas, números e hífen. Não muda depois de criado.</div></div>';
+  }
+  h+='<div><label class="rotulo" for="pl-nome">Nome</label>'+
+    '<input id="pl-nome" maxlength="40" value="'+esc(p.nome)+'"></div>';
+  h+='<div><label class="rotulo" for="pl-preco">Preço por mês (R$)</label>'+
+    '<input id="pl-preco" placeholder="49,90" value="'+esc(precoParaCampo(p.precoMensalCentavos))+'">'+
+    '<div class="nota">Vazio = sem preço publicado.</div></div>';
+  h+='<div><label class="rotulo" for="pl-ordem">Ordem na lista</label>'+
+    '<input id="pl-ordem" type="number" min="0" max="9999" value="'+esc(p.ordem)+'"'+
+    (novo?' placeholder="no fim"':'')+'></div>';
+  h+='</div>';
+  h+='<div style="margin-top:10px"><label class="rotulo" for="pl-resumo">Descrição</label>'+
+    '<textarea id="pl-resumo" rows="2" maxlength="300">'+esc(p.resumo)+'</textarea>'+
+    '<div class="nota">Uma linha. Aparece para o advogado na tela da conta e nos e-mails.</div></div>';
+  h+='<div style="margin-top:12px"><span class="rotulo">Recursos incluídos</span><div class="marcas">'+marcas+'</div></div>';
+  h+='<div class="marcas" style="margin-top:12px"><label><input type="checkbox" id="pl-venda"'+
+    (p.disponivelParaContratacao?' checked':'')+'>À venda</label></div>';
+  h+='<div class="grade" style="margin-top:14px">'+
+    '<button class="bt" id="pl-salvar">'+(novo?'Criar plano':'Salvar')+'</button>'+
+    '<button class="bt2" id="pl-cancelar">Cancelar</button></div>';
+  h+='<div id="pl-resultado" style="margin-top:10px"></div></div>';
+  return h;
+}
+
+function formularioRegras(){
+  var r=estado.catalogo.regras;
+  var h='<div class="cartao"><h3 class="sec">Teste e carência</h3>';
+  h+='<div class="grade">'+
+    '<div><label class="rotulo" for="rg-dias">Dias de teste</label>'+
+      '<input id="rg-dias" type="number" min="1" max="90" value="'+esc(r.diasDeTeste)+'"></div>'+
+    '<div><label class="rotulo" for="rg-plano">Plano do teste</label>'+
+      '<select id="rg-plano">'+opcoesDePlano(r.planoDoTeste)+'</select></div>'+
+    '<div><label class="rotulo" for="rg-carencia">Dias de carência</label>'+
+      '<input id="rg-carencia" type="number" min="0" max="60" value="'+esc(r.diasDeCarencia)+'"></div>'+
+    '</div>';
+  h+='<div class="nota">Nada aqui é retroativo. O teste vale para contas criadas depois da mudança; '+
+    'a carência, a partir da próxima liberação de cada assinante.</div>';
+  h+='<div class="grade" style="margin-top:12px"><button class="bt" id="rg-salvar">Salvar regras</button></div>';
+  h+='<div id="rg-resultado" style="margin-top:10px"></div></div>';
+  return h;
+}
+
+function desenharPlanos(){
+  var c=estado.catalogo;
+  var h='';
+  h+='<div class="titulo-secao"><div><h2>Planos</h2>'+
+    '<div class="sub">'+c.planos.length+' plano(s). Pausar tira da oferta; quem já tem o plano continua com ele.</div>'+
+    '</div><button class="bt2" id="bt-novo-plano">Novo plano</button></div>';
+  if(estado.avisoPlanos){
+    h+='<div class="aviso" style="margin-bottom:12px">'+esc(estado.avisoPlanos)+'</div>';
+  }
+  h+='<div id="resultado-planos"></div>';
+  if(estado.editando)h+=formularioPlano();
+
+  h+='<div class="cartao sem-borda"><div class="tab-rolo"><table class="tab">'+
+    '<thead><tr><th>Plano</th><th>Preço/mês</th><th>Recursos</th><th>Situação</th>'+
+    '<th>Assinantes</th><th></th></tr></thead><tbody>'+
+    c.planos.map(linhaPlano).join('')+'</tbody></table></div></div>';
+  h+=formularioRegras();
+  $('conteudo').innerHTML=h;
+  estado.avisoPlanos=null;
+
+  $('bt-novo-plano').addEventListener('click',function(){estado.editando='novo';desenharPlanos()});
+
+  var eds=document.querySelectorAll('[data-editar]');
+  for(var i=0;i<eds.length;i++){
+    (function(bt){bt.addEventListener('click',function(){
+      estado.editando=bt.getAttribute('data-editar');desenharPlanos();window.scrollTo(0,0);
+    })})(eds[i]);
+  }
+
+  var vds=document.querySelectorAll('[data-venda]');
+  for(var j=0;j<vds.length;j++){
+    (function(bt){bt.addEventListener('click',function(){
+      var p=planoPorCodigo(bt.getAttribute('data-venda'));
+      if(!p)return;
+      var novo=!p.disponivelParaContratacao;
+      bt.disabled=true;
+      api('/admin/api/planos/'+encodeURIComponent(p.codigo),
+        {method:'PUT',body:{disponivelParaContratacao:novo}}).then(function(){
+          estado.avisoPlanos=novo?p.nome+' está à venda.':
+            p.nome+' foi pausado. Quem já tem o plano continua com ele.';
+          renderPlanos();
+        }).catch(function(e){bt.disabled=false;$('resultado-planos').innerHTML=erroBloco(e)});
+    })})(vds[j]);
+  }
+
+  if(estado.editando){
+    $('pl-cancelar').addEventListener('click',function(){estado.editando=null;desenharPlanos()});
+    $('pl-salvar').addEventListener('click',salvarPlano);
+  }
+  $('rg-salvar').addEventListener('click',salvarRegras);
+}
+
+function salvarPlano(){
+  var novo=estado.editando==='novo';
+  var atual=novo?null:planoPorCodigo(estado.editando);
+  var preco=paraCentavos($('pl-preco').value);
+  if(preco!==null&&isNaN(preco)){
+    $('pl-resultado').innerHTML=erroBloco({message:'Preço inválido. Use o formato 49,90 — ou deixe vazio.'});
+    return;
+  }
+  var recursos=[];
+  var cks=document.querySelectorAll('[data-recurso]');
+  for(var i=0;i<cks.length;i++){if(cks[i].checked)recursos.push(cks[i].getAttribute('data-recurso'))}
+
+  var corpo={nome:$('pl-nome').value,resumo:$('pl-resumo').value,recursos:recursos,
+    disponivelParaContratacao:$('pl-venda').checked,precoMensalCentavos:preco};
+  var ordem=$('pl-ordem').value.trim();
+  if(ordem!=='')corpo.ordem=Number(ordem);
+
+  if(atual&&vigentes(atual)>0&&recursos.slice().sort().join()!==atual.recursos.slice().sort().join()){
+    if(!window.confirm('Os recursos deste plano mudam NA HORA para '+vigentes(atual)+
+      ' assinante(s) com acesso aberto. Continuar?'))return;
+  }
+
+  var bt=$('pl-salvar');bt.disabled=true;
+  var pedido=novo
+    ?(function(){corpo.codigo=$('pl-codigo').value;return api('/admin/api/planos',{method:'POST',body:corpo})})()
+    :api('/admin/api/planos/'+encodeURIComponent(atual.codigo),{method:'PUT',body:corpo});
+  pedido.then(function(p){
+    estado.editando=null;
+    estado.avisoPlanos=novo?'Plano '+p.nome+' criado.':'Plano '+p.nome+' salvo.';
+    renderPlanos();
+  }).catch(function(e){bt.disabled=false;$('pl-resultado').innerHTML=erroBloco(e)});
+}
+
+function salvarRegras(){
+  var corpo={diasDeTeste:Number($('rg-dias').value),planoDoTeste:$('rg-plano').value,
+    diasDeCarencia:Number($('rg-carencia').value)};
+  var bt=$('rg-salvar');bt.disabled=true;
+  api('/admin/api/regras',{method:'PUT',body:corpo}).then(function(){
+    estado.avisoPlanos='Regras de teste e carência salvas.';
+    renderPlanos();
+  }).catch(function(e){bt.disabled=false;$('rg-resultado').innerHTML=erroBloco(e)});
 }
 
 /* ---------------- chaves de API ---------------- */
@@ -248,6 +487,7 @@ function desenharChaves(){
 /* ---------------- arranque ---------------- */
 $('nav-assinaturas').addEventListener('click',function(){irPara('assinaturas')});
 $('nav-chaves').addEventListener('click',function(){irPara('chaves')});
+$('nav-planos').addEventListener('click',function(){irPara('planos')});
 render();
 })();
 `;

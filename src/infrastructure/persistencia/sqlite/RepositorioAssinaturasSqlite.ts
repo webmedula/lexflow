@@ -1,8 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { Assinatura } from '../../../domain/entities/Assinatura.js';
-import { ehCodigoDePlano } from '../../../domain/entities/Plano.js';
-import { PlanoDesconhecidoError } from '../../../domain/errors/index.js';
-import { CODIGOS_DE_PLANO } from '../../../domain/entities/Plano.js';
 import type {
   EtapaDeAviso,
   RepositorioAssinaturas,
@@ -21,13 +18,10 @@ interface LinhaAssinatura {
 }
 
 function paraDominio(l: LinhaAssinatura): Assinatura {
-  // O plano vem do banco como texto livre. Validar aqui, na borda, é o que
-  // impede uma linha editada à mão de virar um objeto com um plano inexistente
-  // circulando pelo domínio — onde o erro apareceria longe da causa.
-  if (!ehCodigoDePlano(l.plano)) {
-    throw new PlanoDesconhecidoError(l.plano, CODIGOS_DE_PLANO);
-  }
-
+  // O plano NÃO é validado aqui desde a v0.28.0: o conjunto de planos agora é
+  // dado, em outra tabela, e conferir exigiria que este repositório lesse o
+  // catálogo. Quem resolve o código em plano é `ServicoAssinaturas`, e é lá
+  // que um código órfão (linha editada à mão) vira `PlanoDesconhecidoError`.
   return new Assinatura({
     workspace: l.workspace,
     plano: l.plano,

@@ -24,6 +24,11 @@ import type { Aplicacao } from '../../src/main/factories/makeProcessoSearchServi
 import { ServicoContas } from '../../src/application/services/ServicoContas.js';
 import { ServicoAssinaturas } from '../../src/application/services/ServicoAssinaturas.js';
 import { ServicoChavesApi } from '../../src/application/services/ServicoChavesApi.js';
+import { ServicoPlanos } from '../../src/application/services/ServicoPlanos.js';
+import {
+  RepositorioPlanosSqlite,
+  RepositorioRegrasDeAssinaturaSqlite,
+} from '../../src/infrastructure/persistencia/sqlite/RepositorioPlanosSqlite.js';
 import { RepositorioAssinaturasSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioAssinaturasSqlite.js';
 import { RepositorioUsuariosSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioUsuariosSqlite.js';
 import { RepositorioChavesApiSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioChavesApiSqlite.js';
@@ -179,6 +184,8 @@ export function aplicacaoDeTeste(
   const usuarios = new RepositorioUsuariosSqlite(db);
   const repositorioAssinaturas = new RepositorioAssinaturasSqlite(db);
   const repositorioChavesApi = new RepositorioChavesApiSqlite(db);
+  const repositorioPlanos = new RepositorioPlanosSqlite(db);
+  const repositorioRegras = new RepositorioRegrasDeAssinaturaSqlite(db);
 
   return {
     buscarProcessoPorNumero: new BuscarProcessoPorNumero(orquestrador),
@@ -191,6 +198,8 @@ export function aplicacaoDeTeste(
     pecas,
     assinaturas: new ServicoAssinaturas({
       repositorio: repositorioAssinaturas,
+      planos: repositorioPlanos,
+      regras: repositorioRegras,
       usuarios,
       logger: loggerSilencioso,
       ...(opcoes.notificador ? { notificador: opcoes.notificador } : {}),
@@ -198,6 +207,13 @@ export function aplicacaoDeTeste(
     }),
     usuarios,
     repositorioAssinaturas,
+    planos: new ServicoPlanos({
+      planos: repositorioPlanos,
+      regras: repositorioRegras,
+      assinaturas: repositorioAssinaturas,
+      logger: loggerSilencioso,
+      ...(opcoes.agora ? { agora: opcoes.agora } : {}),
+    }),
     repositorioChavesApi,
     chavesApi: new ServicoChavesApi({
       repositorio: repositorioChavesApi,
@@ -207,7 +223,9 @@ export function aplicacaoDeTeste(
     adminCredenciais: opcoes.admin,
     contas: new ServicoContas({
       repositorio: usuarios,
-      ...(opcoes.comAssinaturas ? { assinaturas: repositorioAssinaturas } : {}),
+      ...(opcoes.comAssinaturas
+        ? { assinaturas: repositorioAssinaturas, regras: repositorioRegras }
+        : {}),
       senhas: opcoes.senhas ?? hashDeTeste,
       tokens: tokensDeSessao,
       duracaoSessaoMs: opcoes.duracaoSessaoMs ?? 60 * 60 * 1000,

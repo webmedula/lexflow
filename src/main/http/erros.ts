@@ -2,6 +2,7 @@ import { ZodError } from 'zod';
 import {
   AssinaturaInativaError,
   ChaveApiNaoEncontradaError,
+  PlanoJaExisteError,
   CredenciaisInvalidasError,
   CredencialTribunalAusenteError,
   CredencialTribunalInvalidaError,
@@ -84,7 +85,7 @@ export function mapearErro(erro: unknown): RespostaDeErro {
 
   // 409: o pedido é válido, o estado do servidor é que conflita. 400 diria que
   // o e-mail está malformado, que é outra correção.
-  if (erro instanceof EmailJaCadastradoError) {
+  if (erro instanceof EmailJaCadastradoError || erro instanceof PlanoJaExisteError) {
     return { status: 409, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 

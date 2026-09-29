@@ -2060,7 +2060,10 @@ function verConta(){
         : (a.ehTeste?'Teste até ':'Vale até ')+dt(a.venceEm))+
       '</div>'+
       (a.aviso?'<div class="nota" style="margin-top:8px">'+esc(a.aviso)+'</div>':'')+
-      '<div class="nota" style="margin-top:8px">Inclui: '+esc(a.recursos.join(', '))+'</div>'+
+      (a.precoMensalCentavos!=null
+        ? '<div class="cp" style="margin-top:4px">'+esc((a.precoMensalCentavos/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}))+' por mês</div>'
+        : '')+
+      '<div class="nota" style="margin-top:8px">Inclui: '+esc((a.nomesDosRecursos||a.recursos).join(', '))+'</div>'+
       '<div class="nota" style="margin-top:8px">Para trocar de plano ou renovar, '+
       'responda o e-mail de aviso ou fale com a gente.</div></div>'
     : '';

@@ -7,6 +7,14 @@ import { Assinatura, assinaturaDeTeste } from '../../src/domain/entities/Assinat
 import { PlanoDesconhecidoError } from '../../src/domain/errors/index.js';
 import { abrirBanco } from '../../src/infrastructure/persistencia/sqlite/banco.js';
 import { RepositorioAssinaturasSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioAssinaturasSqlite.js';
+import {
+  RepositorioPlanosSqlite,
+  RepositorioRegrasDeAssinaturaSqlite,
+} from '../../src/infrastructure/persistencia/sqlite/RepositorioPlanosSqlite.js';
+import { ServicoAssinaturas } from '../../src/application/services/ServicoAssinaturas.js';
+import { PLANOS_INICIAIS } from '../../src/domain/entities/Plano.js';
+import type { RepositorioUsuarios } from '../../src/domain/ports/RepositorioUsuarios.js';
+import { loggerSilencioso } from '../../src/infrastructure/logging/ConsoleLogger.js';
 
 const T0 = new Date('2026-09-22T12:00:00.000Z');
 const dias = (n: number): Date => new Date(T0.getTime() + n * 86_400_000);
@@ -134,16 +142,25 @@ describe('RepositorioAssinaturasSqlite', () => {
     expect((await repo.aVencerAte(dias(5))).map((a) => a.workspace)).toEqual(['perto']);
   });
 
-  it('plano desconhecido no banco vira erro nomeado, não objeto inválido', async () => {
-    // Linha editada à mão ou vinda de uma versão futura. Deixar passar criaria
-    // uma Assinatura com um plano que não existe circulando pelo domínio, e o
-    // erro apareceria longe da causa.
+  it('plano desconhecido no banco vira erro nomeado ao ser resolvido, não objeto inválido', async () => {
+    // Linha editada à mão. Desde a v0.28.0 o repositório de assinaturas não
+    // conhece o catálogo (os planos são dado, em outra tabela); quem resolve
+    // o código em plano é o serviço — e é lá que o erro nomeado precisa sair,
+    // em vez de um "plano undefined" circulando até estourar longe da causa.
     db.prepare(
       `INSERT INTO assinaturas (workspace, plano, inicio_em, vence_em, eh_teste, dias_carencia)
        VALUES ('ws1', 'platina', ?, ?, 0, 7)`,
     ).run(T0.toISOString(), dias(30).toISOString());
 
-    await expect(repo.porWorkspace('ws1')).rejects.toThrow(PlanoDesconhecidoError);
+    const servico = new ServicoAssinaturas({
+      repositorio: repo,
+      planos: new RepositorioPlanosSqlite(db),
+      regras: new RepositorioRegrasDeAssinaturaSqlite(db),
+      usuarios: {} as RepositorioUsuarios,
+      logger: loggerSilencioso,
+    });
+    await expect(servico.exigir('ws1', 'consulta')).rejects.toThrow(PlanoDesconhecidoError);
+    await expect(servico.resumo('ws1')).rejects.toThrow(PlanoDesconhecidoError);
   });
 });
 
@@ -182,7 +199,9 @@ describe('retrocarga de assinaturas no arranque', () => {
     // No plano mais completo à venda: quem entrou antes da cobrança existir
     // não pode ser rebaixado por uma atualização.
     expect(a?.plano).toBe('pecas');
-    expect(a?.permite('pecas', new Date())).toBe(true);
+    const pecas = PLANOS_INICIAIS.find((p) => p.codigo === 'pecas');
+    if (!pecas) throw new Error('semente sem o plano pecas');
+    expect(a?.permite('pecas', new Date(), pecas)).toBe(true);
     depois.close();
   });
 

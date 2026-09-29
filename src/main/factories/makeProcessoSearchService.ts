@@ -47,12 +47,17 @@ import { gerarBackup } from '../../infrastructure/persistencia/backup.js';
 import { ServicoContas } from '../../application/services/ServicoContas.js';
 import { ServicoAssinaturas } from '../../application/services/ServicoAssinaturas.js';
 import { ServicoChavesApi } from '../../application/services/ServicoChavesApi.js';
+import { ServicoPlanos } from '../../application/services/ServicoPlanos.js';
 import type { RepositorioUsuarios } from '../../domain/ports/RepositorioUsuarios.js';
 import type { RepositorioAssinaturas } from '../../domain/ports/RepositorioAssinaturas.js';
 import type { RepositorioChavesApi } from '../../domain/ports/RepositorioChavesApi.js';
 import { RepositorioAssinaturasSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioAssinaturasSqlite.js';
 import { RepositorioUsuariosSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioUsuariosSqlite.js';
 import { RepositorioChavesApiSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioChavesApiSqlite.js';
+import {
+  RepositorioPlanosSqlite,
+  RepositorioRegrasDeAssinaturaSqlite,
+} from '../../infrastructure/persistencia/sqlite/RepositorioPlanosSqlite.js';
 import { hashScrypt } from '../../infrastructure/seguranca/senha.js';
 import { chavesDeApi } from '../../infrastructure/seguranca/chavesDeApi.js';
 import {
@@ -84,6 +89,11 @@ export interface Aplicacao {
    * assinatura — o caso das chaves de API — passa livre por ele.
    */
   readonly assinaturas: ServicoAssinaturas;
+  /**
+   * Catálogo de planos e regras de teste/carência (v0.28.0). O assinante só
+   * LÊ por aqui (a lista de planos à venda); quem escreve é `rotasDeAdmin`.
+   */
+  readonly planos: ServicoPlanos;
   /**
    * Repositórios crus, para o CLI e para a área administrativa.
    *
@@ -210,6 +220,8 @@ export function montarAplicacao(config: Config): Aplicacao {
 
   const usuarios = new RepositorioUsuariosSqlite(db);
   const repositorioAssinaturas = new RepositorioAssinaturasSqlite(db);
+  const repositorioPlanos = new RepositorioPlanosSqlite(db);
+  const repositorioRegras = new RepositorioRegrasDeAssinaturaSqlite(db);
 
   // Chaves de API emitidas pela área administrativa. Montado SEMPRE que há
   // banco — não só quando a credencial do operador está configurada: uma
@@ -230,6 +242,8 @@ export function montarAplicacao(config: Config): Aplicacao {
   // exatamente o bloqueio silencioso que a carência foi criada para evitar.
   const assinaturas = new ServicoAssinaturas({
     repositorio: repositorioAssinaturas,
+    planos: repositorioPlanos,
+    regras: repositorioRegras,
     usuarios,
     logger,
     ...(entregaDeVerdade(config) ? { notificador } : {}),
@@ -238,6 +252,7 @@ export function montarAplicacao(config: Config): Aplicacao {
   const contas = new ServicoContas({
     repositorio: usuarios,
     assinaturas: repositorioAssinaturas,
+    regras: repositorioRegras,
     senhas: hashScrypt,
     tokens: tokensDeSessao,
     duracaoSessaoMs: DURACAO_SESSAO_MS,
@@ -385,6 +400,12 @@ export function montarAplicacao(config: Config): Aplicacao {
     assinaturas,
     usuarios,
     repositorioAssinaturas,
+    planos: new ServicoPlanos({
+      planos: repositorioPlanos,
+      regras: repositorioRegras,
+      assinaturas: repositorioAssinaturas,
+      logger,
+    }),
     repositorioChavesApi,
     chavesApi,
     adminCredenciais,

@@ -9,6 +9,65 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.28.0] — 2026-09-28
+
+Planos de assinatura controlados pelo painel. Até aqui os três planos estavam
+fixos no código, sem preço, e mudar qualquer coisa neles era deploy.
+
+### Adicionado
+
+- **Aba Planos na área administrativa**, com:
+  - **Visão geral**: cada plano com preço, recursos, situação (à venda ou
+    pausado) e quantos assinantes tem — ativos, em teste, em carência,
+    vencidos e cancelados, pelo status derivado no instante da consulta.
+  - **Editar** nome, descrição, preço mensal, recursos incluídos e ordem na
+    lista. Vale na hora para quem já tem o plano; ao mudar recursos de um
+    plano com assinantes, o painel pergunta antes de gravar.
+  - **Criar plano** combinando os recursos que existem (consulta,
+    acompanhamento, vigilância por OAB, peças).
+  - **Pausar e colocar à venda.** Pausar tira da oferta; quem já tem o plano
+    continua com ele, e ele ainda pode ser liberado à mão.
+  - **Teste e carência**: dias de teste, qual plano o teste libera e dias de
+    carência depois do vencimento.
+- **Preço no plano**, em centavos (vazio = sem preço publicado). Aparece em
+  `GET /v1/assinatura` (na lista de planos à venda e no resumo da assinatura)
+  e na tela "Minha conta" do console, que também passou a mostrar os recursos
+  pelo nome em vez do código interno.
+- O seletor de plano da aba Assinaturas agora vem do catálogo, com a marca
+  "(pausado)" e o preço de cada um.
+
+### Mudado
+
+- **Planos saíram do código para o banco** (tabelas `planos` e
+  `regras_assinatura`). Na primeira subida, os três planos atuais entram como
+  semente, com os mesmos códigos — nenhuma assinatura existente muda. Depois
+  disso o catálogo é seu: a semente não é reaplicada.
+- **A trava do plano de IA foi para o recurso.** Em vez de um `false` fixo no
+  plano, o recurso "análise com IA" está marcado como ainda não implementado,
+  e nenhum plano que o inclua pode ir à venda nem ser o plano do teste —
+  inclusive um criado pelo painel.
+- A mensagem de "seu plano não inclui" sugere o menor plano **à venda** que
+  resolve, e não mais um plano pausado.
+- As regras não são retroativas: o teste novo vale para contas criadas depois
+  da mudança; a carência nova, a partir da próxima liberação de cada
+  assinante.
+
+### Corrigido
+
+- **Quem assinava depois do teste ficava com zero dias de carência.** O teste
+  não tem carência, e a renovação copiava a de quem renovava — então o
+  primeiro vencimento de um assinante convertido cortava a vigilância na
+  hora, sem os 7 dias que existem justamente para isso. Agora a liberação
+  grava a carência das regras vigentes.
+- **Mensagem da área administrativa desligada.** Saía como "O provider
+  "admin" não suporta a operação "acessar"…"; agora diz direto o que fazer.
+
+### Notas de migração
+
+Nada a fazer. As tabelas novas são criadas e preenchidas na subida. Os planos
+começam sem preço — preencha pelo painel quando quiser que o valor apareça
+para o advogado.
+
 ## [0.27.0] — 2026-09-28
 
 Área administrativa: um lugar único para o operador do sistema gerenciar

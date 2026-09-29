@@ -6,8 +6,7 @@ import type { Processo } from '../domain/entities/Processo.js';
 import { MniAdapter } from '../infrastructure/adapters/mni/MniAdapter.js';
 import { HttpClient } from '../infrastructure/http/HttpClient.js';
 import type { RespostaHttpBinaria } from '../infrastructure/http/HttpClient.js';
-import { DomainError, PlanoDesconhecidoError } from '../domain/errors/index.js';
-import { CODIGOS_DE_PLANO, PLANOS, ehCodigoDePlano } from '../domain/entities/Plano.js';
+import { DomainError } from '../domain/errors/index.js';
 import { carregarConfig } from '../infrastructure/config/env.js';
 import { gerarBackup } from '../infrastructure/persistencia/backup.js';
 import { montarAplicacao } from './factories/makeProcessoSearchService.js';
@@ -348,10 +347,11 @@ async function main(): Promise<number> {
             return 0;
           }
           const agora = new Date();
+          const nomes = new Map((await app.planos.listar()).map((p) => [p.codigo, p.nome]));
           console.log('STATUS      PLANO           VENCE EM     WORKSPACE');
           for (const a of todas) {
             console.log(
-              `${a.statusEm(agora).padEnd(11)} ${a.detalhesDoPlano.nome.padEnd(15)} ` +
+              `${a.statusEm(agora).padEnd(11)} ${(nomes.get(a.plano) ?? a.plano).padEnd(15)} ` +
                 `${formatarData(a.venceEm).padEnd(12)} ${a.workspace}`,
             );
           }
@@ -383,15 +383,15 @@ async function main(): Promise<number> {
       if (acao === 'liberar') {
         const [, email, plano, meses] = args;
         if (!email || !plano || !meses) {
+          const codigos = (await app.planos.listar()).map((p) => p.codigo);
           console.error(
             'Uso: assinatura liberar <email> <plano> <meses>\n' +
-              `Planos: ${CODIGOS_DE_PLANO.join(', ')}`,
+              `Planos: ${codigos.join(', ')}`,
           );
           return 1;
         }
-        if (!ehCodigoDePlano(plano)) {
-          throw new PlanoDesconhecidoError(plano, CODIGOS_DE_PLANO);
-        }
+        // Lança `PlanoDesconhecidoError` com a lista dos que existem.
+        const detalhes = await app.planos.porCodigo(plano);
         const quantos = Number.parseInt(meses, 10);
         if (!Number.isInteger(quantos) || quantos < 1 || quantos > 60) {
           console.error('Meses precisa ser um inteiro entre 1 e 60.');
@@ -400,10 +400,10 @@ async function main(): Promise<number> {
         // Aviso, e não recusa: o plano pode estar fora do catálogo público e
         // ainda assim ser liberado a dedo para um piloto. O que não pode é
         // acontecer sem alguém perceber.
-        if (!PLANOS[plano].disponivelParaContratacao) {
+        if (!detalhes.disponivelParaContratacao) {
           console.log(
-            `ATENÇÃO: o plano ${PLANOS[plano].nome} não está à venda — a ` +
-              'funcionalidade dele ainda não existe. Liberando assim mesmo.\n',
+            `ATENÇÃO: o plano ${detalhes.nome} não está à venda (pausado na área ` +
+              'administrativa, ou com recurso que ainda não existe). Liberando assim mesmo.\n',
           );
         }
 
@@ -419,7 +419,7 @@ async function main(): Promise<number> {
           ...(values.obs ? { observacao: values.obs } : {}),
         });
         console.log(
-          `${email}: plano ${a.detalhesDoPlano.nome}, vence em ${formatarData(a.venceEm)}.`,
+          `${email}: plano ${detalhes.nome}, vence em ${formatarData(a.venceEm)}.`,
         );
         return 0;
       }

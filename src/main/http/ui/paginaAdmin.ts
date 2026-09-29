@@ -2,6 +2,19 @@ import { ESTILOS } from './estilos.js';
 import { SCRIPT_ADMIN } from './scriptAdmin.js';
 
 /**
+ * O pouco que só o painel precisa: caixa de marcar (o `input{width:100%}` de
+ * `ESTILOS` esticaria a caixinha pela linha inteira) e área de texto.
+ */
+const ESTILOS_ADMIN = `
+.marcas{display:flex;flex-wrap:wrap;gap:8px 18px}
+.marcas label{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.marcas input[type=checkbox]{width:auto;margin:0}
+textarea{width:100%;padding:9px 11px;font:inherit;color:var(--tinta);resize:vertical;
+  background:var(--papel2);border:1px solid var(--linha);border-radius:8px;outline:0}
+textarea:focus{border-color:var(--acento);background:var(--papel)}
+`;
+
+/**
  * Área administrativa — mesma casca visual do console do assinante
  * (`ui/pagina.ts`), reaproveitando `ESTILOS` para as duas telas não
  * divergirem visualmente à toa.
@@ -19,7 +32,7 @@ export function paginaAdmin(versao: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Processo Vivo — administração</title>
-<style>${ESTILOS}</style>
+<style>${ESTILOS}${ESTILOS_ADMIN}</style>
 </head>
 <body>
 
@@ -31,6 +44,7 @@ export function paginaAdmin(versao: string): string {
     </div>
     <nav class="nav">
       <button id="nav-assinaturas" class="ativo">Assinaturas</button>
+      <button id="nav-planos">Planos</button>
       <button id="nav-chaves">Chaves de API</button>
     </nav>
     <div class="lateral-pe">

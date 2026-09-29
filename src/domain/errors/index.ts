@@ -272,11 +272,14 @@ export class RecursoNaoIncluidoNoPlanoError extends DomainError {
   constructor(
     readonly recurso: string,
     readonly planoAtual: string,
-    readonly planoQueInclui: string,
+    /** Ausente quando nenhum plano cadastrado inclui o recurso. */
+    readonly planoQueInclui?: string,
   ) {
     super(
-      `Seu plano (${planoAtual}) não inclui ${recurso}. ` +
-        `O plano ${planoQueInclui} inclui — fale com a gente para trocar.`,
+      planoQueInclui
+        ? `Seu plano (${planoAtual}) não inclui ${recurso}. ` +
+            `O plano ${planoQueInclui} inclui — fale com a gente para trocar.`
+        : `Seu plano (${planoAtual}) não inclui ${recurso}. Fale com a gente.`,
     );
   }
 }
@@ -317,6 +320,40 @@ export class PlanoDesconhecidoError extends DomainError {
     readonly conhecidos: readonly string[],
   ) {
     super(`Plano "${informado}" não existe. Planos: ${conhecidos.join(', ')}.`);
+  }
+}
+
+/**
+ * Plano com dado que não se sustenta: código fora do formato, preço
+ * negativo, nenhum recurso — ou recurso que ainda não existe num plano posto
+ * à venda. A mensagem é a razão, pronta para a tela do painel.
+ */
+export class PlanoInvalidoError extends DomainError {
+  readonly codigo = 'PLANO_INVALIDO';
+
+  constructor(motivo: string) {
+    super(motivo);
+  }
+}
+
+/** Criar um plano com um código que já está em uso. */
+export class PlanoJaExisteError extends DomainError {
+  readonly codigo = 'PLANO_JA_EXISTE';
+
+  constructor(readonly codigoDoPlano: string) {
+    super(
+      `Já existe um plano com o código "${codigoDoPlano}". O código não muda depois de ` +
+        'criado — edite o plano existente ou escolha outro código.',
+    );
+  }
+}
+
+/** Dias de teste, carência ou plano do teste fora do que faz sentido. */
+export class RegrasDeAssinaturaInvalidasError extends DomainError {
+  readonly codigo = 'REGRAS_DE_ASSINATURA_INVALIDAS';
+
+  constructor(motivo: string) {
+    super(motivo);
   }
 }
 

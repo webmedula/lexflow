@@ -14,6 +14,8 @@ import type {
 import type { RepositorioUsuarios } from '../../src/domain/ports/RepositorioUsuarios.js';
 import type { Usuario } from '../../src/domain/entities/Usuario.js';
 import { loggerSilencioso } from '../../src/infrastructure/logging/ConsoleLogger.js';
+import { PlanoDesconhecidoError } from '../../src/domain/errors/index.js';
+import { PlanosEmMemoria, RegrasEmMemoria } from '../helpers/planos.js';
 
 const T0 = new Date('2026-09-22T12:00:00.000Z');
 const dias = (n: number): Date => new Date(T0.getTime() + n * 86_400_000);
@@ -74,16 +76,22 @@ class Espiao implements Notificador {
 function montar(opcoes: { agora?: Date; notificador?: Notificador } = {}): {
   servico: ServicoAssinaturas;
   repo: RepoFalso;
+  planos: PlanosEmMemoria;
+  regras: RegrasEmMemoria;
 } {
   const repo = new RepoFalso();
+  const planos = new PlanosEmMemoria();
+  const regras = new RegrasEmMemoria();
   const servico = new ServicoAssinaturas({
     repositorio: repo,
+    planos,
+    regras,
     usuarios: usuariosCom({ ws1: 'ana@a.com.br' }),
     logger: loggerSilencioso,
     ...(opcoes.notificador ? { notificador: opcoes.notificador } : {}),
     agora: () => opcoes.agora ?? T0,
   });
-  return { servico, repo };
+  return { servico, repo, planos, regras };
 }
 
 function paga(plano: CodigoPlano, venceEmDias: number, workspace = 'ws1'): Assinatura {
@@ -141,6 +149,40 @@ describe('ServicoAssinaturas.exigir', () => {
     await servico.criarTeste('ws1');
     await expect(servico.exigir('ws1', 'pecas')).resolves.toBeUndefined();
   });
+
+  it('o recurso que o plano ganha pelo painel passa a valer NA HORA', async () => {
+    // Plano é dado desde a v0.28.0: a mudança não espera renovação nem deploy.
+    const { servico, repo, planos } = montar();
+    await repo.salvar(paga('acompanhamento', 30));
+    await expect(servico.exigir('ws1', 'pecas')).rejects.toThrow(RecursoNaoIncluidoNoPlanoError);
+
+    const atual = await planos.porCodigo('acompanhamento');
+    if (!atual) throw new Error('semente sem acompanhamento');
+    await planos.salvar({ ...atual, recursos: [...atual.recursos, 'pecas'] });
+
+    await expect(servico.exigir('ws1', 'pecas')).resolves.toBeUndefined();
+  });
+
+  it('a mensagem sugere um plano À VENDA, não um pausado', async () => {
+    const { servico, repo, planos } = montar();
+    await repo.salvar(paga('acompanhamento', 30));
+    const pecas = await planos.porCodigo('pecas');
+    if (!pecas) throw new Error('semente sem pecas');
+    await planos.salvar({ ...pecas, disponivelParaContratacao: false });
+    await planos.salvar({
+      codigo: 'escritorio',
+      nome: 'Escritório',
+      resumo: 'Peças para o escritório inteiro.',
+      recursos: ['consulta', 'acompanhamento', 'vigilancia', 'pecas'],
+      disponivelParaContratacao: true,
+      precoMensalCentavos: 19900,
+      ordem: 40,
+    });
+
+    const erro = await servico.exigir('ws1', 'pecas').catch((e: unknown) => e);
+    expect((erro as Error).message).toContain('Escritório');
+    expect((erro as Error).message).not.toContain('O plano Peças');
+  });
 });
 
 describe('ServicoAssinaturas.liberar', () => {
@@ -151,6 +193,43 @@ describe('ServicoAssinaturas.liberar', () => {
     expect(a.ehTeste).toBe(false);
     expect(a.statusEm(dias(80))).toBe('ativa');
     expect(a.diasDeCarencia).toBeGreaterThan(0);
+  });
+
+  it('recusa plano que não existe no catálogo', async () => {
+    const { servico } = montar();
+    await expect(
+      servico.liberar({ workspace: 'ws1', plano: 'platina', meses: 1 }),
+    ).rejects.toThrow(PlanoDesconhecidoError);
+  });
+
+  it('grava a carência das regras VIGENTES na hora da liberação', async () => {
+    const { servico, regras } = montar();
+    regras.regras = { ...regras.regras, diasDeCarencia: 3 };
+    const a = await servico.liberar({ workspace: 'ws1', plano: 'pecas', meses: 1 });
+    expect(a.diasDeCarencia).toBe(3);
+  });
+
+  it('quem vem do teste passa a ter carência ao pagar (era zero até a v0.27.0)', async () => {
+    /*
+     * O teste não tem carência, e a renovação copiava a carência de quem
+     * renovava — então o advogado que assinava depois do teste ficava com
+     * ZERO dias de carência e perdia a vigilância no minuto do primeiro
+     * vencimento, justamente o caso que a carência existe para cobrir.
+     */
+    const { servico, repo } = montar();
+    await repo.salvar(assinaturaDeTeste({ workspace: 'ws1', plano: 'pecas', agora: T0 }));
+
+    const a = await servico.liberar({ workspace: 'ws1', plano: 'pecas', meses: 1 });
+    expect(a.diasDeCarencia).toBe(7);
+  });
+
+  it('o teste segue as regras configuradas: plano e duração', async () => {
+    const { servico, regras } = montar();
+    regras.regras = { diasDeTeste: 7, planoDoTeste: 'acompanhamento', diasDeCarencia: 7 };
+
+    const t = await servico.criarTeste('ws1');
+    expect(t.plano).toBe('acompanhamento');
+    expect(t.diasParaVencer(T0)).toBe(7);
   });
 
   it('converte o teste em assinatura paga sem perder o ambiente', async () => {
@@ -202,6 +281,8 @@ describe('ServicoAssinaturas.avisarVencimentos', () => {
     let agora = dias(28);
     const servico = new ServicoAssinaturas({
       repositorio: repo,
+      planos: new PlanosEmMemoria(),
+      regras: new RegrasEmMemoria(),
       usuarios: usuariosCom({ ws1: 'ana@a.com.br' }),
       logger: loggerSilencioso,
       notificador: espiao,
@@ -310,5 +391,17 @@ describe('ServicoAssinaturas.resumo', () => {
     const r = await servico.resumo('ws1');
     expect(r?.aviso).toBeUndefined();
     expect(r?.nomeDoPlano).toBe('Peças');
+  });
+
+  it('traz o preço do plano e os recursos com nome de gente', async () => {
+    const { servico, repo, planos } = montar();
+    await repo.salvar(paga('pecas', 90));
+    const pecas = await planos.porCodigo('pecas');
+    if (!pecas) throw new Error('semente sem pecas');
+    await planos.salvar({ ...pecas, precoMensalCentavos: 9990 });
+
+    const r = await servico.resumo('ws1');
+    expect(r?.precoMensalCentavos).toBe(9990);
+    expect(r?.nomesDosRecursos).toContain('Peças do processo');
   });
 });
