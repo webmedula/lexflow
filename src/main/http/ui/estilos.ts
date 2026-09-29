@@ -1,3 +1,24 @@
+/**
+ * Os tokens do tema escuro, uma vez só: valem tanto pelo sistema do advogado
+ * (automático) quanto pela escolha manual na lateral.
+ */
+const ESCURO = `
+    --fundo:#0b1220; --papel:#111b2e; --papel2:#16223a; --barra:#111b2e;
+    --linha:#223049; --linha2:#1b2740;
+    --tinta:#e8eef7; --tinta2:#a7b4c8; --tinta3:#8391a8;
+    --acento:#8ab4ff; --acento-bg:#15264a;
+    --botao:#3a6bc4; --botao-hover:#4a7bd4;
+    --novo:#8ab4ff; --novo-bg:#15264a;
+    --verde:#00c853; --verde-tinta:#3fe08c; --verde-bg:#0e2a1c;
+    --atencao:#f5b94a; --atencao-bg:#332508; --atencao-ponto:#f5b94a;
+    --marco:#e0ac5a; --marco-bg:#2e2415;
+    --erro:#ff8a80; --erro-bg:#3a1614;
+    --neutro-bg:#1b2840;
+    --lateral:#070e1a; --lateral-linha:#17233a; --lateral-tinta:#a7b4c8;
+    --lateral-ativo:#16284a; --lateral-apagado:#6b7a92;
+    --sombra:none;
+`;
+
 /** CSS do console. Arquivo separado só para o HTML e o script ficarem legíveis. */
 export const ESTILOS = `
 /* ---------- fontes ---------- */
@@ -42,24 +63,14 @@ export const ESTILOS = `
   --sombra:0 1px 2px rgba(11,25,44,.06),0 2px 6px rgba(11,25,44,.04);
   --r:14px;
 }
+/* Tema escuro: pelo computador (automático), ou escolhido na lateral
+   (data-tema no <html>). "claro" fixa o claro mesmo com o sistema escuro. */
 @media (prefers-color-scheme:dark){
-  :root{
-    --fundo:#0b1220; --papel:#111b2e; --papel2:#16223a; --barra:#111b2e;
-    --linha:#223049; --linha2:#1b2740;
-    --tinta:#e8eef7; --tinta2:#a7b4c8; --tinta3:#8391a8;
-    --acento:#8ab4ff; --acento-bg:#15264a;
-    --botao:#3a6bc4; --botao-hover:#4a7bd4;
-    --novo:#8ab4ff; --novo-bg:#15264a;
-    --verde:#00c853; --verde-tinta:#3fe08c; --verde-bg:#0e2a1c;
-    --atencao:#f5b94a; --atencao-bg:#332508; --atencao-ponto:#f5b94a;
-    --marco:#e0ac5a; --marco-bg:#2e2415;
-    --erro:#ff8a80; --erro-bg:#3a1614;
-    --neutro-bg:#1b2840;
-    --lateral:#070e1a; --lateral-linha:#17233a; --lateral-tinta:#a7b4c8;
-    --lateral-ativo:#16284a; --lateral-apagado:#6b7a92;
-    --sombra:none;
-  }
+  :root:not([data-tema=claro]){${ESCURO}}
 }
+:root[data-tema=escuro]{${ESCURO}}
+:root[data-tema=claro]{color-scheme:light}
+:root[data-tema=escuro]{color-scheme:dark}
 *{box-sizing:border-box}
 /* word-spacing: o espaço entre palavras da Plus Jakarta Sans é estreito, e em
    rótulo curto ("Mais filtros", "Com novidade") as palavras quase encostam. */
@@ -115,6 +126,9 @@ a{color:var(--acento);text-decoration:none}
   width:40px;height:40px;border-radius:8px;cursor:pointer;display:flex;
   align-items:center;justify-content:center;flex-shrink:0}
 .lateral-pe button:hover{background:rgba(255,255,255,.08);color:#fff}
+.lateral-pe button.tema{width:auto;height:36px;justify-content:flex-start;gap:10px;
+  padding:0 10px;font-size:13px;font-weight:600;align-self:flex-start}
+.lateral-pe button.tema svg{width:17px;height:17px}
 .versao{font-size:11.5px;color:var(--lateral-apagado);padding:0 8px}
 .versao a{color:var(--lateral-tinta)}
 .bolha{background:var(--verde);color:#062414;font-size:12px;font-weight:800;
@@ -138,6 +152,7 @@ a{color:var(--acento);text-decoration:none}
   .nav button.ativo{box-shadow:inset 0 -2px 0 var(--verde)}
   .lateral-pe{margin-top:0;flex-direction:row;align-items:center}
   .usuario{border:0;padding:0}
+  .lateral-pe button.tema span{display:none}
   .usuario .quem,.usuario .av{display:none}
   .versao{display:none}
   .env{padding:18px 14px 70px}

@@ -9,6 +9,27 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.29.1] — 2026-09-29
+
+Dois ajustes relatados pelo dono do produto logo depois de instalar a v0.29.0.
+
+### Adicionado
+
+- **Escolha de tema na lateral**: automático (segue o computador, como antes),
+  claro ou escuro. Com o computador em modo escuro, não havia como ver o tema
+  claro. A escolha fica guardada no navegador e é aplicada no `<head>`, antes
+  de a página ser pintada — sem piscar do escuro para o claro ao abrir. A área
+  administrativa respeita a mesma escolha.
+
+### Corrigido
+
+- **"+ rotular cliente" não fazia nada.** A edição do rótulo na própria linha
+  era ligada só na tela de Atualizações, que não tem botão de rotular; na
+  carteira, onde o botão aparece, o clique ficava sem resposta. O defeito vinha
+  da v0.25.0 e ficou mais visível na v0.29.0, que transformou o texto das
+  partes num botão tracejado. Agora a rotulagem é ligada na carteira, e há
+  teste que falha se ela sair de lá.
+
 ## [0.29.0] — 2026-09-29
 
 Visual novo, a partir do logo do Processo Vivo. Aprovado primeiro num

@@ -845,7 +845,7 @@ acompanhar em lote e tela do processo orientada a providência,
 **área administrativa** com gestão de assinaturas e de chaves de API por HTTP
 Basic Auth (v0.27.0), **catálogo de planos editável com preço e regras de
 teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
-Dockerfile multi-stage, CI, 736 testes.
+Dockerfile multi-stage, CI, 740 testes.
 
 **Visual (v0.29.0):** logo do dono do produto (limpo do arquivo do CorelDRAW,
 letras convertidas em desenho) na lateral azul-marinho e na tela de entrada;
@@ -853,7 +853,8 @@ cores tiradas do logo com um significado por cor; tela de entrada dividida
 (marca e promessa à esquerda, formulário à direita); painel com saudação, selo
 de verificação e quatro cards; carteira com linha de altura fixa (partes em
 coluna própria, cortadas com reticências) e filtros recolhidos em "Mais
-filtros". Tema claro e escuro continuam seguindo o sistema do advogado. As
+filtros". Tema: automático (segue o sistema do advogado), claro ou escuro,
+escolhido na lateral e guardado no navegador (v0.29.1). As
 telas de busca, processo, vigilância, acessos e conta herdaram cores e fontes,
 sem mudança de estrutura.
 

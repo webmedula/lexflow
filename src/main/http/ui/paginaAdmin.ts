@@ -1,5 +1,6 @@
 import { ESTILOS } from './estilos.js';
 import { FAVICON_DATA_URI, LOGO_FUNDO_ESCURO } from './marca.js';
+import { SCRIPT_TEMA } from './pagina.js';
 import { SCRIPT_ADMIN } from './scriptAdmin.js';
 
 /**
@@ -34,6 +35,7 @@ export function paginaAdmin(versao: string): string {
 <meta name="robots" content="noindex">
 <title>Processo Vivo — administração</title>
 <link rel="icon" type="image/svg+xml" href="${FAVICON_DATA_URI}">
+<script>${SCRIPT_TEMA}</script>
 <style>${ESTILOS}${ESTILOS_ADMIN}</style>
 </head>
 <body>

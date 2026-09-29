@@ -329,7 +329,6 @@ function verNovidades(){
       window.__f_nv_trib=this.value;verNovidades()});
     alvo.querySelectorAll('[data-abrir]').forEach(function(el){
       el.addEventListener('click',function(){abrir(el.getAttribute('data-abrir'))})});
-    ligarRotulagem(alvo);
 
     /* Aqui NÃO há restauração de foco, e é de propósito: esta tela não tem
        campo de texto — só um chip e um select, que não perdem digitação. O
@@ -584,6 +583,10 @@ function verProcessos(){
     comAtraso('f-parte','parte');
     alvo.querySelectorAll('[data-abrir]').forEach(function(el){
       el.addEventListener('click',function(){abrir(el.getAttribute('data-abrir'))})});
+    /* A rotulagem é ligada AQUI, na carteira, que é onde os botões existem.
+       Desde a v0.25.0 ela era ligada só na tela de Atualizações, que não tem
+       botão de rotular nenhum — e o clique em "rotular" não fazia nada. */
+    ligarRotulagem(alvo);
 
     /* A tela é redesenhada a cada filtro, o que apaga o foco — quem estava
        digitando perderia o campo no meio da palavra. Devolver o cursor ao fim
@@ -2355,6 +2358,32 @@ function render(){
   if(estado.aba==='conta')return verConta();
   return verBuscar();
 }
+
+/* ---------------- tema ---------------- */
+/* Automático segue o computador; claro e escuro fixam. A escolha fica neste
+   navegador (é preferência de tela, não da conta), e o <head> a aplica ANTES
+   da primeira pintura — senão a tela abriria escura e piscaria para clara. */
+var TEMA='processovivo.tema';
+var TEMAS={auto:'automático',claro:'claro',escuro:'escuro'};
+function temaAtual(){
+  try{var t=localStorage.getItem(TEMA);return t==='claro'||t==='escuro'?t:'auto'}
+  catch(e){return 'auto'}
+}
+function aplicarTema(t){
+  if(t==='claro'||t==='escuro')document.documentElement.setAttribute('data-tema',t);
+  else document.documentElement.removeAttribute('data-tema');
+  try{if(t==='auto')localStorage.removeItem(TEMA);else localStorage.setItem(TEMA,t)}catch(e){}
+  var b=$('tema');
+  if(b){
+    b.querySelector('span').textContent='Tema: '+TEMAS[t];
+    b.setAttribute('title','Tema '+TEMAS[t]+' — clique para trocar');
+  }
+}
+if($('tema'))$('tema').addEventListener('click',function(){
+  var ordem=['auto','claro','escuro'];
+  aplicarTema(ordem[(ordem.indexOf(temaAtual())+1)%ordem.length]);
+});
+aplicarTema(temaAtual());
 
 /* O cartão no pé da lateral: quem está dentro e em que plano. Com chave de
    API não há pessoa nem plano — diz isso, em vez de deixar o cartão vazio. */
