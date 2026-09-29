@@ -239,6 +239,19 @@ const ESQUEMA = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_assin_vence ON assinaturas(vence_em)`,
 
+  // Chaves de API emitidas pela área administrativa — pool separado das
+  // chaves estáticas de PROCESSOVIVO_API_KEYS, para poder crescer sem
+  // redeploy. A chave primária é o HASH da chave, nunca a chave em si: mesma
+  // regra de `sessoes` e `recuperacoes_senha` logo acima. `identificador` e
+  // `workspace` não são colunas — são fatias do próprio hash (8 e 16
+  // caracteres), calculadas em `RepositorioChavesApiSqlite`.
+  `CREATE TABLE IF NOT EXISTS chaves_api (
+     hash         TEXT PRIMARY KEY,
+     rotulo       TEXT NOT NULL,
+     criada_em    TEXT NOT NULL,
+     revogada_em  TEXT
+   )`,
+
   `CREATE INDEX IF NOT EXISTS idx_sessoes_usuario ON sessoes(usuario_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sessoes_expira ON sessoes(expira_em)`,
 ];

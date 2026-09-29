@@ -3,7 +3,9 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import type { ServicoContas } from '../../../application/services/ServicoContas.js';
 import type { Usuario } from '../../../domain/entities/Usuario.js';
+import type { RepositorioChavesApi } from '../../../domain/ports/RepositorioChavesApi.js';
 import { tokenDoCabecalho } from '../../../infrastructure/seguranca/sessao.js';
+import { chavesDeApi } from '../../../infrastructure/seguranca/chavesDeApi.js';
 import { identificarChave, workspaceDaChave } from '../chaves.js';
 
 declare module 'fastify' {
@@ -38,6 +40,16 @@ export interface OpcoesAutenticacao {
   readonly rotasPublicas: readonly string[];
   /** Ausente quando o servidor subiu sem banco: só resta a chave de API. */
   readonly contas?: ServicoContas;
+  /**
+   * Chaves emitidas pela área administrativa, além das estáticas do `.env`.
+   *
+   * Sempre presente quando há banco — a autenticação por chave de API não
+   * depende de a área administrativa estar LIGADA (ver `adminHabilitado`),
+   * só de o banco existir. Uma chave emitida antes de a credencial do
+   * operador ser desativada continua válida; é revogação explícita, e nunca a
+   * ausência de `PROCESSOVIVO_ADMIN_USUARIO`, que derruba uma chave.
+   */
+  readonly chavesDb?: RepositorioChavesApi;
 }
 
 /**
@@ -114,19 +126,34 @@ const autenticacaoPlugin: FastifyPluginAsync<OpcoesAutenticacao> = async (
     }
 
     const aceita = opcoes.chaves.find((chave) => comparaSegura(chave, informada));
-    if (!aceita) {
-      requisicao.log.warn(
-        { ip: requisicao.ip, rota: requisicao.url },
-        'chave de API rejeitada',
-      );
-      return resposta.code(401).send({
-        erro: 'NAO_AUTENTICADO',
-        mensagem: 'Chave de API inválida.',
-      });
+    if (aceita) {
+      requisicao.identidadeDaChave = identificarChave(aceita);
+      requisicao.workspace = workspaceDaChave(aceita);
+      return;
     }
 
-    requisicao.identidadeDaChave = identificarChave(aceita);
-    requisicao.workspace = workspaceDaChave(aceita);
+    // Não bateu com nenhuma chave estática do `.env`: tenta o pool emitido
+    // pela área administrativa, pelo HASH — nunca comparando a chave
+    // informada contra um valor guardado, porque não há valor guardado. É o
+    // mesmo desenho de `usuarioDaSessao`: o segredo nunca existe no banco,
+    // só o hash dele.
+    if (opcoes.chavesDb) {
+      const hash = chavesDeApi.hash(informada);
+      if (await opcoes.chavesDb.ativaPorHash(hash)) {
+        requisicao.identidadeDaChave = hash.slice(0, 8);
+        requisicao.workspace = hash.slice(0, 16);
+        return;
+      }
+    }
+
+    requisicao.log.warn(
+      { ip: requisicao.ip, rota: requisicao.url },
+      'chave de API rejeitada',
+    );
+    return resposta.code(401).send({
+      erro: 'NAO_AUTENTICADO',
+      mensagem: 'Chave de API inválida.',
+    });
   });
 };
 

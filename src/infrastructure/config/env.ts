@@ -160,6 +160,15 @@ const schema = z.object({
   BACKUP_MANTER: inteiroPositivo(7),
   /** Origens liberadas para CORS, separadas por vírgula. Vazio = CORS desligado. */
   CORS_ORIGINS: z.string().default(''),
+
+  // --- Área administrativa -------------------------------------------------
+  // Um operador só, credencial própria, TOTALMENTE separada da tabela
+  // `usuarios` — ver o aviso em `CLAUDE.md` sobre inventar "administrador"
+  // como campo booleano numa API de cadastro aberto. As duas vazias desliga a
+  // área inteira (comportamento padrão, e o de hoje); definir só uma é erro de
+  // configuração — ver `validarConfiguracaoAdmin`.
+  PROCESSOVIVO_ADMIN_USUARIO: z.string().default(''),
+  PROCESSOVIVO_ADMIN_SENHA: z.string().default(''),
 });
 
 export interface Config {
@@ -230,6 +239,11 @@ export interface Config {
     readonly cookieSeguro: boolean;
     readonly urlBase: string;
     readonly corsOrigins: readonly string[];
+  };
+  readonly admin: {
+    /** Vazio quando a área administrativa está desligada (as duas variáveis vazias). */
+    readonly usuario: string;
+    readonly senha: string;
   };
 }
 
@@ -386,6 +400,10 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
       cookieSeguro: env.COOKIE_SECURE,
       urlBase: env.PROCESSOVIVO_URL_BASE.trim().replace(/\/+$/, ''),
       corsOrigins: listaSeparadaPorVirgula(env.CORS_ORIGINS),
+    },
+    admin: {
+      usuario: env.PROCESSOVIVO_ADMIN_USUARIO.trim(),
+      senha: env.PROCESSOVIVO_ADMIN_SENHA,
     },
   };
 }

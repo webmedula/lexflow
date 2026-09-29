@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { chavesDeApi } from '../../infrastructure/seguranca/chavesDeApi.js';
 import { pareceValorDeExemplo } from '../../infrastructure/config/placeholder.js';
 
 /**
@@ -86,9 +86,15 @@ export function validarChavesDeApi(
  * em que você adota um prefixo comum tipo `lf_prod_`. O hash resolve os dois —
  * é estável, não reversível, e o mesmo valor que `npm run chave` imprime na
  * geração, então dá para anotar "id 3f9a2c11 = n8n" e correlacionar depois.
+ *
+ * Delega o hash a `chavesDeApi` (`infrastructure/seguranca/`) em vez de chamar
+ * `createHash` direto: é a MESMA função que `ServicoChavesApi` usa para as
+ * chaves emitidas pela área administrativa, e as duas precisam concordar em
+ * como uma chave vira identificador/workspace — senão uma chave emitida ali
+ * autenticaria diferente de uma chave estática daqui.
  */
 export function identificarChave(chave: string): string {
-  return createHash('sha256').update(chave).digest('hex').slice(0, 8);
+  return chavesDeApi.hash(chave).slice(0, 8);
 }
 
 /**
@@ -104,5 +110,5 @@ export function identificarChave(chave: string): string {
  * de log.
  */
 export function workspaceDaChave(chave: string): string {
-  return createHash('sha256').update(chave).digest('hex').slice(0, 16);
+  return chavesDeApi.hash(chave).slice(0, 16);
 }

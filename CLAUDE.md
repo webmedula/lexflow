@@ -690,10 +690,19 @@ Não são detalhes — moldam o código.
   `disponivelParaContratacao: false`, e há teste que falha se alguém ligar isso
   antes de a análise existir. Cobrar assinatura de funcionalidade ausente, com
   advogado, não volta como pedido de reembolso — volta como reclamação formal.
-- **Liberação de assinatura é CLI, não rota HTTP.** Uma rota exigiria um papel
-  de administrador que o sistema não tem, e inventar "administrador" como campo
-  booleano na tabela de usuários é como se constrói, sem perceber, uma escalada
-  de privilégio numa API cujo cadastro é aberto.
+- **Liberação de assinatura também existe por HTTP agora (v0.27.0), na área
+  administrativa** — mas a regra que gerou este parágrafo continua de pé: o
+  que mudou foi COMO a rota se autentica, não a premissa. `/admin/*` usa HTTP
+  Basic Auth com credencial fixa em `PROCESSOVIVO_ADMIN_USUARIO`/`_SENHA`,
+  validada por um hook próprio (`plugins/autenticacaoAdmin.ts`) inteiramente
+  à parte de `ServicoContas` e da tabela `usuarios` — nenhum campo booleano,
+  nenhum papel gravado em linha de assinante. Continua valendo: uma rota que
+  desse esse poder a uma sessão de usuário normal, ou que adicionasse
+  "administrador" como campo em `usuarios`, seria a escalada de privilégio
+  que este parágrafo sempre quis evitar, porque o cadastro daquela tabela é
+  aberto. `assinatura ver/liberar/cancelar/avisar` no CLI continua existindo,
+  igual — a rota HTTP é um segundo caminho para o mesmo operador, não uma
+  substituição.
 - **Sucesso com o cabeçalho e sem a linha do tempo é NEGATIVA DE ACESSO.** O
   MNI responde `sucesso: true` e devolve `dadosBasicos` completo — partes,
   vara, valor da causa — com ZERO movimentos quando o consultante não consta
@@ -800,8 +809,20 @@ credenciais**, **recuperação de senha por e-mail** e **backup automático do
 banco com verificação de integridade** (v0.17.0),
 **triagem do que exige ação**,
 **notificação por e-mail com aviso de silêncio**, console web com busca por OAB,
-acompanhar em lote e tela do processo orientada a providência, Dockerfile
-multi-stage, CI, 614 testes.
+acompanhar em lote e tela do processo orientada a providência,
+**área administrativa** com gestão de assinaturas e de chaves de API por HTTP
+Basic Auth (v0.27.0), Dockerfile multi-stage, CI, 661 testes.
+
+**Área administrativa (v0.27.0):** página própria em `/admin`, protegida por
+HTTP Basic Auth (`PROCESSOVIVO_ADMIN_USUARIO`/`PROCESSOVIVO_ADMIN_SENHA`) —
+sem senha configurada, a área nem existe (responde 501). Duas abas:
+assinaturas (listar, consultar por e-mail, liberar plano, cancelar, disparar
+os avisos de vencimento na hora) e chaves de API (emitir, listar, revogar —
+sem editar `.env` nem reiniciar o serviço). Chave emitida aqui autentica nas
+rotas do assinante exatamente como uma chave de `PROCESSOVIVO_API_KEYS`: as
+duas calculam `identificador`/`workspace` a partir do mesmo hash SHA-256, e o
+plugin de autenticação principal aceita as duas fontes. Nenhum campo novo em
+`usuarios` — ver o parágrafo sobre "administrador" acima.
 
 **Entrega de e-mail (19/09/2026):** em produção via Resend, domínio
 `processovivo.com.br` verificado com DKIM próprio (`resend._domainkey`),

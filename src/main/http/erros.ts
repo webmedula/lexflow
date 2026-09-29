@@ -1,6 +1,7 @@
 import { ZodError } from 'zod';
 import {
   AssinaturaInativaError,
+  ChaveApiNaoEncontradaError,
   CredenciaisInvalidasError,
   CredencialTribunalAusenteError,
   CredencialTribunalInvalidaError,
@@ -87,7 +88,10 @@ export function mapearErro(erro: unknown): RespostaDeErro {
     return { status: 409, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 
-  if (erro instanceof ProcessoNaoEncontradoError) {
+  if (
+    erro instanceof ProcessoNaoEncontradoError ||
+    erro instanceof ChaveApiNaoEncontradaError
+  ) {
     return { status: 404, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 

@@ -47,3 +47,25 @@ export interface TokensDeSessao {
   /** O que o banco guarda no lugar do token. */
   hash(token: string): string;
 }
+
+/**
+ * A mesma ideia de `TokensDeSessao`, para as chaves de API emitidas pelo
+ * operador na área administrativa.
+ *
+ * Existe como porta pela mesma regra de dependência: `application/` (onde mora
+ * `ServicoChavesApi`) não importa `infrastructure/` diretamente. A
+ * implementação real fica em `infrastructure/seguranca/chavesDeApi.ts`.
+ *
+ * O hash é a MESMA função que `main/http/chaves.ts` usa para as chaves
+ * estáticas do `.env` — `identificarChave` e `workspaceDaChave` são fatias
+ * deste mesmo hash (8 e 16 caracteres). Isso não é coincidência: é o que
+ * permite a uma chave emitida aqui autenticar exatamente como uma chave do
+ * `PROCESSOVIVO_API_KEYS`, sem o plugin de autenticação precisar saber de qual
+ * das duas fontes ela veio.
+ */
+export interface ChavesDeApi {
+  /** Chave nova, imprevisível (256 bits, hex). Existe em texto puro só aqui. */
+  gerar(): string;
+  /** O que o banco guarda no lugar da chave — nunca a chave em si. */
+  hash(chave: string): string;
+}

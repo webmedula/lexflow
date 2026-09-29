@@ -23,9 +23,12 @@ import { RepositorioVigilanciasSqlite } from '../../src/infrastructure/persisten
 import type { Aplicacao } from '../../src/main/factories/makeProcessoSearchService.js';
 import { ServicoContas } from '../../src/application/services/ServicoContas.js';
 import { ServicoAssinaturas } from '../../src/application/services/ServicoAssinaturas.js';
+import { ServicoChavesApi } from '../../src/application/services/ServicoChavesApi.js';
 import { RepositorioAssinaturasSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioAssinaturasSqlite.js';
 import { RepositorioUsuariosSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioUsuariosSqlite.js';
+import { RepositorioChavesApiSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioChavesApiSqlite.js';
 import { tokensDeSessao } from '../../src/infrastructure/seguranca/sessao.js';
+import { chavesDeApi } from '../../src/infrastructure/seguranca/chavesDeApi.js';
 import type { HashDeSenha } from '../../src/domain/ports/Criptografia.js';
 import { SenhaFracaError } from '../../src/domain/errors/index.js';
 
@@ -96,6 +99,8 @@ export interface OpcoesAplicacaoDeTeste {
     /** Passe um valor negativo para simular link já vencido. */
     readonly duracaoMs?: number;
   };
+  /** Liga a área administrativa. Ausente por padrão — mesma regra de `comAssinaturas`. */
+  readonly admin?: { readonly usuario: string; readonly senha: string };
 }
 
 /**
@@ -173,6 +178,7 @@ export function aplicacaoDeTeste(
 
   const usuarios = new RepositorioUsuariosSqlite(db);
   const repositorioAssinaturas = new RepositorioAssinaturasSqlite(db);
+  const repositorioChavesApi = new RepositorioChavesApiSqlite(db);
 
   return {
     buscarProcessoPorNumero: new BuscarProcessoPorNumero(orquestrador),
@@ -192,6 +198,13 @@ export function aplicacaoDeTeste(
     }),
     usuarios,
     repositorioAssinaturas,
+    repositorioChavesApi,
+    chavesApi: new ServicoChavesApi({
+      repositorio: repositorioChavesApi,
+      chaves: chavesDeApi,
+      ...(opcoes.agora ? { agora: opcoes.agora } : {}),
+    }),
+    adminCredenciais: opcoes.admin,
     contas: new ServicoContas({
       repositorio: usuarios,
       ...(opcoes.comAssinaturas ? { assinaturas: repositorioAssinaturas } : {}),

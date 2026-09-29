@@ -46,15 +46,20 @@ import { ConsoleLogger } from '../../infrastructure/logging/ConsoleLogger.js';
 import { gerarBackup } from '../../infrastructure/persistencia/backup.js';
 import { ServicoContas } from '../../application/services/ServicoContas.js';
 import { ServicoAssinaturas } from '../../application/services/ServicoAssinaturas.js';
+import { ServicoChavesApi } from '../../application/services/ServicoChavesApi.js';
 import type { RepositorioUsuarios } from '../../domain/ports/RepositorioUsuarios.js';
 import type { RepositorioAssinaturas } from '../../domain/ports/RepositorioAssinaturas.js';
+import type { RepositorioChavesApi } from '../../domain/ports/RepositorioChavesApi.js';
 import { RepositorioAssinaturasSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioAssinaturasSqlite.js';
 import { RepositorioUsuariosSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioUsuariosSqlite.js';
+import { RepositorioChavesApiSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioChavesApiSqlite.js';
 import { hashScrypt } from '../../infrastructure/seguranca/senha.js';
+import { chavesDeApi } from '../../infrastructure/seguranca/chavesDeApi.js';
 import {
   DURACAO_SESSAO_MS,
   tokensDeSessao,
 } from '../../infrastructure/seguranca/sessao.js';
+import { adminHabilitado } from '../http/adminAuth.js';
 
 export interface Aplicacao {
   readonly buscarProcessoPorNumero: BuscarProcessoPorNumero;
@@ -80,15 +85,27 @@ export interface Aplicacao {
    */
   readonly assinaturas: ServicoAssinaturas;
   /**
-   * Repositórios crus, para o CLI.
+   * Repositórios crus, para o CLI e para a área administrativa.
    *
    * Expostos porque a liberação manual acontece por e-mail — o operador
    * conhece o e-mail do advogado, não o `workspace` — e porque listar todas as
-   * assinaturas é diagnóstico, não caso de uso do produto. Nenhuma rota HTTP
-   * deve tocar nestes: o que elas usam é o serviço acima.
+   * assinaturas é diagnóstico, não caso de uso do produto. **Nenhuma rota do
+   * ASSINANTE deve tocar nestes** — o que elas usam é o serviço acima; só o
+   * CLI e `rotasDeAdmin` (o próprio operador, atrás de Basic Auth separado)
+   * têm razão para ler `porEmail`/`porWorkspace`/`todas` diretamente.
    */
   readonly usuarios: RepositorioUsuarios;
   readonly repositorioAssinaturas: RepositorioAssinaturas;
+  /** Chaves de API emitidas pela área administrativa — ver `ServicoChavesApi`. */
+  readonly repositorioChavesApi: RepositorioChavesApi;
+  /** Emissão/listagem/revogação de chaves, para `rotasDeAdmin`. */
+  readonly chavesApi: ServicoChavesApi;
+  /**
+   * `undefined` quando `PROCESSOVIVO_ADMIN_USUARIO`/`_SENHA` não estão
+   * configuradas — a área administrativa existe (as rotas respondem 501 com
+   * instrução) mas não abre para ninguém.
+   */
+  readonly adminCredenciais: { readonly usuario: string; readonly senha: string } | undefined;
   readonly preferenciasNotificacao: RepositorioNotificacao;
   /**
    * O canal de saída cru, exposto para DIAGNÓSTICO.
@@ -193,6 +210,20 @@ export function montarAplicacao(config: Config): Aplicacao {
 
   const usuarios = new RepositorioUsuariosSqlite(db);
   const repositorioAssinaturas = new RepositorioAssinaturasSqlite(db);
+
+  // Chaves de API emitidas pela área administrativa. Montado SEMPRE que há
+  // banco — não só quando a credencial do operador está configurada: uma
+  // chave já emitida continua válida mesmo que o acesso à área administrativa
+  // seja desligado depois. É revogação explícita que derruba uma chave, nunca
+  // a ausência de PROCESSOVIVO_ADMIN_USUARIO.
+  const repositorioChavesApi = new RepositorioChavesApiSqlite(db);
+  const chavesApi = new ServicoChavesApi({
+    repositorio: repositorioChavesApi,
+    chaves: chavesDeApi,
+  });
+  const adminCredenciais = adminHabilitado(config.admin.usuario, config.admin.senha)
+    ? { usuario: config.admin.usuario, senha: config.admin.senha }
+    : undefined;
 
   // O notificador vai para cá com a MESMA regra da recuperação de senha: só o
   // que entrega de verdade. Aviso de assinatura que só existe no log é
@@ -354,6 +385,9 @@ export function montarAplicacao(config: Config): Aplicacao {
     assinaturas,
     usuarios,
     repositorioAssinaturas,
+    repositorioChavesApi,
+    chavesApi,
+    adminCredenciais,
     preferenciasNotificacao,
     notificador,
     agendador,

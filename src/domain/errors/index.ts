@@ -349,3 +349,20 @@ export class SemHabilitacaoNosAutosError extends DomainError {
     );
   }
 }
+
+/**
+ * O identificador de 8 hex informado para revogar não corresponde a nenhuma
+ * chave de API emitida pela área administrativa.
+ *
+ * Não é ambíguo com "chave errada digitada": só o OPERADOR chega até aqui, e
+ * ele nunca vê a chave inteira de novo — só o identificador que a listagem
+ * mostra. Um identificador que não bate é erro de digitação ou chave já
+ * revogada com outro identificador, nunca tentativa de adivinhar chave alheia.
+ */
+export class ChaveApiNaoEncontradaError extends DomainError {
+  readonly codigo = 'CHAVE_API_NAO_ENCONTRADA';
+
+  constructor(readonly identificador: string) {
+    super(`Nenhuma chave de API com o identificador "${identificador}".`);
+  }
+}

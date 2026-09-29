@@ -6,6 +6,7 @@ import type { Config } from '../../infrastructure/config/env.js';
 import { VERSAO } from '../../infrastructure/config/versao.js';
 import type { Aplicacao } from '../factories/makeProcessoSearchService.js';
 import { validarChavesDeApi } from './chaves.js';
+import { validarConfiguracaoAdmin } from './adminAuth.js';
 import { mapearErro } from './erros.js';
 import autenticacao from './plugins/autenticacao.js';
 import { ROTA_HEALTH, ROTA_READY, rotasDeSaude } from './rotas/saude.js';
@@ -16,6 +17,7 @@ import { rotasDeVigilancia } from './rotas/vigilancias.js';
 import { rotasDePecas } from './rotas/pecas.js';
 import { rotasDoPainel } from './rotas/painel.js';
 import { rotasDeAssinaturas } from './rotas/assinaturas.js';
+import { ROTAS_ADMIN, rotasDeAdmin } from './rotas/admin.js';
 import {
   ROTA_CONTAS,
   ROTA_RECUPERAR,
@@ -35,6 +37,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   // Antes de qualquer coisa: configuração de autenticação inválida derruba a
   // montagem, não vira um serviço aberto por acidente.
   validarChavesDeApi(config.http.chavesDeApi, config.http.autenticacaoDesativada);
+  validarConfiguracaoAdmin(config.admin.usuario, config.admin.senha);
 
   const servidor = Fastify({
     // O log sai pelo nosso `Logger` (uma linha JSON por evento) para que
@@ -80,11 +83,17 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
     chaves: config.http.chavesDeApi,
     desativada: config.http.autenticacaoDesativada,
     contas: app.contas,
+    chavesDb: app.repositorioChavesApi,
     // O console entra aqui porque é HTML sem dado nenhum. Se ele exigisse
     // chave, o navegador cairia no mesmo 401 que a página existe para resolver.
     //
     // Criar conta e entrar TÊM que ser públicas: são justamente as rotas de
     // quem ainda não tem como se autenticar.
+    //
+    // As rotas administrativas entram pelo mesmo motivo do console — são
+    // "públicas" só do ponto de vista DESTE plugin, porque respondem a outra
+    // autenticação (Basic Auth, em `autenticacaoAdmin`), nunca a chave de API
+    // nem sessão de assinante. Ver o porquê em `rotas/admin.ts`.
     rotasPublicas: [
       ROTA_HEALTH,
       ROTA_READY,
@@ -95,6 +104,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
       // autenticação nelas seria pedir a chave para quem perdeu a chave.
       ROTA_RECUPERAR,
       ROTA_REDEFINIR,
+      ...ROTAS_ADMIN,
     ],
   });
 
@@ -114,6 +124,15 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(rotasDoPainel(app.acompanhamento, app.pecas));
   void servidor.register(rotasDeAssinaturas(app.assinaturas));
   void servidor.register(rotasDeVigilancia(app.vigilancia, app.preferenciasNotificacao));
+  void servidor.register(
+    rotasDeAdmin({
+      ...(app.adminCredenciais ? { credenciais: app.adminCredenciais } : {}),
+      assinaturas: app.assinaturas,
+      repositorioAssinaturas: app.repositorioAssinaturas,
+      usuarios: app.usuarios,
+      chavesApi: app.chavesApi,
+    }),
+  );
 
   servidor.setNotFoundHandler((requisicao, resposta) => {
     void resposta.code(404).send({
@@ -230,6 +249,7 @@ export async function iniciar(app: Aplicacao, config: Config): Promise<FastifyIn
     porta: config.http.porta,
     fontes: config.cadeiaDeProviders,
     autenticacao: config.http.autenticacaoDesativada ? 'DESATIVADA' : 'chave de API',
+    admin: app.adminCredenciais ? 'ligada' : 'desligada',
   });
 
   let encerrando = false;

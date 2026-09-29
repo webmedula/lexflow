@@ -47,6 +47,12 @@ export interface RepositorioAssinaturas {
    */
   aVencerAte(limite: Date): Promise<readonly Assinatura[]>;
 
-  /** Todas, para o comando de diagnóstico. Não use em caminho de requisição. */
+  /**
+   * Todas, para o comando de diagnóstico e para a área administrativa.
+   *
+   * As duas leituras são do mesmo operador, de baixo tráfego e nunca por
+   * assinante — não é a lista que uma rota de cliente deveria expor. Não use em
+   * caminho de requisição de assinante.
+   */
   todas(): Promise<readonly Assinatura[]>;
 }

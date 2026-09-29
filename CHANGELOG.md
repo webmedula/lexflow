@@ -9,6 +9,54 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.27.0] — 2026-09-28
+
+Área administrativa: um lugar único para o operador do sistema gerenciar
+assinatura e chave de API pela web, sem depender de CLI nem de editar `.env` e
+reiniciar o serviço.
+
+### Adicionado
+
+- **Painel `/admin`**, protegido por HTTP Basic Auth
+  (`PROCESSOVIVO_ADMIN_USUARIO`/`PROCESSOVIVO_ADMIN_SENHA`). Autenticação
+  inteiramente separada da sessão de assinante — hook próprio
+  (`autenticacaoAdmin`), zero linha tocando `usuarios` ou `sessoes`. Sem as
+  duas variáveis definidas, a área nem existe: `/admin` e `/admin/api/*`
+  respondem 501 em vez de 404 ou de pedir credencial.
+- **Aba Assinaturas**: listar todas com e-mail da conta, consultar por
+  e-mail, liberar plano por N meses (mesma validação de plano e prazo do
+  comando `assinatura liberar` do CLI), cancelar, e disparar os avisos de
+  vencimento na hora — o mesmo que o agendador roda sozinho, sem esperar o
+  próximo ciclo.
+- **Aba Chaves de API**: emitir chave nova (o valor em texto puro aparece uma
+  única vez, na resposta da emissão — nunca mais volta a aparecer, nem no
+  log), listar (identificador e rótulo, nunca a chave) e revogar. Uma chave
+  emitida aqui autentica nas rotas do assinante exatamente como uma chave de
+  `PROCESSOVIVO_API_KEYS`: as duas calculam `identificador`/`workspace` a
+  partir do mesmo hash SHA-256 (`chavesDeApi.hash`), e o plugin de
+  autenticação principal aceita as duas fontes. Revogar derruba a
+  autenticação daquela chave imediatamente.
+
+### Por que Basic Auth, e não sessão de cookie
+
+O `CLAUDE.md` já registrava por que este sistema nunca cria um campo
+"administrador" booleano na tabela `usuarios` — o cadastro é aberto, e isso
+seria construir, sem perceber, uma escalada de privilégio. Reaproveitar
+`ServicoContas` e a sessão de assinante para o operador puxaria a mesma
+mistura para dentro do código, ainda que sem o campo. Basic Auth resolve com
+uma credencial fixa, um hook, e nenhuma linha tocando `usuarios` ou
+`sessoes`: o navegador pede a senha uma vez e guarda para as chamadas
+seguintes da mesma origem.
+
+### Notas de segurança
+
+- A senha administrativa precisa de pelo menos 16 caracteres — validado no
+  arranque, junto com o resto da configuração. É a única credencial desta
+  área, sem 2FA.
+- `assinatura ver/liberar/cancelar/avisar` no CLI continua existindo, igual —
+  a rota HTTP é um segundo caminho para o mesmo operador, não uma
+  substituição.
+
 ## [0.26.1] — 2026-09-24
 
 Conserto de um defeito que eu introduzi na v0.26.0, e a trava para a família
