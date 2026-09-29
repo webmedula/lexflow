@@ -1,5 +1,30 @@
 import { ESTILOS } from './estilos.js';
+import { FAVICON_DATA_URI, LOGO_FUNDO_ESCURO } from './marca.js';
 import { SCRIPT } from './script.js';
+
+/**
+ * Ícones da navegação: traço, sem preenchimento, na cor do texto
+ * (`currentColor`), para herdarem o estado ativo sem CSS a mais. Inline pelo
+ * mesmo motivo do resto da página — nada vem de fora.
+ */
+function icone(caminhos: string): string {
+  return (
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${caminhos}</svg>`
+  );
+}
+
+export const ICONES = {
+  sino: icone('<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>'),
+  pasta: icone(
+    '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  ),
+  lupa: icone('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
+  olho: icone('<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'),
+  chave: icone('<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>'),
+  pessoa: icone('<circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 0 0-16 0"/>'),
+  sair: icone('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>'),
+} as const;
 
 /**
  * Console web do Processo Vivo — servido pela própria API, na raiz.
@@ -25,6 +50,8 @@ export function paginaConsole(versao: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Processo Vivo</title>
+<link rel="icon" type="image/svg+xml" href="${FAVICON_DATA_URI}">
+<meta name="theme-color" content="#0b192c">
 <style>${ESTILOS}</style>
 </head>
 <body>
@@ -37,20 +64,21 @@ export function paginaConsole(versao: string): string {
     A grade some para uma coluna sozinha quando a lateral não está lá.
   -->
   <aside class="lateral oculto" id="lateral">
-    <div class="marca">
-      <div class="logo">Processo Vivo</div>
-      <div class="sub">mesa de trabalho</div>
-    </div>
+    <div class="marca" id="marca">${LOGO_FUNDO_ESCURO}</div>
     <nav class="nav">
-      <button id="nav-novidades">Atualizações <span class="bolha oculto" id="bolha"></span></button>
-      <button id="nav-processos">Meus processos <span class="cont" id="cont-processos"></span></button>
-      <button id="nav-buscar">Buscar</button>
-      <button id="nav-vigilancia">Vigilância</button>
-      <button id="nav-credenciais">Meus acessos</button>
-      <button id="nav-conta" class="oculto">Minha conta</button>
+      <button id="nav-novidades">${ICONES.sino}<span>Atualizações</span> <span class="bolha oculto" id="bolha"></span></button>
+      <button id="nav-processos">${ICONES.pasta}<span>Meus processos</span> <span class="cont" id="cont-processos"></span></button>
+      <button id="nav-buscar">${ICONES.lupa}<span>Buscar</span></button>
+      <button id="nav-vigilancia">${ICONES.olho}<span>Vigilância</span></button>
+      <button id="nav-credenciais">${ICONES.chave}<span>Meus acessos</span></button>
+      <button id="nav-conta" class="oculto">${ICONES.pessoa}<span>Minha conta</span></button>
     </nav>
     <div class="lateral-pe">
-      <button id="sair" title="Encerrar a sessão">Sair</button>
+      <div class="usuario">
+        <span class="av" id="usuario-iniciais"></span>
+        <span class="quem"><span class="nome" id="usuario-nome"></span><span class="plano" id="usuario-plano"></span></span>
+        <button id="sair" title="Encerrar a sessão" aria-label="Sair">${ICONES.sair}</button>
+      </div>
       <div class="versao">v${versao} &middot; <a href="/ready">estado das fontes</a></div>
     </div>
   </aside>

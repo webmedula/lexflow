@@ -9,6 +9,58 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.29.0] — 2026-09-29
+
+Visual novo, a partir do logo do Processo Vivo. Aprovado primeiro num
+protótipo (entrada, painel e lista de processos, em tema claro e escuro) e só
+depois levado ao código.
+
+### Adicionado
+
+- **Logo no sistema**: na lateral e na tela de entrada, e o símbolo como ícone
+  da aba (sobre um quadrado branco, para não sumir na aba escura do
+  navegador). O SVG original era a página inteira do CorelDRAW com cinco
+  rascunhos e o texto em Verdana sem converter; a versão final foi separada e
+  as letras viraram desenho com a própria fonte que vinha no arquivo — sem
+  isso, "PROCESSO VIVO" aparecia em outra fonte em Linux e em parte dos
+  celulares.
+- **Fontes Plus Jakarta Sans e JetBrains Mono** (números de processo), servidas
+  pelo próprio servidor em `/ui/fontes/…`. Nada vem de fora: o console continua
+  abrindo atrás de firewall, e há teste para isso.
+- **Tela de entrada dividida**: marca, o que o sistema faz e a promessa do
+  aviso de silêncio à esquerda; formulário à direita. No celular, empilha.
+  Recuperar senha, redefinir e entrar com chave usam a mesma casca.
+- **Painel**: saudação com a data, selo de verificação ao lado do título
+  (verde só quando a verificação está de pé; âmbar com a contagem de processos
+  sem verificação), quarto card com as novidades não lidas, feed com bloco de
+  data, e a trilha de liberação com barra de progresso e um botão por passo.
+- **Lateral** azul-marinho nos dois temas, com ícones, e um cartão no pé com
+  quem está dentro e até quando vai o teste.
+
+### Mudado
+
+- **Cores tiradas do logo, com um significado cada**: verde = verificado/em
+  dia, azul = novidade, âmbar = pede providência, vermelho = erro e sigilo.
+  "Pede providência" era vermelho e passou a âmbar: vermelho fica para o que
+  é falha.
+- **Lista de processos compacta**: linha de altura fixa, textos cortados com
+  reticências (o texto inteiro aparece ao parar o mouse). As **partes ganharam
+  coluna própria**, sempre visível — antes dividiam a coluna Cliente e sumiam
+  quando a pasta ganhava rótulo. Pasta sem cliente mostra "+ rotular cliente".
+- **Filtros da lista recolhidos**: à vista ficam a busca, Tribunal, Cliente,
+  "Mais filtros" e "Com novidade". Parte, classe, período e ordem ficam em
+  "Mais filtros", que mostra quantos estão valendo e não fecha enquanto houver
+  algum ativo.
+- No celular a navegação vira só ícones (o texto continua para leitor de
+  tela), e a página não rola mais para o lado por causa da tabela.
+- A área administrativa usa a mesma casca e o mesmo logo.
+
+### Mantido de propósito
+
+- **Tema escuro**, seguindo o computador do advogado, como antes.
+- As telas de busca, processo, vigilância, acessos e conta receberam as cores e
+  as fontes novas, sem mudança de estrutura.
+
 ## [0.28.0] — 2026-09-28
 
 Planos de assinatura controlados pelo painel. Até aqui os três planos estavam

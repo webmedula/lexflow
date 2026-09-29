@@ -368,8 +368,10 @@ para `main/http/erros.ts` — é assim que o mesmo erro deixa de virar 404 numa
 rota e 500 na outra.
 
 Rota que dispensa autenticação precisa entrar em `rotasPublicas` ao registrar o
-plugin de autenticação: hoje `/health`, `/ready`, o console, `/v1/contas`,
-`/v1/sessoes`, `/v1/senha/recuperar` e `/v1/senha/redefinir`. As quatro últimas
+plugin de autenticação: hoje `/health`, `/ready`, o console, as fontes do
+console (`/ui/fontes/:arquivo`), `/v1/contas`, `/v1/sessoes`,
+`/v1/senha/recuperar` e `/v1/senha/redefinir` (e as rotas `/admin`, que têm
+autenticação própria). As quatro últimas
 são públicas por necessidade — são as rotas de quem ainda não tem, ou acabou de
 perder, como se autenticar. Pedir chave nelas seria pedir a chave a quem perdeu
 a chave.
@@ -622,6 +624,21 @@ Não são detalhes — moldam o código.
   Passou por typecheck limpo, lint limpo e 486 testes verdes.
   `tests/http/console-script.spec.ts` roda o ESLint DENTRO da string e é o
   único lugar que enxerga esse código. Ao mexer no console, rode-o.
+- **O console não carrega nada de fora — nem fonte.** Há teste que falha se a
+  página tiver `<script src>` ou `<link href="http…">`: o console precisa abrir
+  atrás do firewall de um fórum. As fontes (Plus Jakarta Sans e JetBrains
+  Mono, v0.29.0) vêm dos pacotes `@fontsource`, que são dependência de
+  PRODUÇÃO, e são servidas pela rota `/ui/fontes/:arquivo` a partir de uma
+  lista fechada de nomes — o parâmetro nunca vira caminho de disco. Mover esses
+  pacotes para `devDependencies` quebra o deploy no arranque (de propósito:
+  melhor que o console cair na fonte do sistema sem ninguém notar).
+- **Cores do console têm UM significado cada** (v0.29.0, a partir do logo):
+  verde = verificado/em dia, azul = novidade, âmbar = pede providência,
+  vermelho = erro, sigilo, verificação que falhou. O verde do logo (`#00C853`)
+  não serve para texto sobre branco (contraste ~2:1): texto verde usa
+  `--verde-tinta`. Selo verde só aparece quando a verificação está de pé —
+  um "tudo certo" sem ter olhado é a mesma mentira que o aviso de silêncio
+  existe para impedir.
 - **Concatenação sem `+` é sintaxe VÁLIDA, e some com a tela.** `h+='<a>'`
   seguido de `'<b>'+'<c>';` compila, roda, e joga o segundo bloco fora: o HTML
   desaparece sem erro nenhum, os `id` que os listeners procuram não existem, e o
@@ -827,7 +844,18 @@ banco com verificação de integridade** (v0.17.0),
 acompanhar em lote e tela do processo orientada a providência,
 **área administrativa** com gestão de assinaturas e de chaves de API por HTTP
 Basic Auth (v0.27.0), **catálogo de planos editável com preço e regras de
-teste e carência** (v0.28.0), Dockerfile multi-stage, CI, 728 testes.
+teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
+Dockerfile multi-stage, CI, 736 testes.
+
+**Visual (v0.29.0):** logo do dono do produto (limpo do arquivo do CorelDRAW,
+letras convertidas em desenho) na lateral azul-marinho e na tela de entrada;
+cores tiradas do logo com um significado por cor; tela de entrada dividida
+(marca e promessa à esquerda, formulário à direita); painel com saudação, selo
+de verificação e quatro cards; carteira com linha de altura fixa (partes em
+coluna própria, cortadas com reticências) e filtros recolhidos em "Mais
+filtros". Tema claro e escuro continuam seguindo o sistema do advogado. As
+telas de busca, processo, vigilância, acessos e conta herdaram cores e fontes,
+sem mudança de estrutura.
 
 **Planos editáveis (v0.28.0):** aba Planos no `/admin` — visão geral com
 quantos assinantes cada plano tem (por status derivado), criar plano

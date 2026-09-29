@@ -1,4 +1,5 @@
 import { ESTILOS } from './estilos.js';
+import { FAVICON_DATA_URI, LOGO_FUNDO_ESCURO } from './marca.js';
 import { SCRIPT_ADMIN } from './scriptAdmin.js';
 
 /**
@@ -32,6 +33,7 @@ export function paginaAdmin(versao: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Processo Vivo — administração</title>
+<link rel="icon" type="image/svg+xml" href="${FAVICON_DATA_URI}">
 <style>${ESTILOS}${ESTILOS_ADMIN}</style>
 </head>
 <body>
@@ -39,7 +41,7 @@ export function paginaAdmin(versao: string): string {
 <div class="app">
   <aside class="lateral" id="lateral">
     <div class="marca">
-      <div class="logo">Processo Vivo</div>
+      ${LOGO_FUNDO_ESCURO}
       <div class="sub">administração</div>
     </div>
     <nav class="nav">

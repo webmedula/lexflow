@@ -81,18 +81,38 @@ function humano(iso){
    do carregamento e está rotulada como tal; relógio correndo na tela seria
    movimento sem informação. */
 function diaPorExtenso(d){
-  /* Montado por partes em vez de um toLocaleDateString só: o formato pronto do
-     pt-BR devolve "quinta-feira, 24 de set. de 2026", e em versalete com
-     espaçamento de letra aquilo vira uma linha inteira de conectivo. */
+  /* "Terça-feira, 29 de setembro" — montado por partes: o formato pronto do
+     pt-BR traz o ano e abrevia o mês com ponto ("29 de set. de 2026"), e no
+     topo do painel isso é conectivo demais para uma âncora de leitura. */
   try{
     var o={timeZone:'America/Sao_Paulo'};
     var semana=d.toLocaleDateString('pt-BR',Object.assign({weekday:'long'},o));
-    var dia=d.toLocaleDateString('pt-BR',Object.assign({day:'2-digit'},o));
-    var mes=d.toLocaleDateString('pt-BR',Object.assign({month:'short'},o)).replace('.','');
-    var ano=d.toLocaleDateString('pt-BR',Object.assign({year:'numeric'},o));
-    return semana.replace('-feira','')+' · '+dia+' '+mes+' '+ano;
+    var dia=d.toLocaleDateString('pt-BR',Object.assign({day:'numeric'},o));
+    var mes=d.toLocaleDateString('pt-BR',Object.assign({month:'long'},o));
+    return semana.charAt(0).toUpperCase()+semana.slice(1)+', '+dia+' de '+mes;
   }catch(e){return ''}
 }
+/* Pelo relógio de Brasília, não o do computador: um advogado viajando não
+   deveria ler "Boa noite" às dez da manhã do fuso onde estão os prazos dele. */
+function saudacao(){
+  try{
+    var h=Number(new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',hour12:false}).slice(0,2));
+    return h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
+  }catch(e){return 'Olá'}
+}
+/* Dia e mês curtos para o bloco de data do feed: "29" e "set". */
+function diaMes(iso){
+  var d=new Date(iso);
+  if(!iso||isNaN(d))return ['—',''];
+  var o={timeZone:'America/Sao_Paulo'};
+  return [d.toLocaleDateString('pt-BR',Object.assign({day:'numeric'},o)),
+    d.toLocaleDateString('pt-BR',Object.assign({month:'short'},o)).replace('.','')];
+}
+var ICONE_ATUALIZAR='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
+var ICONE_LUPA='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>';
+var ICONE_FILTROS='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>';
+var ICONE_MAIS='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+var ICONE_CHECK='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00C853" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 function horaDe(v){
   if(!v)return '';
   try{return new Date(v).toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo',
@@ -237,16 +257,17 @@ function verNovidades(){
     var acomp=r.acompanhados||0;
     var ver=(pn&&pn.verificacao)||{};
 
+    var primeiroNome=estado.eu&&estado.eu.nome?estado.eu.nome.split(' ')[0]:'';
     h+='<div class="cabeca">'+
-      '<div class="kicker">'+esc(diaPorExtenso(new Date()))+' · '+
-        esc(horaDe(new Date().toISOString()))+'</div>'+
       '<div class="titulo-secao" style="margin-bottom:0"><div>'+
-        '<h2>Últimas atualizações</h2>'+
-        '<div class="sub">'+resumoDaVerificacao(ver,acomp,r)+'</div></div><div>';
-    if(r.naoVistas>0)h+='<button class="bt bt2" id="marcar">Marcar todas como lidas</button> ';
-    h+='<button class="bt bt2" id="sincronizar">Verificar agora</button></div></div></div>';
+        '<div class="kicker">'+esc(diaPorExtenso(new Date()))+'</div>'+
+        '<h2>'+(primeiroNome?esc(saudacao()+', '+primeiroNome):'Últimas atualizações')+'</h2>'+
+        '<div class="sub">'+resumoDaVerificacao(ver,acomp,r)+'</div></div>'+
+        '<div class="acoes">'+seloDeVerificacao(ver,acomp);
+    if(r.naoVistas>0)h+='<button class="bt bt2" id="marcar">Marcar todas como lidas</button>';
+    h+='<button class="bt bt2" id="sincronizar">'+ICONE_ATUALIZAR+'Verificar agora</button></div></div></div>';
 
-    if(pn&&pn.cards)h+=cardsDoPainel(pn.cards);
+    if(pn&&pn.cards)h+=cardsDoPainel(pn.cards,r.naoVistas);
 
     /* Duas colunas, e o trilho só existe se tiver conteúdo.
        Reservar espaço para bloco vazio foi erro meu na v0.22.0 — a página
@@ -255,10 +276,10 @@ function verNovidades(){
     var temTrilho=!!(pn&&pn.pecasBaixadas&&pn.pecasBaixadas.length);
     h+='<div class="'+(temTrilho?'duas-colunas':'')+'"><div>';
 
-    h+='<div class="filtros">'+
-       '<div class="compacto"><button class="chip'+
-       (window.__f_nv_nv?' on':'')+'" id="f-nv-naovistas">Só não lidas</button></div>'+
-       '<div class="compacto"><select id="f-nv-trib" style="min-width:150px">'+
+    h+='<div class="cartao feed"><div class="feed-topo"><h3>Últimas atualizações</h3>'+
+       '<div class="chips"><button class="chip'+
+       (window.__f_nv_nv?' on':'')+'" id="f-nv-naovistas">Só não lidas</button>'+
+       '<select id="f-nv-trib" aria-label="Tribunal">'+
        '<option value="">Todos os tribunais</option>'+
        estado.facetas.tribunais.map(function(t){
          return '<option value="'+esc(t)+'"'+(trib===t?' selected':'')+'>'+esc(t)+'</option>'}).join('')+
@@ -279,19 +300,20 @@ function verNovidades(){
               'Seus '+acomp+' processo(s) foram verificados e nada mudou desde a última consulta. Esta tela mostra só o que é NOVO — para ver a carteira inteira, abra Meus processos.',
               '<button class="bt bt2" onclick="window.__processovivo_ir(\'processos\')">Ver meus processos</button>');
     }else{
-      h+='<div class="cartao">';
       r.novidades.forEach(function(n){
+        var dm=diaMes(n.data);
         h+='<div class="nov'+(n.vista?'':' nl')+'">'+
-          '<div class="q">'+dt(n.data)+'<br><span style="font-size:11px">'+
-          humano(n.detectadaEm)+'</span></div><div>'+
-          '<div class="t">'+esc(n.titulo)+(n.vista?'':' <span class="selo nv">novo</span>')+'</div>'+
+          '<div class="q" title="'+esc(dt(n.data))+'"><b>'+esc(dm[0])+'</b><span>'+esc(dm[1])+'</span></div>'+
+          '<div style="min-width:0">'+
+          '<div class="t">'+esc(n.titulo)+'</div>'+
           (n.conteudo?'<div class="nota">'+esc(n.conteudo)+'</div>':'')+
           '<div class="p" data-abrir="'+esc(n.numero)+'">'+mascara(n.numero)+'</div>'+
-          '</div></div>';
+          '</div>'+
+          '<div class="lado">'+(n.vista?'':'<span class="selo nv">novo</span>')+
+          '<span>'+esc(humano(n.detectadaEm))+'</span></div></div>';
       });
-      h+='</div>';
     }
-    h+='</div>';
+    h+='</div></div>';
     if(temTrilho)h+='<aside class="trilho">'+blocoPecasBaixadas(pn.pecasBaixadas)+'</aside>';
     h+='</div>';
     alvo.innerHTML=h;
@@ -349,13 +371,14 @@ function dispararSync(){
  * contagem de prazo sem contar prazo, para advogado, não volta como reclamação
  * de interface.
  */
-function cardsDoPainel(c){
+function cardsDoPainel(c,naoLidas){
   var arquivadas=(c.totalPastas||0)-(c.ativos||0);
   return '<div class="cards">'+
     card(c.ativos,'Processos ativos',
       arquivadas>0?arquivadas+' arquivado(s) fora da conta':'')+
     card(c.pedemProvidencia,'Pedem providência',
       'ato dos últimos 30 dias que abre prazo','al')+
+    card(naoLidas,'Novidades não lidas','movimentação nova ainda não aberta','nv')+
     card(c.baixadasHoje,'Peças baixadas hoje','')+
     '</div>';
 }
@@ -376,9 +399,10 @@ function card(valor,rotulo,nota,cls){
  * de pé.
  */
 function resumoDaVerificacao(ver,acomp,r){
+  /* A hora da verificação está no selo ao lado; aqui fica há quanto tempo foi,
+     que é o que o selo não diz. */
   var partes=[];
-  if(ver.emAndamento)partes.push('verificando agora');
-  else if(ver.ultimaEm)partes.push('verificado às '+horaDe(ver.ultimaEm)+', '+desdeAgora(ver.ultimaEm));
+  if(ver.ultimaEm&&!ver.emAndamento)partes.push('última verificação '+desdeAgora(ver.ultimaEm));
   partes.push(acomp+' processo(s) acompanhado(s)');
   if(r.naoVistas>0)partes.push(r.naoVistas+' não lida(s)');
   var txt=esc(partes.join(' · '));
@@ -387,6 +411,26 @@ function resumoDaVerificacao(ver,acomp,r){
       ' sem verificação — o silêncio destas não significa que nada aconteceu</span>';
   }
   return txt;
+}
+
+/**
+ * O selo ao lado do título: o estado da verificação num relance.
+ *
+ * Verde SÓ quando houve verificação e nenhum processo ficou sem ela. Processo
+ * sem verificação deixa o selo âmbar, com a contagem — é a mesma regra da frase
+ * de baixo, dita em cor: o silêncio só significa "nada aconteceu" enquanto a
+ * verificação estiver de pé.
+ */
+function seloDeVerificacao(ver,acomp){
+  if(!acomp)return '';
+  if(ver.emAndamento)return '<span class="vigia neutro"><span class="gira"></span>Verificando agora</span>';
+  if(ver.naoVerificados>0){
+    return '<span class="vigia atencao"><span class="ponto-vivo"></span>'+
+      ver.naoVerificados+' sem verificação</span>';
+  }
+  if(!ver.ultimaEm)return '<span class="vigia neutro"><span class="ponto-vivo"></span>Aguardando a primeira verificação</span>';
+  return '<span class="vigia"><span class="ponto-vivo"></span>Verificado às '+
+    esc(horaDe(ver.ultimaEm))+'</span>';
 }
 
 /** O trilho da direita: o que já foi puxado do tribunal. */
@@ -426,25 +470,37 @@ function verProcessos(){
   api('/v1/acompanhamentos'+(q.length?'?'+q.join('&'):'')).then(function(r){
     var h='<div class="titulo-secao"><div><h2>Meus processos</h2>'+
       '<div class="sub">'+r.total+' acompanhado(s)</div></div>'+
-      '<button class="bt" id="ir-buscar">Adicionar processo</button></div>';
+      '<button class="bt" id="ir-buscar">'+ICONE_MAIS+'Adicionar processo</button></div>';
+
+    /* Filtros escondidos em "Mais filtros" que estão VALENDO são contados no
+       botão, e o painel fica aberto enquanto houver algum: filtro ativo que
+       ninguém vê é como a carteira "perde" processos (ver o aviso abaixo). */
+    var ocultosAtivos=[f.parte,f.classe,f.dias,(f.ordem&&f.ordem!=='MOVIMENTACAO_RECENTE')?f.ordem:'']
+      .filter(function(v){return !!v}).length;
+    var maisAberto=!!window.__f_pr_mais||ocultosAtivos>0;
 
     /* Os rótulos existem porque sem eles a barra vira uma fileira de caixas
        mudas: quem abre a tela não sabe que aquele "Tribunal" é um filtro e não
        o tribunal do primeiro processo. Numa carteira de centenas, filtro que
        não se anuncia é filtro que ninguém usa. */
-    h+='<div class="filtros">'+
-      '<div style="flex:2 1 200px"><label class="rotulo" for="f-parte">Parte</label>'+
+    h+='<div class="barra-filtros">'+
+      '<label class="busca" for="f-txt">'+ICONE_LUPA+
+        '<input id="f-txt" placeholder="Buscar por número, apelido, vara ou texto do ato" '+
+        'value="'+esc(f.texto||'')+'"></label>'+
+      '<select id="f-trib" aria-label="Tribunal"><option value="">Tribunal: todos</option>'+
+        estado.facetas.tribunais.map(function(t){return '<option value="'+esc(t)+'"'+(f.tribunal===t?' selected':'')+'>'+esc(t)+'</option>'}).join('')+'</select>'+
+      '<select id="f-cli" aria-label="Cliente"><option value="">Cliente: todos</option>'+
+        (estado.facetas.clientes||[]).map(function(c){return '<option value="'+esc(c)+'"'+(f.cliente===c?' selected':'')+'>'+esc(c)+'</option>'}).join('')+'</select>'+
+      '<button class="chip'+(maisAberto?' on':'')+'" id="f-mais" aria-expanded="'+maisAberto+'"'+
+        (ocultosAtivos?' title="Há filtro valendo aqui dentro; limpe-o para recolher"':'')+'>'+
+        ICONE_FILTROS+'Mais filtros'+(ocultosAtivos?' <span class="conta-filtro">'+ocultosAtivos+'</span>':'')+'</button>'+
+      '<button class="chip nv'+(f.novidade?' on':'')+'" id="f-nv" aria-pressed="'+(!!f.novidade)+'">Com novidade</button>'+
+      '</div>';
+
+    h+='<div class="filtros'+(maisAberto?'':' oculto')+'" id="filtros-mais">'+
+      '<div style="flex:2 1 220px"><label class="rotulo" for="f-parte">Parte</label>'+
         '<input id="f-parte" placeholder="nome do cliente ou da outra parte" '+
         'value="'+esc(f.parte||'')+'"></div>'+
-      '<div style="flex:2 1 200px"><label class="rotulo" for="f-txt">Busca livre</label>'+
-        '<input id="f-txt" placeholder="número, apelido, vara, texto do ato…" '+
-        'value="'+esc(f.texto||'')+'"></div>'+
-      '<div><label class="rotulo" for="f-trib">Tribunal</label>'+
-        '<select id="f-trib"><option value="">Todos</option>'+
-        estado.facetas.tribunais.map(function(t){return '<option'+(f.tribunal===t?' selected':'')+'>'+esc(t)+'</option>'}).join('')+'</select></div>'+
-      '<div><label class="rotulo" for="f-cli">Cliente</label>'+
-        '<select id="f-cli"><option value="">Todos</option>'+
-        (estado.facetas.clientes||[]).map(function(c){return '<option value="'+esc(c)+'"'+(f.cliente===c?' selected':'')+'>'+esc(c)+'</option>'}).join('')+'</select></div>'+
       '<div><label class="rotulo" for="f-cls">Classe</label>'+
         '<select id="f-cls"><option value="">Todas</option>'+
         estado.facetas.classes.map(function(c){return '<option value="'+esc(c)+'"'+(f.classe===c?' selected':'')+'>'+esc(titulo(c))+'</option>'}).join('')+'</select></div>'+
@@ -456,7 +512,6 @@ function verProcessos(){
         '<select id="f-ord">'+
         [['MOVIMENTACAO_RECENTE','Movimentação recente'],['ADICIONADO_RECENTE','Adicionado recente'],['NUMERO','Número']]
           .map(function(o){return '<option value="'+o[0]+'"'+(f.ordem===o[0]?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select></div>'+
-      '<div class="compacto"><button class="chip'+(f.novidade?' on':'')+'" id="f-nv">Com novidade</button></div>'+
       '</div>';
 
     /* Filtro ativo que esconde processo PRECISA se anunciar.
@@ -479,7 +534,7 @@ function verProcessos(){
           :'Busque um processo pelo número e clique em acompanhar. A partir daí o Processo Vivo verifica sozinho e avisa quando houver movimentação nova.'),
         q.length?'':'<button class="bt" onclick="window.__processovivo_ir(\'buscar\')">Buscar processo</button>');
     }else{
-      h+=tabelaDaCarteira(r.acompanhamentos);
+      h+=tabelaDaCarteira(r.acompanhamentos,r.total);
     }
     alvo.innerHTML=h;
 
@@ -506,6 +561,16 @@ function verProcessos(){
     $('f-dias').addEventListener('change',function(){setF('dias',this.value)});
     $('f-ord').addEventListener('change',function(){setF('ordem',this.value)});
     $('f-nv').addEventListener('click',function(){setF('novidade',!f.novidade)});
+    /* Abrir e fechar o painel NÃO refaz a consulta: só mostra o que já está na
+       página. Com filtro escondido valendo, ele não fecha — ver maisAberto. */
+    $('f-mais').addEventListener('click',function(){
+      if(ocultosAtivos>0)return;
+      window.__f_pr_mais=!window.__f_pr_mais;
+      var aberto=!!window.__f_pr_mais;
+      $('filtros-mais').classList.toggle('oculto',!aberto);
+      this.classList.toggle('on',aberto);
+      this.setAttribute('aria-expanded',String(aberto));
+    });
     /* Os dois campos de texto esperam 350ms antes de consultar: cada tecla
        dispararia uma ida ao banco e um redesenho, e o cursor saltaria. */
     var t;
@@ -538,49 +603,63 @@ function verProcessos(){
  * duas exigia percorrer a tela inteira. Uma tabela responde de longe — o olho
  * desce uma coluna em vez de ler parágrafos.
  *
- * O que NÃO se perdeu na troca: as partes. Elas continuam na coluna Cliente
- * enquanto não houver rótulo, em cinza e identificadas como partes. Era por
- * elas que o advogado achava "os processos do cliente X", e tirá-las para caber
- * numa grade seria trocar informação por alinhamento.
+ * O que NÃO se perdeu na troca: as partes. Desde a v0.29.0 elas têm coluna
+ * própria, sempre visível — antes dividiam a coluna Cliente e sumiam assim que
+ * a pasta ganhava rótulo. Era por elas que o advogado achava "os processos do
+ * cliente X", e tirá-las para caber numa grade seria trocar informação por
+ * alinhamento.
  */
-function tabelaDaCarteira(lista){
-  var h='<div class="cartao sem-borda"><div class="tab-rolo"><table class="tab">'+
+function tabelaDaCarteira(lista,total){
+  /* Larguras fixas por coluna (table-layout:fixed): é o que deixa cada
+     célula cortar com reticências em vez de esticar a linha. Partes fica com
+     o que sobrar — é o texto mais longo e o que mais tolera corte, porque o
+     nome inteiro está no "title". */
+  var h='<div class="cartao sem-borda"><div class="tab-rolo"><table class="tab fixa">'+
+    '<colgroup><col style="width:25%"><col style="width:14%"><col>'+
+    '<col style="width:88px"><col style="width:23%"><col style="width:132px"></colgroup>'+
     '<thead><tr>'+
-      '<th>Processo</th><th>Cliente</th><th>Tribunal</th>'+
+      '<th>Processo</th><th>Cliente</th><th>Partes</th><th>Tribunal</th>'+
       '<th>Última movimentação</th><th>Estado</th>'+
     '</tr></thead><tbody>';
 
   lista.forEach(function(a){
     var e=a.estado||{rotulo:'EM_CURSO',naoVerificado:false};
+    var classe=(titulo(a.classe)||'classe não informada')+(a.vara?' · '+a.vara:'');
+    var partes=(a.partes||[]).map(function(x){return x.nome}).join(' · ');
     h+='<tr'+(a.novidadesNaoVistas>0?' class="nova"':'')+'>'+
-      '<td class="t-num"><button class="lnh" data-abrir="'+esc(a.numero)+'">'+
+      '<td><button class="lnh corta" data-abrir="'+esc(a.numero)+'">'+
         '<span class="n">'+esc(a.numero)+'</span></button>'+
-        '<div class="t-sub">'+esc(titulo(a.classe)||'classe não informada')+
-        (a.vara?' · '+esc(a.vara):'')+'</div></td>'+
-      '<td class="t-cli">'+celulaDeCliente(a)+'</td>'+
-      '<td class="t-trib">'+esc(a.tribunal||'—')+
-        (a.segredoJustica?' <span class="selo al">segredo</span>':'')+'</td>'+
-      '<td class="t-mov">'+
+        '<div class="t-sub corta" title="'+esc(classe)+'">'+esc(classe)+'</div></td>'+
+      '<td>'+celulaDeCliente(a)+'</td>'+
+      '<td><span class="corta" style="font-size:13px;color:var(--tinta2)" title="'+esc(partes)+'">'+
+        (partes?esc(partes):'—')+'</span></td>'+
+      '<td><span class="trib">'+esc(a.tribunal||'—')+'</span>'+
+        (a.segredoJustica?'<div style="margin-top:3px"><span class="selo al">segredo</span></div>':'')+'</td>'+
+      '<td>'+
         (a.ultimaMovimentacao
-          ? '<div class="t-mov-t">'+esc(a.ultimaMovimentacao.titulo)+'</div>'+
+          ? '<div class="corta t-mov-t" style="font-weight:600" title="'+esc(a.ultimaMovimentacao.titulo)+'">'+
+              esc(a.ultimaMovimentacao.titulo)+'</div>'+
             '<div class="t-sub">'+dt(a.ultimaMovimentacao.data)+' · '+
             humano(a.ultimaMovimentacao.data)+'</div>'
           : '<div class="t-sub">'+(a.erro?'não foi possível consultar'
               :'aguardando primeira consulta')+'</div>')+
       '</td>'+
-      '<td class="t-est">'+seloDeEstado(e,a)+'</td>'+
+      '<td>'+seloDeEstado(e,a)+'</td>'+
     '</tr>';
   });
-  return h+'</tbody></table></div></div>';
+  return h+'</tbody></table></div>'+
+    '<div class="rodape-tab"><span>'+lista.length+' de '+(total||lista.length)+' processo(s)</span></div></div>';
 }
 
 /** Os quatro estados, e o aviso de verificação que corre por fora deles. */
 function seloDeEstado(e,a){
+  /* Uma cor, um significado: âmbar pede providência, azul é novidade, verde é
+     "em curso e em dia". Arquivado fica apagado. */
   var m={
-    PROVIDENCIA:['al','providência'],
+    PROVIDENCIA:['pr','providência'],
     NOVIDADE:['nv',(a.novidadesNaoVistas||0)+' nova(s)'],
-    ARQUIVADO:['','arquivado'],
-    EM_CURSO:['','em curso']
+    ARQUIVADO:['neutro','arquivado'],
+    EM_CURSO:['ok','em curso']
   };
   var par=m[e.rotulo]||m.EM_CURSO;
   var h='<span class="selo'+(par[0]?' '+par[0]:'')+'"'+
@@ -590,31 +669,29 @@ function seloDeEstado(e,a){
      duas informações importam: uma diz o que fazer hoje, a outra diz para não
      confiar no silêncio. Colapsá-las esconderia sempre uma. */
   if(e.naoVerificado){
-    h+=' <span class="selo av" title="'+esc(a.erro||'ainda não sincronizado')+
-      '">não verificado</span>';
+    h+='<div style="margin-top:3px"><span class="selo al" title="'+esc(a.erro||'ainda não sincronizado')+
+      '">não verificado</span></div>';
   }
   return h;
 }
 
 /**
- * A coluna Cliente: o rótulo quando existe, as partes quando não.
+ * A coluna Cliente: o rótulo quando existe, um convite a rotular quando não.
  *
- * A distinção fica explícita no texto — "partes:" antes dos nomes — porque as
- * duas coisas são diferentes. O tribunal entrega as partes sem dizer qual delas
- * o advogado representa; apresentar uma delas como "o cliente" seria afirmar o
- * que ninguém afirmou, e o palpite errado põe o nome do adversário ali.
+ * Nunca uma das partes no lugar do cliente. O tribunal entrega as partes sem
+ * dizer qual delas o advogado representa; apresentar uma delas como "o
+ * cliente" seria afirmar o que ninguém afirmou, e o palpite errado põe o nome
+ * do adversário ali. As partes têm coluna própria, ao lado.
  */
 function celulaDeCliente(a){
   if(a.cliente){
-    return '<button class="lnh forte" data-rotular="'+esc(a.numero)+'" '+
-      'title="editar o cliente desta pasta">'+esc(a.cliente)+'</button>';
+    return '<button class="lnh forte corta" data-rotular="'+esc(a.numero)+'" '+
+      'title="editar o cliente: '+esc(a.cliente)+'">'+esc(a.cliente)+'</button>';
   }
-  var nomes=(a.partes||[]).slice(0,2).map(function(x){return esc(x.nome)}).join(' · ');
-  var resto=(a.partes||[]).length-2;
-  return '<button class="lnh vazio" data-rotular="'+esc(a.numero)+'" '+
-    'title="dar um nome de cliente a esta pasta">'+
-    (nomes?'<span class="t-sub">partes: '+nomes+(resto>0?' +'+resto:'')+'</span>'
-         :'<span class="t-sub">rotular</span>')+'</button>';
+  /* Sem rótulo, a célula é um convite a rotular. As partes ganharam coluna
+     própria na v0.29.0 e não precisam mais ocupar esta. */
+  return '<button class="rotular" data-rotular="'+esc(a.numero)+'" '+
+    'title="dar um nome de cliente a esta pasta">+ rotular cliente</button>';
 }
 
 /**
@@ -1752,34 +1829,67 @@ function ligarDownloadDePecas(numero){
  * Pedir OAB e senha do Projudi na primeira tela custaria a maior parte dos
  * cadastros — é muita confiança para quem ainda não viu o sistema funcionar.
  */
+/**
+ * A casca das telas de quem ainda não entrou: a marca à esquerda, o
+ * formulário à direita (empilhados no celular).
+ *
+ * As frases do lado da marca só prometem o que o sistema faz hoje. "Silêncio
+ * nunca quer dizer sem novidade por engano" é o aviso de silêncio do
+ * ServicoNotificacao — é a promessa que diferencia o produto, e ela é
+ * verdadeira.
+ *
+ * O logo vem da lateral, que já está na página (escondida): uma cópia só do
+ * SVG em vez de duas.
+ */
+function molduraDeEntrada(formulario){
+  document.body.classList.add('fora');
+  $('lateral').classList.add('oculto');
+  var logo=$('marca')?$('marca').innerHTML:'';
+  var beneficio=function(forte,resto){
+    return '<div class="beneficio"><span class="ck">'+ICONE_CHECK+'</span>'+
+      '<span><b>'+forte+'</b>'+resto+'</span></div>';
+  };
+  $('conteudo').innerHTML='<div class="entrada">'+
+    '<section class="entrada-marca">'+logo+
+      '<div><h1>Seus processos vigiados.<br>Você, avisado.</h1>'+
+      '<p class="lead">O Processo Vivo confere o tribunal e o Diário de Justiça por você, '+
+      'e avisa quando algo muda no que é seu.</p>'+
+      '<div class="beneficios">'+
+        beneficio('Publicações no seu nome',', encontradas pela sua OAB no Diário de Justiça')+
+        beneficio('Andamentos de cada processo',', sem abrir o site do tribunal')+
+        beneficio('Peças das partes',', como petição, contestação e laudo, com o seu acesso ao tribunal')+
+      '</div></div>'+
+      '<div class="promessa"><span class="ponto-vivo"></span><span>Se não conseguirmos '+
+      'verificar, você também fica sabendo. Silêncio nunca quer dizer "sem novidade" por engano.</span></div>'+
+    '</section>'+
+    '<section class="entrada-form"><div class="entrada-caixa">'+formulario+'</div></section>'+
+  '</div>';
+}
+
 function telaEntrada(modo){
   if(modo)estado.modoEntrada=modo;
   var criar=estado.modoEntrada==='criar';
-  $('lateral').classList.add('oculto');
-  $('conteudo').innerHTML=
-    '<div class="titulo-secao"><div><h2>Processo Vivo</h2><div class="sub">'+
-    'Seus processos, suas publicações e as peças das partes — num lugar só.'+
-    '</div></div></div>'+
-    '<div class="cartao">'+
-      '<div class="chips" style="margin-bottom:16px">'+
-        '<button class="chip'+(criar?'':' on')+'" data-modo="entrar">Entrar</button>'+
-        '<button class="chip'+(criar?' on':'')+'" data-modo="criar">Criar conta</button>'+
-      '</div>'+
-      (criar?'<label class="rotulo" for="c-nome">Seu nome</label>'+
-        '<input id="c-nome" placeholder="Maria Silva" autocomplete="name">':'')+
-      '<label class="rotulo" for="c-email">E-mail</label>'+
-      '<input id="c-email" type="email" placeholder="voce@escritorio.com.br" autocomplete="username">'+
-      '<label class="rotulo" for="c-senha">Senha</label>'+
-      '<input id="c-senha" type="password" autocomplete="'+(criar?'new-password':'current-password')+'">'+
-      (criar?'<div class="nota">Pelo menos 10 caracteres. Uma frase que só você '+
-        'lembra protege mais do que trocar letra por símbolo.</div>':'')+
-      '<div id="c-erro"></div>'+
-      '<div style="margin-top:16px"><button class="bt" id="c-enviar">'+
-      (criar?'Criar conta e entrar':'Entrar')+'</button></div>'+
-      (criar?'':'<div id="c-esqueci" class="nota" style="margin-top:12px"></div>')+
+  molduraDeEntrada(
+    '<h2>'+(criar?'Criar conta':'Entrar')+'</h2>'+
+    '<div class="sub">'+(criar?'Leva um minuto. A primeira coisa depois é informar a sua OAB.'
+      :'Bom ver você de novo.')+'</div>'+
+    '<div class="segmentos" role="tablist">'+
+      '<button type="button" role="tab" aria-selected="'+(!criar)+'" class="'+(criar?'':'on')+'" data-modo="entrar">Entrar</button>'+
+      '<button type="button" role="tab" aria-selected="'+criar+'" class="'+(criar?'on':'')+'" data-modo="criar">Criar conta</button>'+
     '</div>'+
-    '<div class="cartao"><div class="nota">Vai conectar uma integração (n8n, '+
-    'script)? <button class="link" id="c-chave">entrar com chave de API</button></div></div>';
+    (criar?'<label class="rotulo" for="c-nome">Seu nome</label>'+
+      '<input id="c-nome" placeholder="Maria Silva" autocomplete="name">':'')+
+    '<label class="rotulo" for="c-email">E-mail</label>'+
+    '<input id="c-email" type="email" placeholder="voce@escritorio.com.br" autocomplete="username">'+
+    '<label class="rotulo" for="c-senha">Senha</label>'+
+    '<input id="c-senha" type="password" autocomplete="'+(criar?'new-password':'current-password')+'">'+
+    (criar?'<div class="nota">Pelo menos 10 caracteres. Uma frase que só você '+
+      'lembra protege mais do que trocar letra por símbolo.</div>':'')+
+    '<div id="c-erro"></div>'+
+    '<button class="bt" id="c-enviar">'+(criar?'Criar conta e entrar':'Entrar')+'</button>'+
+    (criar?'':'<div id="c-esqueci" class="nota" style="margin-top:14px;text-align:center"></div>')+
+    '<div class="rodape">Vai conectar uma integração, como n8n ou script? '+
+    '<button class="link" id="c-chave">Entrar com chave de API</button></div>');
 
   document.querySelectorAll('[data-modo]').forEach(function(b){
     b.addEventListener('click',function(){telaEntrada(b.getAttribute('data-modo'))})});
@@ -1837,17 +1947,14 @@ function desenharEsqueci(){
  * esta conta" seria um verificador de quem é assinante do Processo Vivo aberto na
  * internet, e sem nem precisar de senha para consultar. */
 function telaRecuperar(){
-  $('lateral').classList.add('oculto');
-  $('conteudo').innerHTML=
-    '<div class="titulo-secao"><div><h2>Recuperar acesso</h2><div class="sub">'+
-    'Enviamos um link para você escolher uma senha nova.</div></div></div>'+
-    '<div class="cartao">'+
-      '<label class="rotulo" for="r-email">E-mail da conta</label>'+
-      '<input id="r-email" type="email" placeholder="voce@escritorio.com.br" autocomplete="username">'+
-      '<div id="r-aviso"></div>'+
-      '<div style="margin-top:16px"><button class="bt" id="r-enviar">Enviar link</button> '+
-      '<button class="bt bt2" id="r-voltar">Voltar</button></div>'+
-    '</div>';
+  molduraDeEntrada(
+    '<h2>Recuperar acesso</h2><div class="sub">'+
+    'Enviamos um link para você escolher uma senha nova.</div>'+
+    '<label class="rotulo" for="r-email">E-mail da conta</label>'+
+    '<input id="r-email" type="email" placeholder="voce@escritorio.com.br" autocomplete="username">'+
+    '<div id="r-aviso"></div>'+
+    '<button class="bt" id="r-enviar">Enviar link</button>'+
+    '<div class="rodape"><button class="link" id="r-voltar">Voltar para a entrada</button></div>');
 
   var enviar=function(){
     var email=$('r-email').value.trim();
@@ -1855,13 +1962,12 @@ function telaRecuperar(){
     var botao=$('r-enviar'); botao.disabled=true;
     api('/v1/senha/recuperar',{method:'POST',body:{email:email}})
       .then(function(r){
-        $('conteudo').innerHTML=
-          '<div class="titulo-secao"><div><h2>Confira seu e-mail</h2></div></div>'+
-          '<div class="cartao"><p>'+esc(r.mensagem)+'</p>'+
+        molduraDeEntrada(
+          '<h2>Confira seu e-mail</h2>'+
+          '<p class="sub">'+esc(r.mensagem)+'</p>'+
           '<div class="nota">O link vale uma hora e serve uma vez só. '+
           'Se não chegar em alguns minutos, tente de novo.</div>'+
-          '<div style="margin-top:16px"><button class="bt bt2" id="r-ok">'+
-          'Voltar ao início</button></div></div>';
+          '<button class="bt" id="r-ok">Voltar ao início</button>');
         $('r-ok').addEventListener('click',function(){telaEntrada('entrar')});
       })
       .catch(function(e){
@@ -1882,22 +1988,17 @@ function telaRecuperar(){
  * histórico, num favorito, numa captura de tela e no cabeçalho "Referer" de
  * toda requisição externa que a página fizesse. */
 function telaRedefinir(token){
-  $('lateral').classList.add('oculto');
-  $('conteudo').innerHTML=
-    '<div class="titulo-secao"><div><h2>Escolher nova senha</h2><div class="sub">'+
-    'Ao confirmar, todas as sessões abertas nesta conta são encerradas.'+
-    '</div></div></div>'+
-    '<div class="cartao">'+
-      '<label class="rotulo" for="n-senha">Nova senha</label>'+
-      '<input id="n-senha" type="password" autocomplete="new-password">'+
-      '<label class="rotulo" for="n-senha2">Repita a nova senha</label>'+
-      '<input id="n-senha2" type="password" autocomplete="new-password">'+
-      '<div class="nota">Pelo menos 10 caracteres. Uma frase que só você lembra '+
-      'protege mais do que trocar letra por símbolo.</div>'+
-      '<div id="n-erro"></div>'+
-      '<div style="margin-top:16px"><button class="bt" id="n-enviar">'+
-      'Salvar e entrar</button></div>'+
-    '</div>';
+  molduraDeEntrada(
+    '<h2>Escolher nova senha</h2><div class="sub">'+
+    'Ao confirmar, todas as sessões abertas nesta conta são encerradas.</div>'+
+    '<label class="rotulo" for="n-senha">Nova senha</label>'+
+    '<input id="n-senha" type="password" autocomplete="new-password">'+
+    '<label class="rotulo" for="n-senha2">Repita a nova senha</label>'+
+    '<input id="n-senha2" type="password" autocomplete="new-password">'+
+    '<div class="nota">Pelo menos 10 caracteres. Uma frase que só você lembra '+
+    'protege mais do que trocar letra por símbolo.</div>'+
+    '<div id="n-erro"></div>'+
+    '<button class="bt" id="n-enviar">Salvar e entrar</button>');
 
   var aviso=function(texto,acao){
     $('n-erro').innerHTML='<div class="nota" style="color:var(--erro);margin-top:10px">'+
@@ -1926,8 +2027,7 @@ function telaRedefinir(token){
              útil: pedir outro link. */
           aviso('Este link não vale mais. Ele expira em uma hora e só pode ser '+
             'usado uma vez.',
-            '<div style="margin-top:12px"><button class="bt" id="n-novo">'+
-            'Pedir um link novo</button></div>');
+            '<button class="bt" id="n-novo">Pedir um link novo</button>');
           var novo=$('n-novo');
           if(novo)novo.addEventListener('click',function(){telaRecuperar()});
           return;
@@ -1947,16 +2047,15 @@ function telaRedefinir(token){
    navegador para guardar cookie — e cada chave segue sendo seu próprio
    ambiente, do mesmo jeito que era antes das contas. */
 function telaChave(){
-  $('lateral').classList.add('oculto');
-  $('conteudo').innerHTML=
-    '<div class="titulo-secao"><div><h2>Entrar com chave de API</h2>'+
-    '<div class="sub">Para integrações. Pessoas entram com e-mail e senha.</div></div></div>'+
-    '<div class="cartao"><label class="rotulo" for="k">Chave de API</label>'+
+  molduraDeEntrada(
+    '<h2>Entrar com chave de API</h2>'+
+    '<div class="sub">Para integrações. Pessoas entram com e-mail e senha.</div>'+
+    '<label class="rotulo" for="k">Chave de API</label>'+
     '<input id="k" type="password" placeholder="cole a chave aqui" autocomplete="off">'+
-    '<div class="nota">Fica guardada apenas neste navegador. É a mesma que está em '+
-    'PROCESSOVIVO_API_KEYS na configuração do servidor.</div>'+
-    '<div style="margin-top:14px"><button class="bt" id="entrar">Entrar</button> '+
-    '<button class="bt bt2" id="voltar">Voltar</button></div></div>';
+    '<div class="nota">Fica guardada apenas neste navegador. É uma chave de '+
+    'PROCESSOVIVO_API_KEYS ou uma emitida na área administrativa.</div>'+
+    '<button class="bt" id="entrar">Entrar</button>'+
+    '<div class="rodape"><button class="link" id="voltar">Voltar para a entrada</button></div>');
   var entrar=function(){
     var v=$('k').value.trim(); if(!v)return;
     estado.chave=v; try{localStorage.setItem(CH,v)}catch(e){}
@@ -2012,16 +2111,23 @@ function blocoTrilha(){
   if(!t||!estado.eu)return '';
   if(t.oab&&t.tribunal)return '';
 
+  var n=0;
   var passo=function(pronto,titulo,porque,botao,aba){
-    return '<div class="ev"><div class="dt">'+(pronto?'✓':'○')+'</div><div>'+
-      '<div class="tt">'+esc(titulo)+(pronto?' <span class="selo nv">pronto</span>':'')+'</div>'+
+    n++;
+    return '<div class="passo'+(pronto?' feito':'')+'"><span class="marca-passo">'+
+      (pronto?'✓':n)+'</span><div>'+
+      '<div class="tt">'+esc(titulo)+'</div>'+
       '<div class="cp">'+esc(porque)+'</div>'+
-      (pronto?'':'<button class="link" data-trilha="'+aba+'">'+esc(botao)+'</button>')+
+      (pronto?'':'<button class="bt2" data-trilha="'+aba+'">'+esc(botao)+'</button>')+
       '</div></div>';
   };
+  var feitos=1+(t.oab?1:0)+(t.tribunal?1:0);
 
-  return '<div class="cartao">'+
-    '<h3 class="sec">Falta pouco para o Processo Vivo trabalhar sozinho</h3>'+
+  return '<div class="cartao trilha">'+
+    '<div class="trilha-topo"><h3>Falta pouco para o Processo Vivo trabalhar sozinho</h3>'+
+    '<span>'+feitos+' de 3</span></div>'+
+    '<div class="progresso"><i style="width:'+Math.round(feitos/3*100)+'%"></i></div>'+
+    '<div class="passos">'+
     passo(true,'Conta criada','Você já pode consultar qualquer processo por número.','','') +
     passo(t.oab,'Informe sua OAB',
       'Para o sistema achar sozinho os processos no seu nome e avisar de publicação nova.',
@@ -2029,7 +2135,7 @@ function blocoTrilha(){
     passo(t.tribunal,'Cadastre seu acesso ao tribunal',
       'Para baixar as peças das partes: petição, contestação, laudo. O diário nunca publica essas.',
       'Cadastrar acesso','credenciais')+
-    '</div>';
+    '</div></div>';
 }
 function ligarTrilha(){
   document.querySelectorAll('[data-trilha]').forEach(function(b){
@@ -2250,17 +2356,33 @@ function render(){
   return verBuscar();
 }
 
+/* O cartão no pé da lateral: quem está dentro e em que plano. Com chave de
+   API não há pessoa nem plano — diz isso, em vez de deixar o cartão vazio. */
+function pintarUsuario(){
+  var nome=estado.eu&&estado.eu.nome?estado.eu.nome:'';
+  var iniciais=nome.split(' ').filter(function(p){return p}).slice(0,2)
+    .map(function(p){return p.charAt(0).toUpperCase()}).join('');
+  var a=estado.assinatura;
+  var plano=!estado.eu?'integração':
+    /* No teste, a data é o que importa ali; o nome do plano está em Minha conta. */
+    !a?'':(a.ehTeste?'Teste até '+dt(a.venceEm).slice(0,5):'Plano '+a.nomeDoPlano);
+  if($('usuario-nome'))$('usuario-nome').textContent=nome||'Chave de API';
+  if($('usuario-plano'))$('usuario-plano').textContent=plano;
+  if($('usuario-iniciais'))$('usuario-iniciais').textContent=iniciais||'API';
+}
+
 function iniciar(){
+  document.body.classList.remove('fora');
   $('lateral').classList.remove('oculto');
-  var saudacao=$('saudacao');
-  if(saudacao)saudacao.textContent=estado.eu?estado.eu.nome.split(' ')[0]:'';
   var navConta=$('nav-conta');
   if(navConta)navConta.classList.toggle('oculto',!estado.eu);
+  pintarUsuario();
   /* Falha aqui não pode derrubar a tela: a assinatura é um aviso, não o
      produto. Um erro na rota deixaria o advogado sem a carteira por causa de
      uma tarja. */
   api('/v1/assinatura').then(function(r){
     estado.assinatura=r.assinatura;
+    pintarUsuario();
     if(estado.assinatura)render();
   }).catch(function(){});
 

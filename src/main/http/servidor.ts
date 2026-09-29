@@ -10,7 +10,7 @@ import { validarConfiguracaoAdmin } from './adminAuth.js';
 import { mapearErro } from './erros.js';
 import autenticacao from './plugins/autenticacao.js';
 import { ROTA_HEALTH, ROTA_READY, rotasDeSaude } from './rotas/saude.js';
-import { ROTA_CONSOLE, rotasDeInterface } from './rotas/interface.js';
+import { PREFIXO_FONTES, ROTA_CONSOLE, ROTA_FONTES, rotasDeInterface } from './rotas/interface.js';
 import { rotasDeProcesso } from './rotas/processos.js';
 import { rotasDeAcompanhamento } from './rotas/acompanhamentos.js';
 import { rotasDeVigilancia } from './rotas/vigilancias.js';
@@ -76,7 +76,8 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
     allowList: (requisicao) =>
       requisicao.url === ROTA_HEALTH ||
       requisicao.url === ROTA_READY ||
-      requisicao.url === ROTA_CONSOLE,
+      requisicao.url === ROTA_CONSOLE ||
+      requisicao.url.startsWith(PREFIXO_FONTES),
   });
 
   void servidor.register(autenticacao, {
@@ -98,6 +99,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
       ROTA_HEALTH,
       ROTA_READY,
       ROTA_CONSOLE,
+      ROTA_FONTES,
       ROTA_CONTAS,
       ROTA_SESSOES,
       // Recuperar e redefinir senha são de quem NÃO consegue entrar. Exigir
