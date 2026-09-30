@@ -54,6 +54,7 @@ RUN apk add --no-cache tini
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
+COPY scripts ./scripts
 
 # Diretório do banco, criado ANTES de trocar de usuário e com dono `node` —
 # senão o processo sobe sem permissão de escrever e quebra na primeira gravação.
