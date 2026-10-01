@@ -63,6 +63,8 @@ export type MotivoNaoObtida =
   | 'pdf_invalido'
   | 'pdf_protegido'
   | 'imagem_invalida'
+  | 'html_invalido'
+  /** Só em jobs gravados antes da conversão de HTML existir (legado da 0.30.0). */
   | 'html_aguardando_estrategia';
 
 export const DESCRICAO_DO_MOTIVO: Readonly<Record<MotivoNaoObtida, string>> = {
@@ -80,6 +82,8 @@ export const DESCRICAO_DO_MOTIVO: Readonly<Record<MotivoNaoObtida, string>> = {
   pdf_invalido: 'o arquivo do tribunal não é um PDF legível',
   pdf_protegido: 'o PDF do tribunal é protegido por senha',
   imagem_invalida: 'a imagem do tribunal não pôde ser convertida em página',
+  html_invalido:
+    'o documento HTML do tribunal não pôde ser convertido em texto — baixe-o individualmente pela linha do tempo',
   html_aguardando_estrategia:
     'documento do tribunal em HTML: ainda não incorporado ao PDF — baixe-o individualmente pela linha do tempo',
 };
@@ -105,7 +109,9 @@ export interface PecaDoJob {
   readonly reaproveitada?: {
     readonly paginaInicial: number;
     readonly paginaFinal: number;
-    readonly situacao: 'incorporada' | 'convertida';
+    readonly situacao: 'incorporada' | 'convertida' | 'html_convertida';
+    /** O que a conversão original deixou de fora; segue com a peça reaproveitada. */
+    readonly motivo?: string;
   };
 }
 

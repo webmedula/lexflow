@@ -23,8 +23,12 @@ import {
   PNG_1X1,
   PROCESSO_TJGO,
   ProvedorDeLoteFalso,
+  HTML_SINTETICO,
+  MARCADOR_ATRIBUTO,
+  MARCADOR_SCRIPT,
   marcasDasPaginas,
   pastaTemporaria,
+  textoDoPdf,
   pdfPesado,
   pdfSintetico,
 } from '../helpers/leitor.js';
@@ -226,27 +230,83 @@ describe('ServicoLeitor — montagem', () => {
     expect(job.arquivo?.paginas).toBe(3);
   });
 
-  it('HTML do tribunal não entra cru em lugar nenhum: vira aviso no PDF e linha html_nao_incorporada', async () => {
-    const marcador = 'CONTEUDO-HTML-SECRETO';
+  it('HTML do tribunal vira páginas de TEXTO (html_convertida), com o que ficou de fora no índice', async () => {
+    const m = await montar([
+      { id: 'a', bytes: await pdfSintetico(1, 'A') },
+      {
+        id: 'certidao',
+        mimetype: 'text/html',
+        bytes: new Uint8Array(Buffer.from(HTML_SINTETICO, 'utf8')),
+      },
+    ]);
+    const job = await rodar(m, ['a', 'certidao']);
+
+    expect(job.estado).toBe('pronto');
+    const html = job.indice?.find((e) => e.pecaId === 'certidao');
+    expect(html).toMatchObject({ situacao: 'html_convertida', paginaInicial: 2 });
+    expect(html?.motivo).toContain('1 imagem não incluída');
+    expect(html?.motivo).toContain('havia tabela');
+    expect(html?.motivo).toContain(
+      '1 caractere sem equivalente na fonte trocado por "?"',
+    );
+    expect(html?.motivo).toContain('elementos descartados: script');
+
+    const texto = textoDoPdf(await bytesDoPdf(m, job));
+    expect(texto).toContain('CERTIDÃO');
+    expect(texto).toContain('decisão');
+    expect(texto).toContain('art. 5º — ato nº 12 & seguintes');
+    expect(texto).toContain('ação é válida');
+    expect(texto).toContain('Prazo | 15 dias');
+    expect(texto).toContain('Diferença ? zero.');
+    expect(texto).toContain('tinha 1 imagem que não foi incluída');
+  });
+
+  it('o HTML cru nunca vai para o PDF, a resposta, o índice nem o log', async () => {
     const m = await montar([
       {
         id: 'certidao',
         mimetype: 'text/html',
-        bytes: new Uint8Array(
-          Buffer.from(`<html><script>alert(1)</script><p>${marcador}</p></html>`),
-        ),
+        bytes: new Uint8Array(Buffer.from(HTML_SINTETICO, 'utf8')),
       },
     ]);
     const job = await rodar(m, ['certidao']);
+    const texto = textoDoPdf(await bytesDoPdf(m, job));
+    const bruto = (await bytesDoPdf(m, job)).toString('latin1');
+    const json = JSON.stringify(job);
+    const log = m.logger.linhas.join('\n');
 
-    expect(job.indice?.[0]).toMatchObject({
-      situacao: 'html_nao_incorporada',
-      paginaInicial: 1,
-    });
-    expect(JSON.stringify(job)).not.toContain(marcador);
-    expect((await bytesDoPdf(m, job)).toString('latin1')).not.toContain(marcador);
+    for (const proibido of [
+      MARCADOR_SCRIPT,
+      MARCADOR_ATRIBUTO,
+      'iVBORw0KGgo',
+      '<strong>',
+      '&atilde;',
+      'style=',
+    ]) {
+      expect(texto).not.toContain(proibido);
+      expect(bruto).not.toContain(proibido);
+      expect(json).not.toContain(proibido);
+      expect(log).not.toContain(proibido);
+    }
+    // O texto VISÍVEL do ato também não vai para o índice nem para o log —
+    // só para o PDF, que é onde ele deve estar.
+    expect(json).not.toContain('Certifico');
+    expect(log).not.toContain('Certifico');
     // E o arquivo de trabalho com o HTML não fica no disco depois da montagem.
     expect(await m.armazem.usoDoWorkspace(WS)).toBe(job.arquivo?.bytes);
+  });
+
+  it('HTML em windows-1252 (byte inválido em UTF-8) sai com o acento certo', async () => {
+    const m = await montar([
+      {
+        id: 'antigo',
+        mimetype: 'text/html',
+        bytes: new Uint8Array(Buffer.from('<p>Certidão de intimação — ok</p>', 'latin1')),
+      },
+    ]);
+    const job = await rodar(m, ['antigo']);
+    expect(job.indice?.[0]?.situacao).toBe('html_convertida');
+    expect(textoDoPdf(await bytesDoPdf(m, job))).toContain('Certidão de intimação');
   });
 
   it('peça sob sigilo não é baixada nem guardada', async () => {

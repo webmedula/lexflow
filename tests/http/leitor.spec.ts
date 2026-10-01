@@ -8,6 +8,9 @@ import { construirServidor } from '../../src/main/http/servidor.js';
 import { aplicacaoDeTeste } from '../helpers/aplicacao.js';
 import { ProviderFalso } from '../helpers/fabricas.js';
 import {
+  HTML_SINTETICO,
+  MARCADOR_ATRIBUTO,
+  MARCADOR_SCRIPT,
   OUTRO_PROCESSO,
   PROCESSO_TJGO,
   ProvedorDeLoteFalso,
@@ -264,6 +267,36 @@ describe('API — leitor de peças', () => {
     expect(r.statusCode).toBe(501);
     expect(r.json().mensagem).toContain('qpdf');
     await semLeitor.close();
+  });
+});
+
+describe('API — leitor com peça HTML', () => {
+  it('a rota devolve html_convertida no índice e nenhum HTML cru em resposta alguma', async () => {
+    provedor.pecas.push({
+      id: 'certidao',
+      mimetype: 'text/html',
+      bytes: new Uint8Array(Buffer.from(HTML_SINTETICO, 'utf8')),
+    });
+    const jobId = await combinar(A, ['a', 'certidao']);
+    const progresso = await servidor.inject({ url: `${URL}/${jobId}`, headers: A });
+    const indice = await servidor.inject({ url: `${URL}/${jobId}/indice`, headers: A });
+    expect(progresso.json().estado).toBe('pronto');
+    expect(
+      indice
+        .json()
+        .indice.find((e: Record<string, unknown>) => e['pecaId'] === 'certidao'),
+    ).toMatchObject({ situacao: 'html_convertida' });
+    for (const corpo of [progresso.body, indice.body]) {
+      for (const proibido of [
+        MARCADOR_SCRIPT,
+        MARCADOR_ATRIBUTO,
+        '<strong>',
+        'iVBORw0KGgo',
+        'Certifico',
+      ]) {
+        expect(corpo).not.toContain(proibido);
+      }
+    }
   });
 });
 

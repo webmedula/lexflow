@@ -3,14 +3,21 @@
  *
  * - `incorporada`: PDF do tribunal, como veio.
  * - `convertida`: imagem que virou página.
- * - `html_nao_incorporada`: ato do tribunal em HTML que não está no PDF como
- *   conteúdo. Há uma página de aviso no lugar dele dizendo que ele existe e
- *   onde ler — o HTML nunca some em silêncio.
+ * - `html_convertida`: ato do tribunal em HTML que virou páginas de TEXTO
+ *   (estratégia A, decisão do dono, 01/10/2026). O `motivo` diz o que ficou
+ *   de fora: imagens, tabela achatada, caractere trocado por "?".
+ * - `html_nao_incorporada`: HTML que não pôde ser convertido. Há uma página de
+ *   aviso no lugar dele dizendo que ele existe e onde ler — o HTML nunca some
+ *   em silêncio.
  * - `nao_obtida`: o tribunal não entregou, o arquivo não abriu, ou a guarda
  *   não é permitida. Também tem página de aviso, com o motivo.
  */
 export type SituacaoNoIndice =
-  'incorporada' | 'convertida' | 'html_nao_incorporada' | 'nao_obtida';
+  | 'incorporada'
+  | 'convertida'
+  | 'html_convertida'
+  | 'html_nao_incorporada'
+  | 'nao_obtida';
 
 /** Uma linha do índice: onde a peça começa e termina no PDF combinado. */
 export interface EntradaIndice {

@@ -42,6 +42,14 @@ entrega é a API e o motor.
   paralelo somariam o pico de memória), sobrevive a redeploy sem baixar de
   novo o que já veio. O PDF não é apagado no logout, só pelo prazo ou na
   exclusão de conta.
+- **Peças HTML viram páginas de texto** (estratégia A, decidida pelo dono
+  depois da sonda de HTML). Tokenizador tolerante no servidor, sem DOM: `p` e
+  `br` quebram linha, `hr` vira separador, negrito e sublinhado sobrevivem,
+  entidades são decodificadas, UTF-8 com recuo para windows-1252, atributos
+  ignorados, script/iframe descartados. Imagens não entram e a página diz
+  quantas eram; caractere sem equivalente na fonte vira "?"; tabela vira
+  "célula | célula". Tudo isso vai para o `motivo` da linha `html_convertida`
+  do índice. 84 HTMLs de ~19 KB convertem em ~1,3 s.
 - **Montagem com qpdf** (argumentos em vetor, linearizado): PDF entra como
   veio, imagem vira página, e o que não deu — vazio, corrompido, protegido,
   recusado, sigiloso, formato estranho — vira **página de aviso** com o
@@ -51,7 +59,9 @@ entrega é a API e o motor.
   backup, limpeza horária e registro do uso de disco no log.
 - `qpdf` e `poppler-utils` na imagem.
 - `scripts/sonda-html.mjs` (mede só a FORMA de 2–3 HTMLs reais, 2 requisições;
-  `--seco` e `--help`; o histograma só imprime nomes de tag conhecidos) e `scripts/medir-memoria-lote.mjs`.
+  `--seco` e `--help`; o histograma só imprime nomes de tag conhecidos) e
+  `scripts/medir-conversao-html.mjs`.
+- `pdftotext` (poppler) no CI, para os testes lerem o texto do HTML convertido. e `scripts/medir-memoria-lote.mjs`.
 - `docs/leitor-medicoes-v0.30.0.md`: as medições (qpdf 37 MB contra +357 MB do
   pdf-lib para 160 MB de PDFs; memória do lote) e a proposta para HTML.
 
@@ -74,10 +84,6 @@ entrega é a API e o motor.
 
 ### Ainda não
 
-- **HTML (~30% das peças)** não é incorporado: aparece como
-  `html_nao_incorporada` com página de aviso, e o conteúdo não chega a lugar
-  nenhum. A estratégia (renderizar no PDF ou mostrar fora, sanitizado) aguarda
-  decisão do dono depois de medir a forma real.
 - Processo em **segredo de justiça** não tem PDF guardado (padrão da
   especificação até decisão do dono).
 - Não há exclusão de conta no produto; a limpeza do leitor para ela existe

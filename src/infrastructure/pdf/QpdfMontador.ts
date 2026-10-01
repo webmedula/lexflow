@@ -3,7 +3,10 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import type { PDFFont } from 'pdf-lib';
 import { PdfInvalidoError } from '../../domain/errors/index.js';
+import { converterHtmlEmBlocos } from './htmlDoTribunal.js';
+import type { BlocoDeTexto, Trecho } from './htmlDoTribunal.js';
 import type {
+  ConversaoDeHtml,
   InspecaoDePdf,
   MontadorDePdf,
   PaginaDeAviso,
@@ -118,6 +121,60 @@ export class QpdfMontador implements MontadorDePdf {
     } catch {
       // Imagem corrompida não é erro do sistema: a peça vira página de aviso.
       return false;
+    }
+  }
+
+  /**
+   * Peça HTML do tribunal → páginas de texto (estratégia A, decisão do dono).
+   *
+   * O HTML é reduzido a blocos de texto em `htmlDoTribunal.ts` e desenhado
+   * aqui; nenhuma marcação passa adiante. Negrito e sublinhado sobrevivem
+   * porque são simples de desenhar; o resto da formatação não, e a primeira
+   * linha da página diz isso — o advogado não pode tomar o texto convertido
+   * pela peça como o tribunal a exibe.
+   *
+   * Nunca lança: HTML que não converte vira página de aviso no chamador.
+   */
+  async converterHtml(arquivo: string, destino: string): Promise<ConversaoDeHtml> {
+    try {
+      const html = converterHtmlEmBlocos(await readFile(arquivo));
+      const doc = await PDFDocument.create();
+      const desenho = new DesenhoDeTexto(doc, {
+        regular: await doc.embedFont(StandardFonts.Helvetica),
+        negrito: await doc.embedFont(StandardFonts.HelveticaBold),
+        obliqua: await doc.embedFont(StandardFonts.HelveticaOblique),
+      });
+
+      desenho.nota(
+        'Documento HTML do tribunal convertido em texto pelo Processo Vivo. ' +
+          'A formatação original não foi preservada.',
+      );
+      for (const bloco of html.blocos) desenho.bloco(bloco);
+      if (html.blocos.length === 0) desenho.nota('(o documento não tem texto)');
+      if (html.imagens > 0) {
+        desenho.nota(
+          `Este documento tinha ${html.imagens} ${html.imagens === 1 ? 'imagem' : 'imagens'} ` +
+            `que não ${html.imagens === 1 ? 'foi incluída' : 'foram incluídas'}; ` +
+            'consulte a peça no tribunal.',
+        );
+      }
+
+      await writeFile(destino, await doc.save());
+      return {
+        ok: true,
+        imagens: html.imagens,
+        tabelas: html.tabelas,
+        caracteresSubstituidos: desenho.substituidos,
+        elementosDescartados: html.descartados,
+      };
+    } catch {
+      return {
+        ok: false,
+        imagens: 0,
+        tabelas: 0,
+        caracteresSubstituidos: 0,
+        elementosDescartados: [],
+      };
     }
   }
 
@@ -257,9 +314,199 @@ function quebrar(
   return linhas.length > 0 ? linhas : [''];
 }
 
+interface Fontes {
+  readonly regular: PDFFont;
+  readonly negrito: PDFFont;
+  readonly obliqua: PDFFont;
+}
+
+/** Uma palavra (ou espaço) já com a fonte decidida. */
+interface Peca {
+  readonly texto: string;
+  readonly fonte: PDFFont;
+  readonly sublinhado: boolean;
+  readonly largura: number;
+}
+
+const CORPO = 11;
+const ENTRELINHA = 15;
+
+/**
+ * Paginação do texto convertido: quebra por largura, com troca de página.
+ *
+ * Mede cada palavra na fonte em que ela será desenhada — negrito é mais largo,
+ * e medir tudo em regular faria a linha em negrito estourar a margem.
+ */
+class DesenhoDeTexto {
+  substituidos = 0;
+  private pagina;
+  private y: number;
+  private readonly largura = A4[0] - 2 * MARGEM;
+
+  constructor(
+    private readonly doc: PDFDocument,
+    private readonly fontes: Fontes,
+  ) {
+    this.pagina = doc.addPage([A4[0], A4[1]]);
+    this.y = A4[1] - MARGEM;
+  }
+
+  bloco(bloco: BlocoDeTexto): void {
+    if (bloco.tipo === 'separador') {
+      this.descer(10);
+      this.pagina.drawLine({
+        start: { x: MARGEM, y: this.y + 4 },
+        end: { x: A4[0] - MARGEM, y: this.y + 4 },
+        thickness: 0.6,
+        color: rgb(0.55, 0.55, 0.55),
+      });
+      this.y -= 4;
+      return;
+    }
+    const trechos: readonly Trecho[] =
+      bloco.tipo === 'paragrafo'
+        ? bloco.trechos
+        : [{ texto: bloco.celulas.join(' | '), negrito: false, sublinhado: false }];
+    this.paragrafo(trechos);
+    this.y -= 4;
+  }
+
+  /** Linha em itálico cinza, menor: fala do sistema, não do tribunal. */
+  nota(texto: string): void {
+    const pecas = this.pecas(
+      [{ texto, negrito: false, sublinhado: false }],
+      this.fontes.obliqua,
+      9,
+    );
+    for (const linha of this.quebrar(pecas, 9)) {
+      this.descer(12);
+      this.desenharLinha(linha, 9, rgb(0.4, 0.4, 0.4));
+    }
+    this.y -= 6;
+  }
+
+  private paragrafo(trechos: readonly Trecho[]): void {
+    for (const linha of this.quebrar(this.pecas(trechos), CORPO)) {
+      this.descer(ENTRELINHA);
+      this.desenharLinha(linha, CORPO, rgb(0, 0, 0));
+    }
+  }
+
+  private pecas(trechos: readonly Trecho[], fixa?: PDFFont, tamanho = CORPO): Peca[] {
+    const saida: Peca[] = [];
+    for (const t of trechos) {
+      const fonte = fixa ?? (t.negrito ? this.fontes.negrito : this.fontes.regular);
+      const { texto, substituidos } = paraWinAnsiContando(t.texto);
+      this.substituidos += substituidos;
+      for (const parte of texto.split(/( +)/)) {
+        if (!parte) continue;
+        saida.push({
+          texto: parte,
+          fonte,
+          sublinhado: t.sublinhado,
+          largura: fonte.widthOfTextAtSize(parte, tamanho),
+        });
+      }
+    }
+    return saida;
+  }
+
+  private quebrar(pecas: readonly Peca[], tamanho: number): Peca[][] {
+    const linhas: Peca[][] = [];
+    let atual: Peca[] = [];
+    let ocupado = 0;
+    const fechar = (): void => {
+      while (atual.length > 0 && atual[atual.length - 1]?.texto.trim() === '')
+        atual.pop();
+      if (atual.length > 0) linhas.push(atual);
+      atual = [];
+      ocupado = 0;
+    };
+    for (const p of pecas) {
+      const espaco = p.texto.trim() === '';
+      if (espaco && atual.length === 0) continue;
+      if (ocupado + p.largura <= this.largura) {
+        atual.push(p);
+        ocupado += p.largura;
+        continue;
+      }
+      if (espaco) {
+        fechar();
+        continue;
+      }
+      if (atual.length > 0) fechar();
+      // Palavra maior que a linha (URL, sequência sem espaço): corta por
+      // caractere em vez de deixá-la sair da página.
+      let resto = p.texto;
+      while (p.fonte.widthOfTextAtSize(resto, tamanho) > this.largura) {
+        let n = resto.length - 1;
+        while (
+          n > 1 &&
+          p.fonte.widthOfTextAtSize(resto.slice(0, n), tamanho) > this.largura
+        )
+          n--;
+        linhas.push([{ ...p, texto: resto.slice(0, n), largura: this.largura }]);
+        resto = resto.slice(n);
+      }
+      const largura = p.fonte.widthOfTextAtSize(resto, tamanho);
+      atual = [{ ...p, texto: resto, largura }];
+      ocupado = largura;
+    }
+    fechar();
+    return linhas;
+  }
+
+  private desenharLinha(
+    linha: readonly Peca[],
+    tamanho: number,
+    cor: ReturnType<typeof rgb>,
+  ): void {
+    let x = MARGEM;
+    for (const p of linha) {
+      this.pagina.drawText(p.texto, {
+        x,
+        y: this.y,
+        size: tamanho,
+        font: p.fonte,
+        color: cor,
+      });
+      if (p.sublinhado && p.texto.trim() !== '') {
+        this.pagina.drawLine({
+          start: { x, y: this.y - 1.5 },
+          end: { x: x + p.largura, y: this.y - 1.5 },
+          thickness: 0.6,
+          color: cor,
+        });
+      }
+      x += p.largura;
+    }
+  }
+
+  private descer(altura: number): void {
+    if (this.y - altura < MARGEM) {
+      this.pagina = this.doc.addPage([A4[0], A4[1]]);
+      this.y = A4[1] - MARGEM;
+    }
+    this.y -= altura;
+  }
+}
+
 const WINANSI_EXTRA = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ');
 
 export function paraWinAnsi(texto: string): string {
+  return paraWinAnsiContando(texto).texto;
+}
+
+/**
+ * Como `paraWinAnsi`, contando quantos caracteres viraram "?". A contagem vai
+ * para o índice: a página diz "?" e o índice diz por quê, em vez de a montagem
+ * inteira cair por um símbolo que a fonte padrão não tem.
+ */
+export function paraWinAnsiContando(texto: string): {
+  readonly texto: string;
+  readonly substituidos: number;
+} {
+  let substituidos = 0;
   let saida = '';
   for (const c of texto.normalize('NFC')) {
     const cp = c.codePointAt(0) ?? 0;
@@ -271,9 +518,12 @@ export function paraWinAnsi(texto: string): string {
       saida += c;
     } else if (c === '\t' || c === '\n' || c === '\r') {
       saida += ' ';
+    } else if (c === '\u200b' || c === '\ufeff') {
+      // Largura zero: some sem deixar "?" no meio da palavra.
     } else {
       saida += '?';
+      substituidos += 1;
     }
   }
-  return saida;
+  return { texto: saida, substituidos };
 }

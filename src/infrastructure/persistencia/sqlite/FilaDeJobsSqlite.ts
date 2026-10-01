@@ -35,7 +35,8 @@ const pecaSchema = z.object({
     .object({
       paginaInicial: z.number().int().positive(),
       paginaFinal: z.number().int().positive(),
-      situacao: z.enum(['incorporada', 'convertida']),
+      situacao: z.enum(['incorporada', 'convertida', 'html_convertida']),
+      motivo: z.string().optional(),
     })
     .optional(),
 });
@@ -47,7 +48,13 @@ const indiceSchema = z.object({
   data: z.string().optional(),
   paginaInicial: z.number().int().positive(),
   paginaFinal: z.number().int().positive(),
-  situacao: z.enum(['incorporada', 'convertida', 'html_nao_incorporada', 'nao_obtida']),
+  situacao: z.enum([
+    'incorporada',
+    'convertida',
+    'html_convertida',
+    'html_nao_incorporada',
+    'nao_obtida',
+  ]),
   motivo: z.string().optional(),
 });
 
@@ -230,7 +237,18 @@ function ler(linha: Linha): JobLeitor {
     ...(p.motivo !== undefined ? { motivo: p.motivo } : {}),
     ...(p.bytes !== undefined ? { bytes: p.bytes } : {}),
     ...(p.arquivo !== undefined ? { arquivo: p.arquivo } : {}),
-    ...(p.reaproveitada !== undefined ? { reaproveitada: p.reaproveitada } : {}),
+    ...(p.reaproveitada !== undefined
+      ? {
+          reaproveitada: {
+            paginaInicial: p.reaproveitada.paginaInicial,
+            paginaFinal: p.reaproveitada.paginaFinal,
+            situacao: p.reaproveitada.situacao,
+            ...(p.reaproveitada.motivo !== undefined
+              ? { motivo: p.reaproveitada.motivo }
+              : {}),
+          },
+        }
+      : {}),
   }));
   const indice: EntradaIndice[] | undefined = d.indice?.map((e) => ({
     pecaId: e.pecaId,

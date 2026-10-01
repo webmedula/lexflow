@@ -96,41 +96,62 @@ ter outro job na frente e resposta pesada reduz o lote.
 
 Montagem: ~14 s para 280 peças/160 MB, medida acima.
 
-## 5. HTML (~30% das peças): proposta — **aguardando decisão do dono**
+## 5. HTML (~30% das peças): estratégia A — **decidida pelo dono (01/10/2026)**
 
-**O que não consegui fazer:** inspecionar HTMLs reais. Não há credencial nem
-rede para o tribunal neste ambiente, e a orientação foi não rodar sonda sem
-avisar. Deixei pronta a **`scripts/sonda-html.mjs`** (2 requisições: 1
-listagem + 1 lote com até 3 HTMLs; imprime só a forma — histograma de tags,
-tabelas, imagens por tipo de origem, o que a sanitização teria de remover,
-quantidade de caracteres —, nunca texto, nome ou número).
+**A sonda de HTML** (`scripts/sonda-html.mjs`, rodada pelo dono no Console do
+Easypanel: 3 peças reais de 1 processo do TJGO, 2 requisições, só estrutura)
+mostrou: fragmento sem `<body>`, charset não declarado, só `p`, `span`,
+`strong`, `br`, `hr` e `u`; **nenhuma tabela** (nem aninhada, nem
+colspan/rowspan); 1 ou 2 imagens `data:` por peça; nenhum script, iframe, form,
+link ou atributo `on*`; 11 a 24 KB, 650 a 1.850 caracteres de texto. Texto
+simples, sem tabela → **estratégia A**, pela regra que o dono fixou antes da
+sonda ("A só vale se forem texto + tabelas simples; tabela aninhada ou imagem
+que carregue conteúdo → B").
 
-**Proposta: estratégia A (renderizar o texto em páginas do PDF com pdf-lib)**,
-condicionada ao resultado da sonda. Motivos:
+**Como a conversão funciona** (`infrastructure/pdf/htmlDoTribunal.ts` +
+`QpdfMontador.converterHtml`):
 
-1. **Índice e citação.** A Etapa 3 cita (peça, página). Certidão, alvará e ato
-   ordinatório fora do PDF não teriam página — e são justamente atos com data
-   e conteúdo que o advogado precisa citar.
-2. **O que se sabe dos HTMLs favorece A:** ≈ 18 KB cada, gerados pelo sistema
-   do tribunal (certidão, ato ordinatório) — conteúdo textual, provavelmente
-   com uma ou duas tabelas de cabeçalho.
-3. **Segurança mais simples:** em A o HTML nunca chega ao navegador. Ele é
-   reduzido no servidor a blocos de texto puro (parágrafo, linha de tabela) e
-   desenhado como texto; não há marcação para escapar. Em B, cada versão do
-   painel teria de manter um sanitizador correto para sempre.
-4. **Custo de memória e CPU desprezível** (18 KB por peça).
+- **Tokenizador tolerante, sem DOM.** O HTML vira blocos de texto no servidor;
+  nenhuma marcação passa adiante, e o navegador nunca recebe HTML do tribunal.
+  Todo atributo é ignorado, inclusive `style`.
+- `p`, `div` e `br` quebram linha; `hr` vira linha separadora; `strong`/`b`
+  viram negrito e `u` sublinhado (o resto da formatação vira texto puro).
+- **Entidades** numéricas (decimal e hex, com a faixa 128–159 lida como
+  windows-1252, como fazem os navegadores) e nomeadas (as 96 de Latin-1, mais
+  travessões, aspas curvas, reticências…). Desconhecida fica como veio.
+- **Codificação:** UTF-8 estrito; com byte inválido, windows-1252 —
+  implementado à mão, porque o `TextDecoder('windows-1252')` do Node lê 0x96
+  como caractere de controle em vez do travessão.
+- **Imagens não entram.** São contadas pela tag (o base64 não é decodificado),
+  e a última linha da página diz "Este documento tinha N imagem(ns) que não
+  foram incluídas; consulte a peça no tribunal".
+- **Caractere sem equivalente na fonte padrão** vira "?" e é contado.
+- **Tabela** (não apareceu na sonda): cada linha vira "célula | célula", sem
+  inventar layout; tabela aninhada entra como texto da célula de fora.
+- **Elemento inesperado** (script, iframe, object, form…) é descartado com o
+  conteúdo.
+- A primeira linha da página, em cinza, diz que é HTML convertido e que a
+  formatação original não foi preservada.
+- No índice: `situacao: 'html_convertida'`, com `motivo` dizendo o que ficou de
+  fora (imagens, tabela, caracteres trocados, elementos descartados). Se a
+  conversão falhar, `html_nao_incorporada` com página de aviso.
 
-**Quando B seria melhor** (e a sonda responde isso): se os HTMLs tiverem
-imagens essenciais (brasão é decorativo; uma imagem de assinatura ou de
-documento não é), tabelas aninhadas complexas, ou formatação que mude o
-sentido. Nesses casos, A degradaria o documento sem avisar.
+**Custo medido** (`node --expose-gc scripts/medir-conversao-html.mjs 84`; 84
+HTMLs sintéticos com a forma da sonda, média de 19 KB, 1,5 MB no total):
 
-**O que já está implementado e vale para as duas:** a peça HTML é baixada no
-mesmo lote (sem custo extra), aparece no índice como `html_nao_incorporada`
-com uma **página de aviso** no lugar ("documento do tribunal em HTML: ainda não
-incorporado ao PDF — baixe-o individualmente pela linha do tempo"), e o HTML
-**nunca** chega à interface nem ao PDF: há teste que procura o conteúdo do HTML
-no PDF, no job e no índice. O arquivo de trabalho é apagado na montagem.
+| Medida | 84 HTMLs | 300 HTMLs |
+|---|---|---|
+| Tempo total | **~1,3 s** (~15 ms por HTML; o primeiro, ~85 ms, carrega as fontes) | ~4,5 s |
+| PDF gerado | 933 KB | 3,3 MB |
+| RSS acima do repouso | +69 a +78 MB | +73 a +77 MB |
+| Heap retido depois de GC | **+2,9 MB** | +1,9 MB |
+
+O RSS sobe porque o V8 deixa o heap crescer em vez de coletar a cada peça, e
+não volta depois do GC; o heap retido (2–3 MB) mostra que nada se acumula. É um
+platô: 300 HTMLs custam o mesmo que 84. Com o heap limitado a 64 MB
+(`--max-old-space-size=64`), os mesmos 84 rodam com +43 MB, no mesmo tempo. A
+conversão é sequencial e acontece na fase de montagem, depois dos lotes, então
+esse custo não se soma ao pico de um lote.
 
 ## 6. Camada de texto (OCR)
 

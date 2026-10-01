@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -206,3 +207,37 @@ export function pastaTemporaria(): { readonly caminho: string; apagar(): void } 
   const caminho = mkdtempSync(join(tmpdir(), 'pv-leitor-teste-'));
   return { caminho, apagar: () => rmSync(caminho, { recursive: true, force: true }) };
 }
+
+/** Texto de um PDF, pelo `pdftotext` do poppler (instalado na imagem e no CI). */
+export function textoDoPdf(bytes: Uint8Array): string {
+  return execFileSync('pdftotext', ['-enc', 'UTF-8', '-', '-'], {
+    input: Buffer.from(bytes),
+    maxBuffer: 16 * 1024 * 1024,
+  }).toString('utf8');
+}
+
+/** Marcadores que NUNCA podem sair do servidor: estão em script e em atributo. */
+export const MARCADOR_SCRIPT = 'MARCADOR-DENTRO-DO-SCRIPT';
+export const MARCADOR_ATRIBUTO = 'MARCADOR-DENTRO-DO-ATRIBUTO';
+
+/**
+ * HTML SINTÉTICO com a forma medida pela sonda (fragmento sem <body>, sem
+ * charset, p/span/strong/br/hr/u e imagem data:) e mais o que a conversão tem
+ * de aguentar: entidades nomeadas e numéricas, tabela, script, atributo style,
+ * e um caractere que a fonte padrão não desenha (≈). Nenhum nome real.
+ */
+export const HTML_SINTETICO =
+  '<p style="text-align:center; font-family: ' +
+  MARCADOR_ATRIBUTO +
+  '"><strong>CERTID&Atilde;O</strong></p>' +
+  '<p><span>Certifico que a parte autora foi intimada da decis&atilde;o, ' +
+  'conforme o art.&nbsp;5&ordm; &mdash; ato n&#186; 12 &amp; seguintes.</span><br>' +
+  'Segunda linha com <u>sublinhado</u> e a&ccedil;&atilde;o &#233; v&aacute;lida.</p>' +
+  '<hr>' +
+  '<script>window.x = "' +
+  MARCADOR_SCRIPT +
+  '";</script>' +
+  '<table><tr><td>Prazo</td><td>15 dias</td></tr><tr><td>Valor</td><td>R$ 1.000,00</td></tr></table>' +
+  '<p>Diferença ≈ zero.</p>' +
+  '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==">' +
+  '<p>Goiânia, data do sistema.</p>';

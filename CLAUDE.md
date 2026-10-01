@@ -307,8 +307,8 @@ npm run build            # compila para dist/
   com biblioteca (`tests/helpers/leitor.ts`). A regra "não editar fixture de
   captura" continua valendo para tudo o que é capturado; isto aqui não é
   captura, e não finge ser.
-- **Os testes do leitor rodam o `qpdf` de verdade** (CI: `apt-get install qpdf`;
-  local: instale o pacote). É a única forma de provar que o índice bate com o
+- **Os testes do leitor rodam o `qpdf` e o `pdftotext` de verdade** (CI:
+  `apt-get install qpdf poppler-utils`; local: instale os pacotes). É a única forma de provar que o índice bate com o
   arquivo montado.
 - Fixtures usam números CNJ com **dígito verificador válido**. Um DV inválido na
   massa faz a suíte passar sem nunca exercitar `NumeroCNJ`, e o bug só aparece
@@ -864,11 +864,17 @@ Não são detalhes — moldam o código.
   base da navegação do painel e das citações da análise — índice desalinhado
   manda o advogado ler a peça errada achando que leu a certa. Peça não obtida
   ocupa UMA página de aviso, com o motivo: nunca some do índice.
-- **HTML do tribunal não chega cru a lugar nenhum.** ~30% das peças são
-  `text/html`. Até o dono escolher a estratégia (renderizar no PDF ou mostrar
-  fora dele, sanitizado), a peça HTML vira linha `html_nao_incorporada` com
-  página de aviso — o ato aparece e diz onde ler —, e o conteúdo não entra no
-  PDF, no índice nem em resposta. Há teste que procura o HTML nos três.
+- **HTML do tribunal vira TEXTO no servidor e não chega cru a lugar nenhum**
+  (estratégia A, decisão do dono de 01/10/2026, depois da sonda: fragmentos só
+  com `p`, `span`, `strong`, `br`, `hr`, `u` e imagens `data:`, sem tabela).
+  `htmlDoTribunal.ts` é um tokenizador tolerante, sem DOM: ignora todo
+  atributo, descarta script/iframe/form com o conteúdo, decodifica entidades e
+  lê UTF-8 com recuo para windows-1252 (à mão — o `TextDecoder` do Node lê esse
+  rótulo como ISO-8859-1). O `QpdfMontador` desenha o texto com pdf-lib. O que
+  não entra — imagem, tabela achatada em "célula | célula", caractere trocado
+  por "?" — vai para o `motivo` da linha `html_convertida` do índice, e a
+  página diz que é conversão. Há teste (com `pdftotext`) que procura marcação,
+  script, atributo e base64 no PDF, no job, no índice e no log.
 - **qpdf com argumentos em VETOR.** `execFile`, nunca string de shell: uma
   montagem são centenas de caminhos, e uma aspa no lugar errado viraria execução
   de comando. Há teste com `$(...)` e aspas no nome do arquivo.
@@ -922,19 +928,19 @@ acompanhar em lote e tela do processo orientada a providência,
 Basic Auth (v0.27.0), **catálogo de planos editável com preço e regras de
 teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
 **leitor de peças, Etapa 1: PDF combinado com índice** (v0.30.0),
-Dockerfile multi-stage, CI, 816 testes.
+Dockerfile multi-stage, CI, 832 testes.
 
 **Leitor de peças, Etapa 1 (v0.30.0):** `POST /v1/processos/:numero/leitor` com
 os ids das peças cria um job (fila mínima em SQLite, `jobs_leitor`, um job por
 vez, retomável depois de redeploy); o executor baixa em lote adaptativo pelo
 MESMO `MniAdapter` das peças, monta com qpdf na ordem dos autos (PDF como veio,
-imagem vira página, HTML e o que falhou viram página de aviso) e entrega o PDF
+imagem vira página, HTML vira páginas de texto, o que falhou vira página de
+aviso) e entrega o PDF
 linearizado com `Range` e o índice de páginas. "Atualizar" consulta
 `consultarAlteracao` e baixa só o que falta, reaproveitando as páginas do PDF
-anterior. Medições e a proposta para HTML em `docs/leitor-medicoes-v0.30.0.md`.
-**Pendente:** a decisão do dono sobre HTML (estratégia A ou B, com a
-`scripts/sonda-html.mjs` pronta para medir a forma real), a Etapa 2 (painel ao
-lado, PDF.js) e a medição da camada de texto. O leitor fica atrás do plano
+anterior. Medições, a sonda de HTML e a conversão em
+`docs/leitor-medicoes-v0.30.0.md`. **Pendente:** a Etapa 2 (painel ao lado,
+PDF.js) e a medição da camada de texto. O leitor fica atrás do plano
 `pecas`; um recurso próprio `leitor` no catálogo fica para depois (decisão do
 dono, 01/10/2026). Não há exclusão de conta no
 produto ainda: `apagarDoWorkspace` existe e está testado para quando houver.

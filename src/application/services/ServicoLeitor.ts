@@ -31,6 +31,7 @@ import { clockDoSistema } from '../../domain/ports/Clock.js';
 import type { FilaDeJobs } from '../../domain/ports/FilaDeJobs.js';
 import type { Logger } from '../../domain/ports/Logger.js';
 import type {
+  ConversaoDeHtml,
   MontadorDePdf,
   PaginaDeAviso,
   ParteDoPdf,
@@ -588,7 +589,8 @@ export class ServicoLeitor {
       } else if (
         reaproveitavel &&
         (reaproveitavel.situacao === 'incorporada' ||
-          reaproveitavel.situacao === 'convertida')
+          reaproveitavel.situacao === 'convertida' ||
+          reaproveitavel.situacao === 'html_convertida')
       ) {
         pecas.push({
           ...base,
@@ -597,6 +599,7 @@ export class ServicoLeitor {
             paginaInicial: reaproveitavel.paginaInicial,
             paginaFinal: reaproveitavel.paginaFinal,
             situacao: reaproveitavel.situacao,
+            ...(reaproveitavel.motivo ? { motivo: reaproveitavel.motivo } : {}),
           },
         });
       } else {
@@ -865,7 +868,7 @@ export class ServicoLeitor {
       ],
     });
     const naoIncorporada = (p: PecaDoJob, motivo: MotivoNaoObtida): void => {
-      const html = motivo === 'html_aguardando_estrategia';
+      const html = motivo === 'html_invalido' || motivo === 'html_aguardando_estrategia';
       destinos.push({ tipo: 'aviso', aviso: aviso(p, motivo) });
       itens.push(
         itemDe(
@@ -885,7 +888,7 @@ export class ServicoLeitor {
             paginas: [p.reaproveitada.paginaInicial, p.reaproveitada.paginaFinal],
           },
         });
-        itens.push(itemDe(p, p.reaproveitada.situacao));
+        itens.push(itemDe(p, p.reaproveitada.situacao, p.reaproveitada.motivo));
         continue;
       }
       if (p.situacao === 'vazia') {
@@ -918,11 +921,21 @@ export class ServicoLeitor {
           naoIncorporada(p, 'imagem_invalida');
         }
       } else if (tipo.includes('html')) {
-        // Estratégia para HTML aguardando decisão do dono (A: renderizar no
-        // PDF; B: mostrar fora dele, sanitizado). Até lá o ato aparece no
-        // índice e no PDF como aviso — nunca some, e o HTML do tribunal não
-        // chega a lugar nenhum da interface.
-        naoIncorporada(p, 'html_aguardando_estrategia');
+        // Estratégia A (decisão do dono, 01/10/2026): o HTML vira páginas de
+        // texto no servidor e nunca chega à interface. O que a conversão
+        // deixou de fora vai para o motivo do índice — "convertida" sem dizer
+        // que faltaram duas imagens seria afirmar mais do que entregamos.
+        const destino = await this.armazem.caminhoLocal(
+          ws,
+          this.armazem.novoArquivo(ws, job.id, 'pdf'),
+        );
+        const conversao = await this.montador.converterHtml(caminho, destino);
+        if (conversao.ok) {
+          destinos.push({ tipo: 'arquivo', parte: { arquivo: destino } });
+          itens.push(itemDe(p, 'html_convertida', observacoesDaConversao(conversao)));
+        } else {
+          naoIncorporada(p, 'html_invalido');
+        }
       } else {
         naoIncorporada(p, 'formato_nao_suportado');
       }
@@ -958,8 +971,14 @@ export class ServicoLeitor {
 
     await this.armazem.limparTrabalho(ws, job.id, [localizador]);
     const agora = this.clock.agora();
+    // HTML convertido conta como peça presente: o ato está no PDF. O que a
+    // conversão deixou de fora (imagens) está no motivo da linha do índice —
+    // "parcial" fica reservado para peça que não veio.
     const completo = indice.every(
-      (e) => e.situacao === 'incorporada' || e.situacao === 'convertida',
+      (e) =>
+        e.situacao === 'incorporada' ||
+        e.situacao === 'convertida' ||
+        e.situacao === 'html_convertida',
     );
     await gravar({
       estado: completo ? 'pronto' : 'parcial',
@@ -1057,6 +1076,33 @@ function itemDe(
 function semMotivo(p: PecaDoJob): PecaDoJob {
   const { motivo: _motivo, ...resto } = p;
   return resto;
+}
+
+/**
+ * O que a conversão do HTML deixou de fora, em uma frase para o índice.
+ * `undefined` quando nada ficou de fora.
+ */
+export function observacoesDaConversao(c: ConversaoDeHtml): string | undefined {
+  const partes: string[] = [];
+  if (c.imagens > 0) {
+    partes.push(
+      `${c.imagens} ${c.imagens === 1 ? 'imagem não incluída' : 'imagens não incluídas'}`,
+    );
+  }
+  if (c.tabelas > 0) {
+    partes.push(
+      `havia ${c.tabelas === 1 ? 'tabela' : `${c.tabelas} tabelas`}: linhas convertidas em "célula | célula"`,
+    );
+  }
+  if (c.caracteresSubstituidos > 0) {
+    partes.push(
+      `${c.caracteresSubstituidos} ${c.caracteresSubstituidos === 1 ? 'caractere sem equivalente na fonte trocado' : 'caracteres sem equivalente na fonte trocados'} por "?"`,
+    );
+  }
+  if (c.elementosDescartados.length > 0) {
+    partes.push(`elementos descartados: ${c.elementosDescartados.join(', ')}`);
+  }
+  return partes.length > 0 ? partes.join('; ') : undefined;
 }
 
 function semArquivoDaPeca(p: PecaDoJob): PecaDoJob {

@@ -15,6 +15,19 @@ export type InspecaoDePdf =
   | { readonly valido: true; readonly paginas: number }
   | { readonly valido: false; readonly motivo: 'pdf_invalido' | 'pdf_protegido' };
 
+/** O que a conversão de uma peça HTML do tribunal deixou de fora. */
+export interface ConversaoDeHtml {
+  readonly ok: boolean;
+  /** Imagens que existiam no HTML e não entraram no PDF. */
+  readonly imagens: number;
+  /** Tabelas achatadas em "célula | célula". */
+  readonly tabelas: number;
+  /** Caracteres sem equivalente na fonte padrão, trocados por "?". */
+  readonly caracteresSubstituidos: number;
+  /** Elementos inesperados descartados com o conteúdo (script, iframe…). */
+  readonly elementosDescartados: readonly string[];
+}
+
 export interface PaginaDeAviso {
   readonly titulo: string;
   readonly linhas: readonly string[];
@@ -48,6 +61,13 @@ export interface MontadorDePdf {
    * @returns `false` quando a imagem não abre — vira página de aviso, não erro.
    */
   converterImagem(arquivo: string, mimetype: string, destino: string): Promise<boolean>;
+
+  /**
+   * Converte uma peça HTML do tribunal em páginas de TEXTO, gravadas em
+   * `destino`. O HTML nunca passa adiante: só o texto, desenhado.
+   * Nunca lança por HTML ruim — devolve `ok: false`.
+   */
+  converterHtml(arquivo: string, destino: string): Promise<ConversaoDeHtml>;
 
   /** Um PDF com uma página por aviso, na ordem. */
   gerarAvisos(avisos: readonly PaginaDeAviso[], destino: string): Promise<void>;
