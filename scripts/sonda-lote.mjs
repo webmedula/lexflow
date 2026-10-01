@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * SONDA DE LOTE — v1.0.0
+ * SONDA DE LOTE — v1.1.0
  *
  * O que custa baixar várias peças seguidas do tribunal, e em que formato elas
  * chegam? A especificação do leitor de peças só SUPÕE as respostas:
@@ -42,7 +42,18 @@
  * nenhum. É 1 requisição (pode levar dezenas de segundos: o tribunal manda a linha
  * do tempo inteira junto).
  *
+ * NOVO NA v1.1.0, `--lote[=N]` (padrão 10, máximo 20): mede o TETO do modo agrupado.
+ * A v1.0.0 provou que o tribunal entrega 5 peças numa resposta só, idênticas às
+ * individuais. Falta saber até quantas, e quanto pesa a resposta. Este modo faz
+ * UMA listagem + UMA chamada agrupada com N peças escolhidas em amostra espaçada
+ * (não sigilosas, PDF ou HTML), e NADA mais: nenhum download individual. Total: 2
+ * requisições ao tribunal. Mede tempo, bytes da resposta, pico de memória do
+ * processo, tamanho de cada arquivo entregue, formatos e quantas das N vieram.
+ * Rode primeiro com --lote=10 e só depois com --lote=20; nunca pule direto ao
+ * maior. Aborta em 403, 429, 5xx, `sucesso: false` ou timeout, sem repetir.
+ *
  * Uso:
+ *   node scripts/sonda-lote.mjs --lote[=N] <numero-cnj> [--workspace=<nome>]
  *   node scripts/sonda-lote.mjs --listar <numero-cnj> [--workspace=<nome>]
  *   node scripts/sonda-lote.mjs <numero-cnj> <idPeca> [<idPeca> ... até 5] [--workspace=<nome>] [--agrupada]
  *   node scripts/sonda-lote.mjs --seco <numero-cnj> <idPeca> ...   (só mostra o plano; não abre
@@ -56,8 +67,10 @@ import { join, extname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { setTimeout as dormir } from 'node:timers/promises';
 
-const VERSAO_SONDA = '1.0.0';
+const VERSAO_SONDA = '1.1.0';
 const MAX_PECAS = 5;
+const LOTE_PADRAO = 10;
+const MAX_LOTE = 20;
 const INTERVALO_MS = 3000;
 const SEM_TEOR_SEGUIDAS_PARA_PARAR = 2;
 const DESTINO = join(tmpdir(), 'sonda-lote-formas.json');
@@ -67,6 +80,8 @@ const entrada = process.argv.slice(2);
 const seco = entrada.includes('--seco');
 const agrupada = entrada.includes('--agrupada');
 const listar = entrada.includes('--listar');
+const loteFlag = entrada.find((a) => a === '--lote' || a.startsWith('--lote='));
+const lote = loteFlag ? Number(loteFlag.split('=')[1] ?? LOTE_PADRAO) : null;
 const workspaceArg = entrada.find((a) => a.startsWith('--workspace='))?.split('=')[1];
 const posicionais = entrada.filter((a) => !a.startsWith('--'));
 const [numeroBruto, ...idsBrutos] = posicionais;
@@ -76,6 +91,7 @@ function uso(mensagem) {
   console.error(
     'Uso: node scripts/sonda-lote.mjs <numero-cnj> <idPeca> [<idPeca> ... até ' +
       `${MAX_PECAS}] [--workspace=<nome>]\n` +
+      '     node scripts/sonda-lote.mjs --lote[=N] <numero-cnj> [--workspace=<nome>]   (N de 2 a 20)\n' +
       '     node scripts/sonda-lote.mjs --seco <numero-cnj> <idPeca> ...',
   );
   process.exit(1);
@@ -86,7 +102,15 @@ const ids = listar ? [] : [...new Set(idsBrutos)];
 if (listar && idsBrutos.length > 0) {
   console.log('[aviso] --listar não baixa nada: os ids informados foram ignorados.');
 }
-if (!listar && ids.length === 0) uso('Faltou pelo menos um id de peça.');
+if (lote !== null) {
+  if (!Number.isInteger(lote) || lote < 2 || lote > MAX_LOTE) {
+    uso(`--lote precisa ser um inteiro de 2 a ${MAX_LOTE}.`);
+  }
+  if (idsBrutos.length > 0 || listar || agrupada) {
+    uso('--lote não combina com ids de peça, --listar nem --agrupada: ele escolhe as peças sozinho.');
+  }
+}
+if (!listar && lote === null && ids.length === 0) uso('Faltou pelo menos um id de peça.');
 if (ids.length !== idsBrutos.length) {
   console.log('[aviso] ids repetidos foram descartados: a sonda nunca baixa a mesma peça duas vezes.');
 }
@@ -104,6 +128,12 @@ const tribunal = (numero.siglaTribunal ?? '').toUpperCase();
 console.log(`sonda-lote v${VERSAO_SONDA}`);
 if (listar) {
   console.log(`plano: --listar — UMA consulta ao tribunal (${tribunal}), sem baixar arquivo nenhum.`);
+} else if (lote !== null) {
+  console.log(
+    `plano: --lote=${lote} — 1 listagem + UMA chamada agrupada com ${lote} peças de um processo ${tribunal}, ` +
+      `pausa de ${INTERVALO_MS / 1000}s entre as duas, sem repetição, sem download individual.`,
+  );
+  console.log('requisições ao tribunal: 2');
 } else
 console.log(
   `plano: ${ids.length} peça(s) de um processo ${tribunal}, ` +
@@ -111,7 +141,7 @@ console.log(
     `no máximo ${MAX_PECAS} — duração mínima ≈ ${Math.max(0, ids.length - 1) * (INTERVALO_MS / 1000)}s ` +
     'mais o tempo do tribunal.',
 );
-if (!listar) {
+if (!listar && lote === null) {
   console.log(
     `requisições ao tribunal: ${ids.length}` +
       (agrupada ? ` + 1 chamada AGRUPADA com as mesmas peças (total ${ids.length + 1})` : ''),
@@ -335,6 +365,206 @@ if (listar) {
     }
     process.exit(2);
   }
+}
+
+// --- modo --lote: o teto do agrupado ---------------------------------------------
+if (lote !== null) {
+  const rssInicial = process.memoryUsage().rss;
+  let rssPico = rssInicial;
+  const amostrador = setInterval(() => {
+    rssPico = Math.max(rssPico, process.memoryUsage().rss);
+  }, 50);
+  const mb = (n) => `${(n / 1024 / 1024).toFixed(0)} MB`;
+  const parar = (codigo) => {
+    clearInterval(amostrador);
+    process.exit(codigo);
+  };
+
+  console.log(`[lote] 1/2 listagem do processo (1 consulta)...`);
+  let pecas;
+  const tl = performance.now();
+  try {
+    pecas = await provedor.listarPecas(numero.digitos, credencial);
+  } catch (erro) {
+    console.log(`[lote] ABORTOU na listagem · ${erro?.constructor?.name ?? 'Error'} · ${String(erro?.message ?? erro)}`);
+    if (/403/.test(String(erro?.message ?? ''))) {
+      console.log('   HTTP 403: NÃO repita agora e NÃO troque a senha; espere ~30 min.');
+    }
+    parar(2);
+  }
+  console.log(`[lote] listagem: ${pecas.length} peça(s) · ${fmtSeg(Math.round(performance.now() - tl))}`);
+
+  const elegiveis = pecas.filter(
+    (p) => !p.sigilosa && (!p.mimetype || /pdf|html/i.test(p.mimetype)),
+  );
+  if (elegiveis.length < lote) {
+    console.error(`Só ${elegiveis.length} peça(s) elegíveis (não sigilosas, PDF/HTML); peça --lote menor.`);
+    parar(1);
+  }
+  // Amostra espaçada pela lista toda: pega peças de épocas e rótulos variados, em
+  // vez das N primeiras (que costumam ser da mesma juntada e do mesmo tipo).
+  const passo = elegiveis.length / lote;
+  const escolhidas = Array.from({ length: lote }, (_, k) => elegiveis[Math.floor(k * passo)]);
+  const declaradoPorId = new Map(escolhidas.map((p) => [p.id, p.mimetype ?? 'não informado']));
+  const rotuloPorId = new Map(escolhidas.map((p) => [p.id, p.rotulo]));
+  const declarados = {};
+  for (const m of declaradoPorId.values()) declarados[m] = (declarados[m] ?? 0) + 1;
+  console.log(
+    `[lote] amostra de ${lote}: ` + Object.entries(declarados).map(([k, v]) => `${k}=${v}`).join(' · '),
+  );
+
+  await dormir(INTERVALO_MS);
+  console.log(`[lote] 2/2 UMA chamada agrupada pedindo ${lote} peças...`);
+
+  const { envelopeConsultarProcesso, ACAO_CONSULTAR_PROCESSO } = await import(
+    '../dist/infrastructure/adapters/mni/mni.envelope.js'
+  );
+  const { lerRespostaSoap } = await import('../dist/infrastructure/adapters/mni/mtom.js');
+  const { abrirEnvelope, extrairConteudoDoDocumento } = await import(
+    '../dist/infrastructure/adapters/mni/mni.mapper.js'
+  );
+
+  ultimaResposta = undefined;
+  ultimosCabecalhos = {};
+  const t0 = performance.now();
+  let resumo = null;
+  let abortoLote = null;
+  try {
+    const xml = envelopeConsultarProcesso({
+      numeroProcesso: numero.digitos,
+      credencial,
+      movimentos: true, // sem isto o tribunal não devolve documento nenhum
+      incluirCabecalho: false,
+      incluirDocumentos: true,
+      documentos: escolhidas.map((p) => p.id),
+    });
+    const bruta = await http.postXml(config.mni.endpoint, xml, {
+      SOAPAction: ACAO_CONSULTAR_PROCESSO,
+    });
+    const ms = Math.round(performance.now() - t0);
+    rssPico = Math.max(rssPico, process.memoryUsage().rss);
+
+    if (bruta.status === 403) {
+      abortoLote = 'HTTP 403: espere ~30 min e NÃO repita agora.';
+    } else if (bruta.status === 429 || bruta.status >= 500) {
+      abortoLote = `HTTP ${bruta.status}`;
+    } else {
+      const lida = lerRespostaSoap(bruta.contentType, bruta.bytes);
+      const resposta = abrirEnvelope(lida.xml);
+      rssPico = Math.max(rssPico, process.memoryUsage().rss);
+      if (!resposta.sucesso) {
+        abortoLote = `sucesso:false · ${String(resposta.mensagem ?? 'sem mensagem')}`;
+      } else {
+        const entregues = [];
+        const naoEntregues = [];
+        for (const p of escolhidas) {
+          let achado;
+          try {
+            achado = extrairConteudoDoDocumento(resposta.conteudo, p.id, lida.anexos);
+          } catch {
+            achado = undefined;
+          }
+          if (!achado || achado.bytes.length === 0) {
+            naoEntregues.push(p.id);
+            continue;
+          }
+          const formato = farejar(achado.bytes);
+          const item = {
+            rotulo: rotuloPorId.get(p.id),
+            mimetypeDeclarado: declaradoPorId.get(p.id),
+            formatoReal: formato,
+            bytesDoArquivo: achado.bytes.length,
+          };
+          if (formato === 'pdf') item.pdf = analisarPdf(achado.bytes);
+          entregues.push(item);
+        }
+        rssPico = Math.max(rssPico, process.memoryUsage().rss);
+        resumo = {
+          pedidas: lote,
+          entregues: entregues.length,
+          naoEntregues: naoEntregues.length,
+          ms,
+          bytesDaResposta: bruta.bytes.length,
+          itens: entregues,
+          cabecalhosDeLimite: ultimosCabecalhos,
+        };
+      }
+    }
+  } catch (erro) {
+    abortoLote = `${erro?.constructor?.name ?? 'Error'} · ${String(erro?.message ?? erro)}`;
+  }
+  clearInterval(amostrador);
+
+  if (abortoLote) {
+    console.log(`[lote] ABORTOU · ${abortoLote}`);
+    process.exit(2);
+  }
+
+  const tamanhos = resumo.itens.map((i) => i.bytesDoArquivo).sort((a, b) => a - b);
+  const somaArquivos = tamanhos.reduce((s, x) => s + x, 0);
+  const formatos = {};
+  for (const i of resumo.itens) formatos[i.formatoReal] = (formatos[i.formatoReal] ?? 0) + 1;
+
+  console.log(
+    `\n[lote] pedidas ${resumo.pedidas} · entregues ${resumo.entregues} · NÃO entregues ${resumo.naoEntregues} · ` +
+      `${fmtSeg(resumo.ms)} · resposta ${fmtBytes(resumo.bytesDaResposta)}`,
+  );
+  if (tamanhos.length > 0) {
+    console.log(
+      `arquivos: soma ${fmtBytes(somaArquivos)} · menor ${fmtBytes(tamanhos[0])} · ` +
+        `mediana ${fmtBytes(tamanhos[Math.floor(tamanhos.length / 2)])} · maior ${fmtBytes(tamanhos[tamanhos.length - 1])}`,
+    );
+  }
+  console.log(`formatos reais: ${Object.entries(formatos).map(([k, v]) => `${k}=${v}`).join(', ') || '—'}`);
+  console.log(
+    `memória do processo (RSS): antes ${mb(rssInicial)} · pico ${mb(rssPico)} · ` +
+      `acréscimo ${mb(rssPico - rssInicial)} para uma resposta de ${fmtBytes(resumo.bytesDaResposta)}`,
+  );
+  const pdfs = resumo.itens.filter((i) => i.pdf);
+  if (pdfs.length > 0) {
+    const semFonte = pdfs.filter((i) => i.pdf.fontesPorRegex === 0).length;
+    console.log(`PDFs: ${pdfs.length} · sem nenhuma fonte (indício de digitalização): ${semFonte}`);
+  }
+  if (resumo.naoEntregues > 0) {
+    console.log(
+      `ATENÇÃO: ${resumo.naoEntregues} peça(s) pedida(s) não vieram. Pode ser limite do lote, ` +
+        'falta de teor ou peça recém-juntada; compare com um lote menor antes de concluir.',
+    );
+  }
+
+  console.log('\nextrapolação por lote deste tamanho (tempo do tribunal + pausa de 3 s), ordem de grandeza:');
+  for (const n of [50, 100, 278]) {
+    const chamadas = Math.ceil(n / lote);
+    const total = chamadas * (resumo.ms + INTERVALO_MS);
+    console.log(
+      `  ${String(n).padStart(3)} peças ≈ ${chamadas} chamada(s) · ${(total / 60000).toFixed(1).replace('.', ',')} min`,
+    );
+  }
+  console.log(
+    Object.keys(resumo.cabecalhosDeLimite).length > 0
+      ? `cabeçalhos de limite vistos: ${JSON.stringify(resumo.cabecalhosDeLimite)}`
+      : 'cabeçalhos de limite de requisições: nenhum visto',
+  );
+
+  writeFileSync(
+    DESTINO,
+    JSON.stringify(
+      {
+        sondaLote: VERSAO_SONDA,
+        modo: 'lote',
+        geradoEm: new Date().toISOString(),
+        tribunal,
+        lote,
+        rssInicial,
+        rssPico,
+        resumo,
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(`\n[formas] tamanhos, tipos e campos → ${DESTINO} (sem conteúdo, sem nomes, sem número de processo)`);
+  process.exit(0);
 }
 
 // --- o lote, sequencial ---------------------------------------------------------
