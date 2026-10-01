@@ -77,6 +77,7 @@ export const CONFIG_LEITOR_DE_TESTE: ConfiguracaoLeitor = {
   cotaPorWorkspaceBytes: 1024 * 1_048_576,
   avisoDiscoBytes: 10 * 1024 * 1_048_576,
   segundosPorChamada: 1.8,
+  confirmarAcimaDe: 150,
 };
 
 /** Notificador que guarda o que "enviou", para o teste conferir o conteúdo. */

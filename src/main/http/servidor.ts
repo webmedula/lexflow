@@ -10,7 +10,14 @@ import { validarConfiguracaoAdmin } from './adminAuth.js';
 import { mapearErro } from './erros.js';
 import autenticacao from './plugins/autenticacao.js';
 import { ROTA_HEALTH, ROTA_READY, rotasDeSaude } from './rotas/saude.js';
-import { PREFIXO_FONTES, ROTA_CONSOLE, ROTA_FONTES, rotasDeInterface } from './rotas/interface.js';
+import {
+  PREFIXO_FONTES,
+  PREFIXO_PDFJS,
+  ROTA_CONSOLE,
+  ROTA_FONTES,
+  ROTA_PDFJS,
+  rotasDeInterface,
+} from './rotas/interface.js';
 import { rotasDeProcesso } from './rotas/processos.js';
 import { rotasDeAcompanhamento } from './rotas/acompanhamentos.js';
 import { rotasDeVigilancia } from './rotas/vigilancias.js';
@@ -78,7 +85,10 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
       requisicao.url === ROTA_HEALTH ||
       requisicao.url === ROTA_READY ||
       requisicao.url === ROTA_CONSOLE ||
-      requisicao.url.startsWith(PREFIXO_FONTES),
+      requisicao.url.startsWith(PREFIXO_FONTES) ||
+      // O PDF.js pede dezenas de arquivos ao abrir (fontes padrão, decodificador):
+      // são estáticos e sem dado, e não podem gastar a cota das consultas.
+      requisicao.url.startsWith(PREFIXO_PDFJS),
   });
 
   void servidor.register(autenticacao, {
@@ -101,6 +111,9 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
       ROTA_READY,
       ROTA_CONSOLE,
       ROTA_FONTES,
+      // O PDF.js entra por import() e new Worker(): o navegador não manda
+      // x-api-key nessas requisições. São arquivos da biblioteca, sem dado.
+      ROTA_PDFJS,
       ROTA_CONTAS,
       ROTA_SESSOES,
       // Recuperar e redefinir senha são de quem NÃO consegue entrar. Exigir

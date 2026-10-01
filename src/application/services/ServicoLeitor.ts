@@ -5,6 +5,7 @@ import type { EntradaIndice, ItemDoIndice } from '../../domain/entities/IndicePa
 import {
   DESCRICAO_DO_MOTIVO,
   ESTADOS_COM_ARQUIVO,
+  estimarFaixa,
   estimarSegundos,
   proximoTamanhoDeLote,
 } from '../../domain/entities/JobLeitor.js';
@@ -59,6 +60,8 @@ export interface ConfiguracaoLeitor extends PoliticaDeLote {
   readonly avisoDiscoBytes: number;
   /** Pior latência medida por chamada (s), para a estimativa mostrada. */
   readonly segundosPorChamada: number;
+  /** Acima de quantas peças a tela pede confirmação antes de montar. */
+  readonly confirmarAcimaDe: number;
 }
 
 export interface OpcoesServicoLeitor {
@@ -158,6 +161,42 @@ export class ServicoLeitor {
       segundosPorChamada: this.config.segundosPorChamada,
       pausaSegundos: this.config.pausaEntreChamadasMs / 1000,
     });
+  }
+
+  /**
+   * A faixa que a tela mostra antes de montar, e o limite acima do qual ela
+   * pede confirmação. Calculada AQUI, e não no navegador: a fórmula usa os
+   * números medidos e a configuração do lote, e duas cópias dela divergiriam
+   * no primeiro ajuste.
+   */
+  estimar(pecas: number): {
+    readonly pecas: number;
+    readonly minimoSegundos: number;
+    readonly maximoSegundos: number;
+    readonly confirmarAcimaDe: number;
+    readonly exigeConfirmacao: boolean;
+  } {
+    const faixa = estimarFaixa(pecas, {
+      loteInicial: this.config.inicial,
+      loteMaximo: this.config.maximo,
+      segundosPorChamada: this.config.segundosPorChamada,
+      pausaSegundos: this.config.pausaEntreChamadasMs / 1000,
+    });
+    return {
+      pecas,
+      ...faixa,
+      confirmarAcimaDe: this.config.confirmarAcimaDe,
+      exigeConfirmacao: pecas > this.config.confirmarAcimaDe,
+    };
+  }
+
+  /** O job mais recente deste processo, para a tela reabrir o PDF que já existe. */
+  async ultimoDoProcesso(
+    workspace: string,
+    numeroProcesso: string,
+  ): Promise<JobLeitor | undefined> {
+    const numero = NumeroCNJ.criar(numeroProcesso).digitos;
+    return this.fila.ultimoDoProcesso(workspace, numero);
   }
 
   /**

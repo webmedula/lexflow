@@ -138,6 +138,8 @@ const schema = z.object({
   LEITOR_COTA_POR_PDF_MB: inteiroPositivo(300),
   LEITOR_COTA_POR_WORKSPACE_MB: inteiroPositivo(1024),
   LEITOR_AVISO_DISCO_MB: inteiroPositivo(10_240),
+  // Acima de quantas peças a tela pede confirmação antes de montar o PDF.
+  LEITOR_CONFIRMAR_ACIMA_DE: inteiroPositivo(150),
 
   // --- Banco e sincronização ------------------------------------------------
   // Caminho do arquivo SQLite. No contêiner tem que apontar para um VOLUME,
@@ -241,6 +243,7 @@ export interface Config {
     readonly cotaPorPdfBytes: number;
     readonly cotaPorWorkspaceBytes: number;
     readonly avisoDiscoBytes: number;
+    readonly confirmarAcimaDe: number;
   };
   readonly nivelLog: NivelLog;
   readonly banco: { readonly caminho: string };
@@ -417,6 +420,7 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
       cotaPorPdfBytes: env.LEITOR_COTA_POR_PDF_MB * MB,
       cotaPorWorkspaceBytes: env.LEITOR_COTA_POR_WORKSPACE_MB * MB,
       avisoDiscoBytes: env.LEITOR_AVISO_DISCO_MB * MB,
+      confirmarAcimaDe: env.LEITOR_CONFIRMAR_ACIMA_DE,
     },
     nivelLog: env.LOG_LEVEL,
     banco: { caminho: env.PROCESSOVIVO_DB_PATH },

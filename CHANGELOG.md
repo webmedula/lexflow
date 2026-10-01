@@ -9,6 +9,60 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.31.0] — 2026-10-01
+
+Leitor de peças, **Etapa 2 — ler ao lado** (especificação
+`leitor-e-analise-especificacao-v1.2.1`, seção 5). O PDF combinado da 0.30.0
+abre num painel à direita da linha do tempo.
+
+### Adicionado
+
+- **Botão "Ler peças ao lado"** no cartão das peças do processo. Sem clicar
+  nele, a tela do processo é exatamente a de antes (decisão do dono: o painel
+  abre por botão).
+- **Marcar peças na linha do tempo**: uma caixa ao lado de cada peça, "Selecionar
+  todas (N)" com o número do processo inteiro (não só o da tela filtrada),
+  atalhos por rótulo do tribunal (Petição, Certidão, Decisão…), contador e
+  **estimativa de tempo em faixa** calculada no servidor com os números medidos
+  (lote crescendo 5, 10, 20 até lote sem crescer), dita como ordem de
+  grandeza. Acima de `LEITOR_CONFIRMAR_ACIMA_DE` peças (150), confirmação.
+  Peça sob sigilo aparece desmarcável e com o motivo.
+- **Painel à direita** com divisor arrastável (largura guardada no navegador);
+  no celular, tela cheia com "← linha do tempo" e botão flutuante para voltar.
+  Em arquivo próprio (`ui/scriptLeitor.ts`, `ui/estilosLeitor.ts`), fora do
+  `script.ts`.
+- **PDF.js servido pelo próprio servidor** (`/ui/pdfjs/:arquivo`, lista fechada,
+  pública por ser biblioteca sem dado), carregado por `import()` — a página
+  continua sem `<script src>`. Usa o build **legacy** do `pdfjs-dist`: o padrão
+  usa `Map.getOrInsertComputed`, recurso de 2025, e a página ficava em branco
+  sem erro em navegador não atualizado.
+- **Leitura por trechos** (`Range`, sem baixar o resto em segundo plano) e
+  **renderização preguiçosa**: só as páginas perto da tela são desenhadas, no
+  máximo 24 ficam na memória. Largura ajustada por página (o PDF mistura A4 e
+  outros tamanhos), com a rolagem compensada quando uma página acima muda de
+  altura.
+- **Navegação pela linha do tempo**: ao lado de cada peça que está no PDF, um
+  atalho "p. N" pula para ela; rolar o PDF destaca a peça na linha do tempo e
+  mostra rótulo, posição e páginas. Lista "Ir para a peça…", busca de texto
+  (sem acento e sem caixa; diz que página digitalizada não é pesquisável),
+  zoom e "Baixar PDF".
+- **Estados honestos**: na fila; baixando com progresso; montando; sem progresso
+  há mais de 3 minutos ("sem progresso desde HH:MM"); pausado pelo tribunal
+  com o horário previsto de retomada; parcial com a lista do que faltou e por
+  quê; pronto com data e hora — sempre com "não é consulta ao vivo" e até
+  quando fica guardado. Três falhas seguidas ao consultar o progresso param a
+  consulta e oferecem um botão, em vez de girar para sempre.
+- `GET /v1/leitor/estimativa?pecas=N` e `GET /v1/processos/:numero/leitor`
+  (o último PDF deste processo, do próprio workspace).
+
+### Testes
+
+- ESLint roda dentro do script do painel, como no do console.
+- O painel foi conferido num Chromium de verdade contra um servidor local com
+  MNI falso e PDFs sintéticos: marcar, montar, abrir, pular para a página,
+  destaque na régua, busca, divisor, celular e fechar (que devolve a tela ao
+  estado original). Esse roteiro não está na suíte (exigiria navegador no CI).
+
 ## [0.30.0] — 2026-10-01
 
 Leitor de peças, **Etapa 1 — combinar** (especificação

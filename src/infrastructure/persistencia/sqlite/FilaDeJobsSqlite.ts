@@ -165,6 +165,19 @@ export class FilaDeJobsSqlite implements FilaDeJobs {
     return linhas.map(ler);
   }
 
+  async ultimoDoProcesso(
+    workspace: string,
+    numeroProcesso: string,
+  ): Promise<JobLeitor | undefined> {
+    const linha = this.db
+      .prepare(
+        `SELECT * FROM jobs_leitor WHERE workspace = ? AND numero = ?
+          ORDER BY criado_em DESC LIMIT 1`,
+      )
+      .get(workspace, numeroProcesso) as unknown as Linha | undefined;
+    return linha ? ler(linha) : undefined;
+  }
+
   async doWorkspace(workspace: string): Promise<JobLeitor[]> {
     const linhas = this.db
       .prepare('SELECT * FROM jobs_leitor WHERE workspace = ? ORDER BY criado_em DESC')

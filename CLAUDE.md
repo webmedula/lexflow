@@ -875,6 +875,21 @@ Não são detalhes — moldam o código.
   por "?" — vai para o `motivo` da linha `html_convertida` do índice, e a
   página diz que é conversão. Há teste (com `pdftotext`) que procura marcação,
   script, atributo e base64 no PDF, no job, no índice e no log.
+- **PDF.js é a ÚNICA dependência de front do console** (v0.31.0), e vem do
+  próprio servidor: `/ui/pdfjs/:arquivo`, lista fechada montada no arranque a
+  partir do `pdfjs-dist` (dependência de PRODUÇÃO). Entra por `import()` no
+  script do painel, então a regra "a página não tem `<script src>`" continua de
+  pé. Usa o build **legacy**: o padrão do pdfjs-dist 6 chama
+  `Map.prototype.getOrInsertComputed` e, em navegador sem esse recurso, a
+  página fica em branco sem erro nenhum — há teste que confere o polyfill.
+- **O painel do leitor vive em arquivo próprio e só age aberto.** `ui/scriptLeitor.ts`
+  fala com o console por `window.__pv` (o que ele usa do console) e
+  `window.__pvLeitor` (os ganchos que o console chama). Fechado, a tela do
+  processo é a de antes, com um botão a mais; caixas de marcar, links "p. N" e
+  destaque nascem só com o painel aberto, e o CSS dele só age sob
+  `body.com-leitor` ou `#leitor` (há teste que confere cada regra). O painel
+  nunca insere conteúdo de peça no DOM — o HTML do tribunal já virou texto
+  dentro do PDF.
 - **qpdf com argumentos em VETOR.** `execFile`, nunca string de shell: uma
   montagem são centenas de caminhos, e uma aspa no lugar errado viraria execução
   de comando. Há teste com `$(...)` e aspas no nome do arquivo.
@@ -928,7 +943,15 @@ acompanhar em lote e tela do processo orientada a providência,
 Basic Auth (v0.27.0), **catálogo de planos editável com preço e regras de
 teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
 **leitor de peças, Etapa 1: PDF combinado com índice** (v0.30.0),
-Dockerfile multi-stage, CI, 832 testes.
+**Etapa 2: ler ao lado, com PDF.js servido pelo próprio servidor** (v0.31.0),
+Dockerfile multi-stage, CI, 849 testes.
+
+**Leitor de peças, Etapa 2 (v0.31.0):** botão "Ler peças ao lado" no cartão
+das peças abre um painel à direita (divisor arrastável; tela cheia no celular).
+Nele: marcar peças na própria linha do tempo, selecionar todas, atalhos por
+rótulo, estimativa em faixa vinda do servidor e confirmação acima de 150; o
+progresso com estados honestos; e o PDF lido por trechos, com "p. N" ao lado de
+cada peça da régua, destaque da peça ao rolar, busca, zoom e download.
 
 **Leitor de peças, Etapa 1 (v0.30.0):** `POST /v1/processos/:numero/leitor` com
 os ids das peças cria um job (fila mínima em SQLite, `jobs_leitor`, um job por
@@ -939,8 +962,8 @@ aviso) e entrega o PDF
 linearizado com `Range` e o índice de páginas. "Atualizar" consulta
 `consultarAlteracao` e baixa só o que falta, reaproveitando as páginas do PDF
 anterior. Medições, a sonda de HTML e a conversão em
-`docs/leitor-medicoes-v0.30.0.md`. **Pendente:** a Etapa 2 (painel ao lado,
-PDF.js) e a medição da camada de texto. O leitor fica atrás do plano
+`docs/leitor-medicoes-v0.30.0.md`. **Pendente:** a medição da camada de texto
+(OCR) e a Etapa 3 (análise), que depende de decisão do dono. O leitor fica atrás do plano
 `pecas`; um recurso próprio `leitor` no catálogo fica para depois (decisão do
 dono, 01/10/2026). Não há exclusão de conta no
 produto ainda: `apagarDoWorkspace` existe e está testado para quando houver.

@@ -31,6 +31,9 @@ export interface FilaDeJobs {
   /** Jobs com arquivo cujo prazo de guarda passou. */
   expirados(agora: Date): Promise<JobLeitor[]>;
 
+  /** O job mais recente deste workspace para o processo (qualquer estado). */
+  ultimoDoProcesso(workspace: string, numeroProcesso: string): Promise<JobLeitor | undefined>;
+
   /** Todos os jobs de um workspace — para a exclusão de conta. */
   doWorkspace(workspace: string): Promise<JobLeitor[]>;
 

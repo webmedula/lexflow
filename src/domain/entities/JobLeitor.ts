@@ -269,3 +269,43 @@ export function estimarSegundos(
   const chamadas = chamadasDeLote + 2;
   return Math.ceil(chamadas * (opcoes.segundosPorChamada + opcoes.pausaSegundos));
 }
+
+/**
+ * A estimativa como FAIXA, que é o que a tela mostra ao advogado.
+ *
+ * - **mínimo**: as respostas vêm leves e o lote cresce como desenhado (5, 10,
+ *   20, 20…) — o caso do processo medido na sonda;
+ * - **máximo**: o lote nunca cresce (respostas pesadas), todas as chamadas no
+ *   tamanho inicial.
+ *
+ * Mostrar só um número faria o advogado tomar a ordem de grandeza por
+ * promessa. A faixa diz o que é: um intervalo, com os números medidos.
+ */
+export function estimarFaixa(
+  pecas: number,
+  opcoes: {
+    readonly loteInicial: number;
+    readonly loteMaximo: number;
+    readonly segundosPorChamada: number;
+    readonly pausaSegundos: number;
+  },
+): { readonly minimoSegundos: number; readonly maximoSegundos: number } {
+  if (pecas <= 0) return { minimoSegundos: 0, maximoSegundos: 0 };
+  const porChamada = opcoes.segundosPorChamada + opcoes.pausaSegundos;
+  let restantes = pecas;
+  let lote = Math.max(1, opcoes.loteInicial);
+  let chamadas = 0;
+  while (restantes > 0) {
+    restantes -= lote;
+    chamadas += 1;
+    lote = Math.min(Math.max(1, opcoes.loteMaximo), lote * 2);
+  }
+  return {
+    minimoSegundos: Math.ceil((chamadas + 2) * porChamada),
+    maximoSegundos: estimarSegundos(pecas, {
+      tamanhoLote: opcoes.loteInicial,
+      segundosPorChamada: opcoes.segundosPorChamada,
+      pausaSegundos: opcoes.pausaSegundos,
+    }),
+  };
+}

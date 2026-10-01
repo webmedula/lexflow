@@ -620,6 +620,7 @@ function montarLeitor(
       cotaPorPdfBytes: config.leitor.cotaPorPdfBytes,
       cotaPorWorkspaceBytes: config.leitor.cotaPorWorkspaceBytes,
       avisoDiscoBytes: config.leitor.avisoDiscoBytes,
+      confirmarAcimaDe: config.leitor.confirmarAcimaDe,
       // Pior latência medida na sonda de lote (20 peças, 1,8 s).
       segundosPorChamada: 1.8,
     },

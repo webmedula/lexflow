@@ -74,6 +74,39 @@ export function rotasDoLeitor(
       },
     );
 
+    /*
+     * Faixa de tempo e limite de confirmação ANTES de montar — a tela mostra
+     * enquanto o advogado marca as peças. Não consulta o tribunal.
+     */
+    servidor.get<{ Querystring: { pecas?: string } }>(
+      '/v1/leitor/estimativa',
+      async (req) => {
+        const pecas = z.coerce
+          .number()
+          .int()
+          .min(0)
+          .max(MAX_PECAS_POR_PEDIDO)
+          .parse(req.query.pecas ?? '0');
+        return exigirServico().estimar(pecas);
+      },
+    );
+
+    /*
+     * O job mais recente deste processo, para a tela reabrir o PDF que já
+     * existe em vez de pedir tudo ao tribunal de novo. `job: null` quando
+     * nunca houve — não é erro.
+     */
+    servidor.get<{ Params: { numero: string } }>(
+      '/v1/processos/:numero/leitor',
+      async (req) => {
+        const job = await exigirServico().ultimoDoProcesso(
+          workspaceDe(req),
+          req.params.numero,
+        );
+        return { job: job ? visaoDoJob(job) : null };
+      },
+    );
+
     servidor.get<{ Params: Params }>(
       '/v1/processos/:numero/leitor/:jobId',
       async (req) => {

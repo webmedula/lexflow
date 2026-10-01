@@ -2,6 +2,7 @@ import { Linter } from 'eslint';
 import globals from 'globals';
 import { describe, expect, it } from 'vitest';
 import { SCRIPT } from '../../src/main/http/ui/script.js';
+import { SCRIPT_LEITOR } from '../../src/main/http/ui/scriptLeitor.js';
 
 /*
  * O console é JavaScript dentro de uma string.
@@ -22,12 +23,19 @@ import { SCRIPT } from '../../src/main/http/ui/script.js';
  * navegador — mas pega a família inteira de erros que o bug acima representa:
  * variável não declarada, erro de digitação em nome, sintaxe quebrada.
  */
-describe('console web — o JavaScript da interface', () => {
+/*
+ * Os dois scripts da página passam pelas mesmas regras: o do console e, desde
+ * a v0.31.0, o do leitor de peças (arquivo próprio, mesmo regime de string).
+ */
+describe.each([
+  ['console', SCRIPT],
+  ['leitor de peças', SCRIPT_LEITOR],
+])('console web — o JavaScript da interface (%s)', (_nome, codigo) => {
   const linter = new Linter();
 
   /** Roda o ESLint sobre a string, com os globais que um navegador oferece. */
   function analisar() {
-    return linter.verify(SCRIPT, {
+    return linter.verify(codigo, {
       languageOptions: {
         ecmaVersion: 2020,
         sourceType: 'script',

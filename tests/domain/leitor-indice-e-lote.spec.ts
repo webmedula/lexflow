@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { montarIndice, paginasDoIndice } from '../../src/domain/entities/IndicePagina.js';
 import {
+  estimarFaixa,
   estimarSegundos,
   progressoDoJob,
   proximoTamanhoDeLote,
@@ -135,5 +136,19 @@ describe('progresso', () => {
     expect(p).toMatchObject({ total: 3, baixadas: 1, pendentes: 1 });
     expect(p.recusadas[0]).toMatchObject({ pecaId: 'b', motivo: 'sem_teor' });
     expect(p.recusadas[0]?.descricao).toContain('procuração');
+  });
+});
+
+describe('estimativa em faixa (a que a tela mostra)', () => {
+  const OPCOES = { loteInicial: 5, loteMaximo: 20, segundosPorChamada: 1.8, pausaSegundos: 3 };
+
+  it('mínimo: o lote cresce 5, 10, 20…; máximo: o lote nunca cresce', () => {
+    // 278 peças: 5+10+20×13+3 → 16 lotes + 2 = 18 chamadas × 4,8 s ≈ 87 s.
+    // Sem crescer: 56 lotes + 2 = 58 × 4,8 s ≈ 279 s.
+    expect(estimarFaixa(278, OPCOES)).toEqual({ minimoSegundos: 87, maximoSegundos: 279 });
+  });
+
+  it('nenhuma peça, nenhum tempo', () => {
+    expect(estimarFaixa(0, OPCOES)).toEqual({ minimoSegundos: 0, maximoSegundos: 0 });
   });
 });

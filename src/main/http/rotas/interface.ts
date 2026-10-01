@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
@@ -9,6 +9,68 @@ export const ROTA_CONSOLE = '/';
 export const ROTA_FONTES = '/ui/fontes/:arquivo';
 /** Prefixo, para o rate limit deixar as fontes de fora como deixa o console. */
 export const PREFIXO_FONTES = '/ui/fontes/';
+export const ROTA_PDFJS = '/ui/pdfjs/:arquivo';
+export const PREFIXO_PDFJS = '/ui/pdfjs/';
+
+/**
+ * Os arquivos do PDF.js que o leitor carrega, servidos pelo PRÓPRIO servidor.
+ *
+ * Mesma regra das fontes: nada vem de CDN. O console abre atrás do firewall de
+ * um fórum, e os autos do processo não podem depender de um terceiro saber que
+ * alguém está lendo um PDF. É a ÚNICA dependência de front do console (CLAUDE.md
+ * §8), e entra por `import()` dinâmico do painel — a página continua sem
+ * nenhum `<script src>`.
+ *
+ * Lista FECHADA, montada no arranque a partir do pacote: o parâmetro da URL é
+ * só uma chave num mapa, nunca um caminho. Além do motor e do worker, vão as
+ * fontes padrão do PDF (para PDF sem fonte embutida — as páginas que o pdf-lib
+ * gera usam Helvetica sem embutir), o decodificador de JBIG2 (comum em
+ * digitalização) e o perfil de cor.
+ */
+const PASTAS_PDFJS: ReadonlyArray<readonly [pasta: string, filtro: RegExp]> = [
+  // O build `legacy`, e não o padrão: o padrão do pdfjs-dist 6 usa
+  // `Map.prototype.getOrInsertComputed`, recurso de 2025 que navegador de
+  // escritório não atualizado (e o Chromium dos testes) não tem — a página
+  // simplesmente não desenha, sem erro na tela. O legacy traz o polyfill.
+  ['legacy/build', /^pdf(\.worker)?\.min\.mjs$/],
+  ['standard_fonts', /\.(pfb|ttf)$/],
+  ['wasm', /\.(wasm|js)$/],
+  ['iccs', /\.icc$/],
+  ['cmaps', /\.bcmap$/],
+];
+
+const TIPOS_PDFJS: Readonly<Record<string, string>> = {
+  mjs: 'text/javascript; charset=utf-8',
+  js: 'text/javascript; charset=utf-8',
+  wasm: 'application/wasm',
+  ttf: 'font/ttf',
+};
+
+function carregarPdfjs(): Map<string, { readonly bytes: Buffer; readonly tipo: string }> {
+  const exigir = createRequire(import.meta.url);
+  const raiz = dirname(exigir.resolve('pdfjs-dist/package.json'));
+  const mapa = new Map<string, { readonly bytes: Buffer; readonly tipo: string }>();
+  for (const [pasta, filtro] of PASTAS_PDFJS) {
+    for (const nome of readdirSync(join(raiz, pasta))) {
+      if (!filtro.test(nome)) continue;
+      // Um nome repetido entre pastas faria a segunda versão sobrescrever a
+      // primeira sem aviso. Melhor o deploy cair aqui.
+      if (mapa.has(nome))
+        throw new Error(`pdfjs-dist: arquivo repetido entre pastas: ${nome}`);
+      const extensao = nome.slice(nome.lastIndexOf('.') + 1);
+      mapa.set(nome, {
+        bytes: readFileSync(join(raiz, pasta, nome)),
+        tipo: TIPOS_PDFJS[extensao] ?? 'application/octet-stream',
+      });
+    }
+  }
+  if (!mapa.has('pdf.min.mjs') || !mapa.has('pdf.worker.min.mjs')) {
+    throw new Error(
+      'pdfjs-dist sem pdf.min.mjs/pdf.worker.min.mjs — o leitor não abriria',
+    );
+  }
+  return mapa;
+}
 
 /**
  * As fontes do console, servidas pelo PRÓPRIO servidor.
@@ -73,6 +135,9 @@ export function rotasDeInterface(): FastifyPluginAsync {
     // faltar na imagem, o deploy falha na hora em vez de o console aparecer
     // com a fonte do sistema sem ninguém perceber.
     const fontes = carregarFontes();
+    // Também no arranque, pelo mesmo motivo: sem o PDF.js na imagem, o leitor
+    // abriria um painel vazio. O deploy cai aqui, onde a causa é visível.
+    const pdfjs = carregarPdfjs();
 
     servidor.get(ROTA_CONSOLE, async (_requisicao, resposta) => {
       resposta.header('content-type', 'text/html; charset=utf-8');
@@ -93,6 +158,20 @@ export function rotasDeInterface(): FastifyPluginAsync {
       // cache poupam 70 KB a cada abertura do console.
       resposta.header('cache-control', 'public, max-age=2592000');
       return fonte;
+    });
+
+    servidor.get<{ Params: { arquivo: string } }>(ROTA_PDFJS, async (req, resposta) => {
+      const arquivo = pdfjs.get(req.params.arquivo);
+      if (!arquivo) {
+        void resposta.code(404);
+        return { erro: 'NAO_ENCONTRADO', mensagem: 'Arquivo do leitor desconhecido.' };
+      }
+      resposta.header('content-type', arquivo.tipo);
+      resposta.header('x-content-type-options', 'nosniff');
+      // Um dia, e não trinta como as fontes: a versão do PDF.js muda com o
+      // package.json, e o nome do arquivo não carrega a versão.
+      resposta.header('cache-control', 'public, max-age=86400');
+      return arquivo.bytes;
     });
   };
 }
