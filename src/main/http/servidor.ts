@@ -15,6 +15,7 @@ import { rotasDeProcesso } from './rotas/processos.js';
 import { rotasDeAcompanhamento } from './rotas/acompanhamentos.js';
 import { rotasDeVigilancia } from './rotas/vigilancias.js';
 import { rotasDePecas } from './rotas/pecas.js';
+import { rotasDoLeitor } from './rotas/leitor.js';
 import { rotasDoPainel } from './rotas/painel.js';
 import { rotasDeAssinaturas } from './rotas/assinaturas.js';
 import { ROTAS_ADMIN, rotasDeAdmin } from './rotas/admin.js';
@@ -123,6 +124,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(rotasDeProcesso(app));
   void servidor.register(rotasDeAcompanhamento(app.acompanhamento));
   void servidor.register(rotasDePecas(app.pecas, app.assinaturas));
+  void servidor.register(rotasDoLeitor(app.leitor, app.assinaturas));
   void servidor.register(rotasDoPainel(app.acompanhamento, app.pecas));
   void servidor.register(rotasDeAssinaturas(app.assinaturas, app.planos));
   void servidor.register(rotasDeVigilancia(app.vigilancia, app.preferenciasNotificacao));
@@ -245,6 +247,8 @@ export async function iniciar(app: Aplicacao, config: Config): Promise<FastifyIn
   // ritmo da rápida — e é na rápida que estão as publicações que abrem prazo.
   app.agendadorVigilancia?.iniciar();
   app.agendadorBackup?.iniciar();
+  app.agendadorLeitor?.iniciar();
+  app.agendadorLimpezaLeitor?.iniciar();
 
   app.logger.info('Processo Vivo no ar', {
     versao: VERSAO,

@@ -66,7 +66,12 @@ export function lerRespostaSoap(contentType: string, corpo: Uint8Array): Respost
     throw new MultipartInvalidoError('o content-type multipart não trouxe boundary');
   }
 
-  const partes = separarPartes(Buffer.from(corpo), boundary);
+  // Vista sobre os mesmos bytes, sem cópia. `Buffer.from(corpo)` copiaria a
+  // resposta inteira — e a resposta de um lote do leitor tem megabytes.
+  const partes = separarPartes(
+    Buffer.from(corpo.buffer, corpo.byteOffset, corpo.byteLength),
+    boundary,
+  );
   if (partes.length === 0) {
     throw new MultipartInvalidoError('nenhuma parte encontrada entre os delimitadores');
   }
@@ -166,10 +171,14 @@ function interpretarParte(bloco: Buffer): ParteMultipart | undefined {
   // `binary` é o normal no MTOM, mas `base64` aparece em implementações mais
   // antigas. Ignorar essa linha entregaria ao usuário um "PDF" que é o base64
   // do PDF, e o erro só apareceria na hora de abrir o arquivo.
+  //
+  // `binary` devolve uma VISTA sobre a resposta, não uma cópia: medido com
+  // respostas sintéticas de 3 a 48 MB, a cópia por anexo era a maior parcela
+  // do pico de memória de um lote (ver `docs/leitor-medicoes-v0.30.0.md`). A
+  // vista segura a resposta inteira viva enquanto algum anexo estiver em uso;
+  // quem guarda o arquivo (o leitor) grava em disco e solta logo em seguida.
   const conteudo =
-    codificacao === 'base64'
-      ? Buffer.from(bytes.toString('ascii'), 'base64')
-      : Buffer.from(bytes);
+    codificacao === 'base64' ? Buffer.from(bytes.toString('ascii'), 'base64') : bytes;
 
   return { id, contentType, bytes: conteudo };
 }

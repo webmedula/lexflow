@@ -111,12 +111,17 @@ describe('painel', () => {
     expect(lista[0]?.['bytes']).toBe(5);
   });
 
-  it('o registro guarda METADADO, nunca o arquivo', async () => {
+  it('o registro da peça AVULSA guarda metadado, nunca o arquivo', async () => {
     /*
-     * A regra que não pode ser afrouxada sem decisão explícita: são autos de
-     * processo, muitos em segredo de justiça. Guardá-los criaria uma obrigação
-     * de custódia que o produto não precisa assumir para funcionar — e um
-     * vazamento de disco nosso viraria vazamento de processo alheio.
+     * A regra mudou na v0.30.0, por decisão do dono (29/09/2026), e mudou só
+     * para o PDF COMBINADO do leitor: esse fica em disco, por workspace, com
+     * prazo de guarda, cota e limpeza (ver `tests/http/leitor.spec.ts` e o
+     * CLAUDE.md §8). O download avulso continua como era — vai do tribunal
+     * direto para a máquina do advogado, e o registro dele é só metadado.
+     *
+     * Este teste fixa as chaves para que nenhum campo de conteúdo ou de
+     * caminho em disco entre aqui por descuido: são autos de processo, muitos
+     * em segredo de justiça.
      */
     await baixar();
     const lista = (await painel())['pecasBaixadas'] as unknown as Array<

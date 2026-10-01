@@ -18,6 +18,11 @@ jobs:
 
       - run: npm ci
 
+      # O leitor de peças monta PDF com qpdf, e os testes dele rodam o qpdf de
+      # verdade — é a única forma de provar que o índice bate com o arquivo.
+      - name: Ferramentas de PDF
+        run: sudo apt-get update && sudo apt-get install -y qpdf
+
       - name: Typecheck
         run: npm run typecheck
 

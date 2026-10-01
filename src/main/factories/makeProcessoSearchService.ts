@@ -2,6 +2,14 @@ import { ProcessoSearchService } from '../../application/services/ProcessoSearch
 import { ServicoAcompanhamento } from '../../application/services/ServicoAcompanhamento.js';
 import { ServicoNotificacao } from '../../application/services/ServicoNotificacao.js';
 import { ServicoPecas } from '../../application/services/ServicoPecas.js';
+import { ServicoLeitor } from '../../application/services/ServicoLeitor.js';
+import { createHmac, randomBytes } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import type { CredencialTribunal } from '../../domain/ports/ProvedorDePecas.js';
+import { ArmazemEmDisco } from '../../infrastructure/arquivos/ArmazemEmDisco.js';
+import { QpdfMontador } from '../../infrastructure/pdf/QpdfMontador.js';
+import { FilaDeJobsSqlite } from '../../infrastructure/persistencia/sqlite/FilaDeJobsSqlite.js';
 import { ServicoVigilanciaOab } from '../../application/services/ServicoVigilanciaOab.js';
 import type { BuscaPorOabComPeriodo } from '../../application/services/ServicoVigilanciaOab.js';
 import { Agendador } from '../../infrastructure/agenda/Agendador.js';
@@ -79,6 +87,14 @@ export interface Aplicacao {
    * 501 com a instrução, em vez de existirem e falharem na primeira consulta.
    */
   readonly pecas: ServicoPecas | undefined;
+  /**
+   * Leitor de peças (v0.30.0): PDF combinado com índice. `undefined` sem
+   * acesso a peças ou sem o `qpdf` instalado — as rotas respondem 501.
+   */
+  readonly leitor: ServicoLeitor | undefined;
+  /** Executor da fila do leitor (a cada minuto) e limpeza por prazo (a cada hora). */
+  readonly agendadorLeitor: Agendador | undefined;
+  readonly agendadorLimpezaLeitor: Agendador | undefined;
   /** Contas de assinante. Cada uma nasce com o próprio `workspace`. */
   readonly contas: ServicoContas;
   /**
@@ -346,7 +362,28 @@ export function montarAplicacao(config: Config): Aplicacao {
   // tenha as publicações do DJEN que o tribunal não numera. Cai em cache, então
   // não custa consulta nova quando a tela acabou de carregar o processo.
   const buscarProcessoPorNumero = new BuscarProcessoPorNumero(provider);
-  const pecas = montarServicoPecas(config, db, logger, buscarProcessoPorNumero);
+  const { pecas, leitor } = montarServicoPecas(config, db, logger, buscarProcessoPorNumero);
+
+  // O executor do leitor acorda a cada minuto para retomar job pausado por
+  // bloqueio e pegar o que um redeploy interrompeu; o pedido novo não espera
+  // por ele (`aoEnfileirar` dispara na hora). A limpeza por prazo é horária:
+  // o TTL é de horas, e a precisão de minutos não compraria nada.
+  const agendadorLeitor = leitor
+    ? new Agendador({
+        intervaloHoras: 1 / 60,
+        atrasoInicialMs: 15_000,
+        logger,
+        tarefa: () => leitor.processarFila(),
+      })
+    : undefined;
+  const agendadorLimpezaLeitor = leitor
+    ? new Agendador({
+        intervaloHoras: 1,
+        atrasoInicialMs: 60_000,
+        logger,
+        tarefa: () => leitor.limparExpirados(),
+      })
+    : undefined;
 
   const agendadorVigilancia =
     vigilancia && config.vigilancia.intervaloHoras > 0
@@ -396,6 +433,9 @@ export function montarAplicacao(config: Config): Aplicacao {
     vigilancia,
     notificacao,
     pecas,
+    leitor,
+    agendadorLeitor,
+    agendadorLimpezaLeitor,
     contas,
     assinaturas,
     usuarios,
@@ -419,6 +459,8 @@ export function montarAplicacao(config: Config): Aplicacao {
       agendador.parar();
       agendadorVigilancia?.parar();
       agendadorBackup?.parar();
+      agendadorLeitor?.parar();
+      agendadorLimpezaLeitor?.parar();
       db.close();
     },
   };
@@ -438,13 +480,14 @@ function montarServicoPecas(
   db: ReturnType<typeof abrirBanco>,
   logger: Logger,
   processos: BuscarProcessoPorNumero,
-): ServicoPecas | undefined {
+): { pecas: ServicoPecas | undefined; leitor: ServicoLeitor | undefined } {
+  const nada = { pecas: undefined, leitor: undefined };
   if (pareceValorDeExemplo(config.mni.chaveDoCofre)) {
     logger.warn(
       'acesso a peças desligado: PROCESSOVIVO_CREDENCIAL_CHAVE ainda contém o texto de exemplo',
       { acao: 'gere uma chave real com `npm run chave -- --cofre`' },
     );
-    return undefined;
+    return nada;
   }
   if (!config.mni.chaveDoCofre) {
     logger.warn('acesso a peças desligado: PROCESSOVIVO_CREDENCIAL_CHAVE não definida', {
@@ -452,7 +495,7 @@ function montarServicoPecas(
         'sem cofre, a senha do advogado no tribunal só poderia ser guardada em claro',
       acao: 'gere uma chave com `npm run chave -- --cofre`',
     });
-    return undefined;
+    return nada;
   }
 
   let cofre: Cofre;
@@ -465,15 +508,21 @@ function montarServicoPecas(
     logger.error('acesso a peças desligado: chave do cofre inválida', {
       motivo: erro instanceof Error ? erro.message : String(erro),
     });
-    return undefined;
+    return nada;
   }
 
   const credenciais = new RepositorioCredenciaisSqlite(db, cofre, logger);
+  // UM adapter, e portanto UM balde e UM disjuntor de 403, para tudo que fala
+  // com o MNI: peça avulsa, régua do processo e leitor. Um segundo `new
+  // MniAdapter` aqui daria ao leitor um balde próprio — e dois baldes de 30
+  // somam acima do teto relatado do tribunal. Há teste que falha se isso
+  // acontecer.
   const provedor = new MniAdapter({
     endpoint: config.mni.endpoint,
     tribunais: config.mni.tribunais,
     timeoutMs: config.mni.timeoutMs,
     limitePorMinuto: config.mni.limitePorMinuto,
+    pausaApos403Ms: config.mni.pausaApos403Ms,
     logger,
   });
 
@@ -482,7 +531,7 @@ function montarServicoPecas(
     tribunais: config.mni.tribunais,
   });
 
-  return new ServicoPecas({
+  const pecas = new ServicoPecas({
     listar: new ListarPecasDoProcesso(provedor, credenciais),
     baixar: new BaixarPecaDoProcesso(provedor, credenciais),
     credenciais,
@@ -490,6 +539,92 @@ function montarServicoPecas(
     processos,
     baixadas: new RepositorioPecasBaixadasSqlite(db),
   });
+
+  return {
+    pecas,
+    leitor: montarLeitor(config, db, logger, processos, provedor, credenciais),
+  };
+}
+
+/**
+ * O leitor de peças, sobre o MESMO adapter das peças.
+ *
+ * Sem `qpdf` no PATH o leitor não sobe, e diz por quê. Montar e falhar na
+ * primeira combinação deixaria o advogado esperar minutos de download para
+ * receber um erro no fim.
+ */
+function montarLeitor(
+  config: Config,
+  db: ReturnType<typeof abrirBanco>,
+  logger: Logger,
+  processos: BuscarProcessoPorNumero,
+  provedor: MniAdapter,
+  credenciais: RepositorioCredenciaisSqlite,
+): ServicoLeitor | undefined {
+  if (!QpdfMontador.disponivelSync(config.leitor.qpdf)) {
+    logger.warn('leitor de peças desligado: qpdf não encontrado', {
+      binario: config.leitor.qpdf,
+      acao: 'instale o qpdf (Alpine: apk add qpdf) ou ajuste LEITOR_QPDF',
+    });
+    return undefined;
+  }
+
+  // Ao lado do banco, no volume — e fora do backup, que copia o banco e não a
+  // pasta. Banco em memória (teste, diagnóstico) usa uma pasta temporária.
+  const pasta =
+    config.leitor.pasta ||
+    (config.banco.caminho === ':memory:'
+      ? join(tmpdir(), `processovivo-leitor-${process.pid}`)
+      : join(dirname(config.banco.caminho), 'leitor'));
+
+  // A procedência mostra QUAL credencial baixou o arquivo sem mostrar a
+  // credencial. HMAC com a chave do cofre, e não hash simples: CPF tem 10^11
+  // valores, e oito hex de um SHA-256 puro se revertem por força bruta.
+  const chave = Buffer.from(config.mni.chaveDoCofre, 'base64');
+  const identificarCredencial = (workspace: string, c: CredencialTribunal): string =>
+    createHmac('sha256', chave)
+      .update(`leitor\0${workspace}\0${c.tribunal}\0${c.identificacao}`)
+      .digest('hex')
+      .slice(0, 8);
+
+  logger.info('leitor de peças habilitado', {
+    loteInicial: config.leitor.loteInicial,
+    loteMaximo: config.leitor.loteMaximo,
+    ttlHoras: config.leitor.ttlMs / 3_600_000,
+  });
+
+  const leitor: ServicoLeitor = new ServicoLeitor({
+    provedor,
+    credenciais,
+    fila: new FilaDeJobsSqlite(db),
+    armazem: new ArmazemEmDisco(pasta),
+    montador: new QpdfMontador({ binario: config.leitor.qpdf }),
+    logger,
+    processos,
+    identificarCredencial,
+    gerarId: () => randomBytes(16).toString('hex'),
+    aoEnfileirar: () => {
+      void leitor.processarFila().catch((erro: unknown) => {
+        logger.error('executor do leitor falhou', {
+          erro: erro instanceof Error ? erro.message : String(erro),
+        });
+      });
+    },
+    config: {
+      inicial: config.leitor.loteInicial,
+      maximo: config.leitor.loteMaximo,
+      limiteRespostaBytes: config.leitor.limiteRespostaBytes,
+      limiarCrescimentoBytes: config.leitor.limiarCrescimentoBytes,
+      pausaEntreChamadasMs: config.leitor.pausaEntreChamadasMs,
+      ttlMs: config.leitor.ttlMs,
+      cotaPorPdfBytes: config.leitor.cotaPorPdfBytes,
+      cotaPorWorkspaceBytes: config.leitor.cotaPorWorkspaceBytes,
+      avisoDiscoBytes: config.leitor.avisoDiscoBytes,
+      // Pior latência medida na sonda de lote (20 peças, 1,8 s).
+      segundosPorChamada: 1.8,
+    },
+  });
+  return leitor;
 }
 
 /**

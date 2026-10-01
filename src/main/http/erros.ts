@@ -8,6 +8,11 @@ import {
   CredencialTribunalInvalidaError,
   DomainError,
   EmailJaCadastradoError,
+  JobDoLeitorNaoEncontradoError,
+  LeitorAindaNaoProntoError,
+  LimiteDeArmazenamentoExcedidoError,
+  MniBloqueadoError,
+  SegredoDeJusticaNaoGuardadoError,
   NumeroCNJInvalidoError,
   OabInvalidaError,
   OperacaoNaoSuportadaError,
@@ -91,9 +96,27 @@ export function mapearErro(erro: unknown): RespostaDeErro {
 
   if (
     erro instanceof ProcessoNaoEncontradoError ||
-    erro instanceof ChaveApiNaoEncontradaError
+    erro instanceof ChaveApiNaoEncontradaError ||
+    erro instanceof JobDoLeitorNaoEncontradoError
   ) {
     return { status: 404, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 409: o pedido é válido e o PDF existirá — ainda não existe. A tela
+  // consulta o progresso em vez de tratar como erro.
+  if (erro instanceof LeitorAindaNaoProntoError) {
+    return { status: 409, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 413: o conteúdo pedido não cabe na guarda temporária. É do cliente (dividir
+  // a seleção, esperar o prazo), não 5xx — não é falha nossa nem rio acima.
+  if (erro instanceof LimiteDeArmazenamentoExcedidoError) {
+    return { status: 413, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 403: não é que não possa ver — é que não guardamos. A mensagem diz o caminho.
+  if (erro instanceof SegredoDeJusticaNaoGuardadoError) {
+    return { status: 403, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 
   if (erro instanceof OperacaoNaoSuportadaError) {
@@ -150,6 +173,22 @@ export function mapearErro(erro: unknown): RespostaDeErro {
         erro: erro.codigo,
         mensagem: 'Nenhuma fonte de dados respondeu. Tente novamente em instantes.',
         detalhes: erro.tentativas,
+      },
+    };
+  }
+
+  // Antes do ramo genérico de indisponibilidade: o 403 do tribunal tem hora
+  // para acabar, e dizer QUANDO é o que evita a pessoa insistir — cada
+  // insistência durante o bloqueio é mais uma batida na mesma porta.
+  if (erro instanceof MniBloqueadoError) {
+    return {
+      status: 503,
+      corpo: {
+        erro: erro.codigo,
+        mensagem:
+          'O tribunal bloqueou temporariamente as consultas deste servidor. ' +
+          `Tente de novo depois de ${erro.retomarEm.toISOString()}.`,
+        detalhes: { retomarEm: erro.retomarEm.toISOString() },
       },
     };
   }

@@ -85,6 +85,30 @@ export interface ProvedorDePecas {
   ): Promise<ConteudoPeca>;
 
   /**
+   * Os arquivos de VÁRIAS peças numa consulta só.
+   *
+   * Existe porque cada consulta ao MNI paga um pedágio fixo — a linha do tempo
+   * inteira, ≈ 180 KB, sem a qual o tribunal não manda documento nenhum — e
+   * gasta uma ficha do limite do IP, que é um só para todos os assinantes.
+   * Medido no TJGO (sonda de lote, 01/10/2026): 20 peças numa chamada, todas
+   * idênticas às baixadas uma a uma, em 1,8 s. Pedir uma por vez seriam 278
+   * chamadas para um processo; em lote, 14 a 28.
+   *
+   * NÃO lança por peça faltante: uma resposta com sucesso pode trazer só parte
+   * do que foi pedido, e isso é informação (`ausentes`, `semTeor`), não erro.
+   * Lança apenas o que vale para a consulta inteira — credencial recusada,
+   * bloqueio, falta de habilitação, rede.
+   *
+   * Opcional porque nem toda fonte entrega mais de um arquivo por resposta;
+   * quem precisa dele e não o encontra trata como operação não suportada.
+   */
+  obterConteudosEmLote?(
+    numeroProcesso: string,
+    idsPecas: readonly string[],
+    credencial: CredencialTribunal,
+  ): Promise<LoteDePecas>;
+
+  /**
    * Assinatura barata do estado do processo, para detectar mudança sem baixar
    * nada. `undefined` quando a fonte não oferece esse atalho.
    *
@@ -106,6 +130,23 @@ export interface AtosDoProcesso {
    * Vazia quando a fonte responde sem movimentos.
    */
   readonly movimentos: readonly Movimentacao[];
+  /**
+   * Nível de sigilo DO PROCESSO na origem (0 é público), quando a fonte informa.
+   * É o que impede o leitor de guardar em disco um processo sob segredo de
+   * justiça mesmo quando as fontes públicas não souberam dizer.
+   */
+  readonly nivelSigiloDoProcesso?: number;
+}
+
+/** O que voltou de um pedido em lote, peça por peça. */
+export interface LoteDePecas {
+  readonly conteudos: readonly ConteudoPeca[];
+  /** O documento veio na resposta, sem o arquivo. */
+  readonly semTeor: readonly string[];
+  /** O documento nem apareceu na resposta. */
+  readonly ausentes: readonly string[];
+  /** Peso da resposta inteira, em bytes — é o que adapta o lote seguinte. */
+  readonly bytesResposta: number;
 }
 
 export interface AssinaturaDeMudanca {

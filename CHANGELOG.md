@@ -9,6 +9,69 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.30.0] — 2026-10-01
+
+Leitor de peças, **Etapa 1 — combinar** (especificação
+`leitor-e-analise-especificacao-v1.2.1`, seções 4, 7 e 8). O advogado marca
+peças e o sistema entrega **um PDF único**, na ordem dos autos, com índice de
+páginas. A tela (Etapa 2: painel ao lado, PDF.js) ainda não existe — esta
+entrega é a API e o motor.
+
+### Adicionado
+
+- **Rotas do leitor**: `POST /v1/processos/:numero/leitor` (cria o job, 202,
+  com estimativa de tempo pela medição), `GET .../leitor/:jobId` (progresso:
+  baixadas, total, recusadas com o motivo, estado), `GET .../pdf` (com
+  `Range`/`Accept-Ranges: bytes`, PDF linearizado), `GET .../indice` e
+  `POST .../atualizar`. Toda resposta traz a procedência (MNI, quando foi
+  baixado, identificador não reversível da credencial, `aoVivo: false`).
+- **Download em lote adaptativo**: `obterConteudosEmLote` na porta
+  `ProvedorDePecas`, várias peças numa consulta MNI (medido até 20). Lote
+  inicial 10, máximo 20; resposta acima de `LEITOR_LOTE_MAX_RESPOSTA_MB` corta o
+  próximo pela metade, e ele nunca volta a crescer. Peça ausente numa resposta
+  com sucesso é pedida uma vez sozinha no fim; se continuar ausente, fica no
+  índice como não obtida.
+- **Disjuntor global de 403** no `MniAdapter`: um 403 pausa TODAS as consultas
+  MNI por `MNI_PAUSA_APOS_403_MIN` (padrão 30), sem gastar nem ficha do balde.
+  Jobs ficam `pausado_por_bloqueio` e retomam sozinhos; a rota avulsa responde
+  503 com a hora de retomada.
+- **Fila mínima em SQLite** (`jobs_leitor`): um job por vez, sobrevive a
+  redeploy sem baixar de novo o que já veio.
+- **Montagem com qpdf** (argumentos em vetor, linearizado): PDF entra como
+  veio, imagem vira página, e o que não deu — vazio, corrompido, protegido,
+  recusado, sigiloso, formato estranho — vira **página de aviso** com o
+  motivo. As páginas do índice são contadas do arquivo gerado e conferidas.
+- **Guarda temporária em disco** (`/dados/leitor`), por workspace, com prazo
+  (24 h), cota (300 MB por PDF, 1 GB por workspace), nome aleatório, fora do
+  backup, limpeza horária e registro do uso de disco no log.
+- `qpdf` e `poppler-utils` na imagem.
+- `scripts/sonda-html.mjs` (mede só a FORMA de 2–3 HTMLs reais, 2 requisições;
+  não foi executada) e `scripts/medir-memoria-lote.mjs`.
+- `docs/leitor-medicoes-v0.30.0.md`: as medições (qpdf 37 MB contra +357 MB do
+  pdf-lib para 160 MB de PDFs; memória do lote) e a proposta para HTML.
+
+### Mudado
+
+- **O PDF combinado fica em disco** — decisão do dono (29/09/2026) que reverte
+  "nenhum arquivo de peça no nosso disco". A peça avulsa continua sem guarda.
+  CLAUDE.md §8 reescrito; o teste que fixa as chaves do registro de downloads
+  passa a dizer que vale para a peça avulsa.
+- O leitor de MTOM devolve **vistas** sobre a resposta em vez de copiar cada
+  anexo: ler um lote de 48 MB passou de +75 MB para +8 MB de memória.
+- O 403 do MNI agora é `MniBloqueadoError` (continua sendo
+  `ProviderIndisponivelError`, continua 503).
+
+### Ainda não
+
+- **HTML (~30% das peças)** não é incorporado: aparece como
+  `html_nao_incorporada` com página de aviso, e o conteúdo não chega a lugar
+  nenhum. A estratégia (renderizar no PDF ou mostrar fora, sanitizado) aguarda
+  decisão do dono depois de medir a forma real.
+- Processo em **segredo de justiça** não tem PDF guardado (padrão da
+  especificação até decisão do dono).
+- Não há exclusão de conta no produto; a limpeza do leitor para ela existe
+  (`apagarDoWorkspace`) e está testada.
+
 ## [0.29.1] — 2026-09-29
 
 Dois ajustes relatados pelo dono do produto logo depois de instalar a v0.29.0.
