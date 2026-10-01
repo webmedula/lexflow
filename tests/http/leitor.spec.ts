@@ -8,6 +8,7 @@ import { construirServidor } from '../../src/main/http/servidor.js';
 import { aplicacaoDeTeste } from '../helpers/aplicacao.js';
 import { ProviderFalso } from '../helpers/fabricas.js';
 import {
+  OUTRO_PROCESSO,
   PROCESSO_TJGO,
   ProvedorDeLoteFalso,
   pastaTemporaria,
@@ -209,7 +210,7 @@ describe('API — leitor de peças', () => {
   it('o id do job com o número de OUTRO processo não abre nada', async () => {
     const jobId = await combinar(A);
     const r = await servidor.inject({
-      url: `/v1/processos/1234567-47.2023.8.26.0100/leitor/${jobId}/pdf`,
+      url: `/v1/processos/${OUTRO_PROCESSO}/leitor/${jobId}/pdf`,
       headers: A,
     });
     expect(r.statusCode).toBe(404);

@@ -26,17 +26,22 @@ entrega é a API e o motor.
   `POST .../atualizar`. Toda resposta traz a procedência (MNI, quando foi
   baixado, identificador não reversível da credencial, `aoVivo: false`).
 - **Download em lote adaptativo**: `obterConteudosEmLote` na porta
-  `ProvedorDePecas`, várias peças numa consulta MNI (medido até 20). Lote
-  inicial 10, máximo 20; resposta acima de `LEITOR_LOTE_MAX_RESPOSTA_MB` corta o
-  próximo pela metade, e ele nunca volta a crescer. Peça ausente numa resposta
+  `ProvedorDePecas`, várias peças numa consulta MNI (medido até 20). O
+  primeiro lote é de 5 peças — o único pedido sem saber o tamanho das
+  respostas —, e só dobra (10, 20) depois de uma resposta leve; resposta acima
+  de `LEITOR_LOTE_MAX_RESPOSTA_MB` corta o próximo pela metade, e ele nunca
+  volta a crescer. Peça ausente numa resposta
   com sucesso é pedida uma vez sozinha no fim; se continuar ausente, fica no
   índice como não obtida.
 - **Disjuntor global de 403** no `MniAdapter`: um 403 pausa TODAS as consultas
   MNI por `MNI_PAUSA_APOS_403_MIN` (padrão 30), sem gastar nem ficha do balde.
   Jobs ficam `pausado_por_bloqueio` e retomam sozinhos; a rota avulsa responde
   503 com a hora de retomada.
-- **Fila mínima em SQLite** (`jobs_leitor`): um job por vez, sobrevive a
-  redeploy sem baixar de novo o que já veio.
+- **Fila mínima em SQLite** (`jobs_leitor`): um job do leitor por vez no
+  processo INTEIRO (trava de módulo, não só por credencial — dois jobs em
+  paralelo somariam o pico de memória), sobrevive a redeploy sem baixar de
+  novo o que já veio. O PDF não é apagado no logout, só pelo prazo ou na
+  exclusão de conta.
 - **Montagem com qpdf** (argumentos em vetor, linearizado): PDF entra como
   veio, imagem vira página, e o que não deu — vazio, corrompido, protegido,
   recusado, sigiloso, formato estranho — vira **página de aviso** com o
@@ -46,7 +51,7 @@ entrega é a API e o motor.
   backup, limpeza horária e registro do uso de disco no log.
 - `qpdf` e `poppler-utils` na imagem.
 - `scripts/sonda-html.mjs` (mede só a FORMA de 2–3 HTMLs reais, 2 requisições;
-  não foi executada) e `scripts/medir-memoria-lote.mjs`.
+  `--seco` e `--help`; o histograma só imprime nomes de tag conhecidos) e `scripts/medir-memoria-lote.mjs`.
 - `docs/leitor-medicoes-v0.30.0.md`: as medições (qpdf 37 MB contra +357 MB do
   pdf-lib para 160 MB de PDFs; memória do lote) e a proposta para HTML.
 
@@ -60,6 +65,12 @@ entrega é a API e o motor.
   anexo: ler um lote de 48 MB passou de +75 MB para +8 MB de memória.
 - O 403 do MNI agora é `MniBloqueadoError` (continua sendo
   `ProviderIndisponivelError`, continua 503).
+
+### Testes
+
+- Os testes do leitor usam números de processo SINTÉTICOS (`9999901-96.2026.8.09.9999`),
+  nenhum nome de pessoa e PDFs gerados por biblioteca. A primeira versão desta
+  entrega reaproveitava um número real do TJGO de um teste antigo; foi trocado.
 
 ### Ainda não
 

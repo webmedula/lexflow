@@ -33,9 +33,10 @@
  *  - aborta em 403, 429, 5xx, `sucesso: false` ou timeout;
  *  - a senha não vai para stdout, stderr, log nem arquivo.
  *
- * Uso (depois de `npm run build`):
+ * Uso (no contêiner da 0.30.0 o `dist/` já existe; fora dele, `npm run build`):
  *   node scripts/sonda-html.mjs <numero-cnj> [--workspace=<nome>] [--quantos=2|3]
  *   node scripts/sonda-html.mjs --seco <numero-cnj>     (só o plano; nada é enviado)
+ *   node scripts/sonda-html.mjs --help
  */
 import { setTimeout as dormir } from 'node:timers/promises';
 
@@ -43,6 +44,23 @@ const VERSAO = '1.0.0';
 const INTERVALO_MS = 3000;
 
 const entrada = process.argv.slice(2);
+
+const AJUDA = `sonda-html v${VERSAO} — mede só a FORMA de 2 ou 3 peças HTML de um processo.
+
+Uso:
+  node scripts/sonda-html.mjs <numero-cnj> [--workspace=<nome>] [--quantos=2|3]
+  node scripts/sonda-html.mjs --seco <numero-cnj>   mostra o plano; não abre o banco nem fala com o tribunal
+  node scripts/sonda-html.mjs --help
+
+Requisições ao tribunal: 2 (1 listagem + 1 lote com até 3 HTMLs), 3 s entre elas, sem repetição.
+Aborta em 403, 429, 5xx, sucesso:false ou timeout. Recusa-se a rodar com credencial já recusada.
+Imprime só estrutura (tags, tabelas, imagens por tipo de origem, contagens). Não grava nada em disco.
+--workspace é obrigatório quando há mais de uma credencial do tribunal cadastrada.`;
+
+if (entrada.includes('--help') || entrada.includes('-h')) {
+  console.log(AJUDA);
+  process.exit(0);
+}
 const seco = entrada.includes('--seco');
 const workspaceArg = entrada.find((a) => a.startsWith('--workspace='))?.split('=')[1];
 const quantos = Math.min(
@@ -51,7 +69,7 @@ const quantos = Math.min(
 );
 const [numeroBruto] = entrada.filter((a) => !a.startsWith('--'));
 if (!numeroBruto) {
-  console.error('Uso: node scripts/sonda-html.mjs <numero-cnj> [--workspace=<nome>] [--quantos=2|3]');
+  console.error(AJUDA);
   process.exit(1);
 }
 
@@ -155,11 +173,23 @@ console.log(
 );
 
 // --- análise de FORMA ----------------------------------------------------------
+// Só nomes de tag HTML conhecidos saem no histograma; o resto vira "outras".
+// Sem esta lista, um texto como "<Fulano" num HTML malformado sairia na tela
+// como se fosse nome de tag — e o propósito da sonda é não imprimir texto.
+const TAGS_CONHECIDAS = new Set(
+  ('html head body title meta link style script noscript base div span p br hr ' +
+    'h1 h2 h3 h4 h5 h6 b strong i em u s small sub sup font center pre code blockquote ' +
+    'ul ol li dl dt dd table thead tbody tfoot tr td th caption col colgroup img figure ' +
+    'a form input select option textarea button label iframe object embed svg canvas ' +
+    'section article header footer nav main aside o:p').split(' '),
+);
+
 function forma(bytes) {
   const html = Buffer.from(bytes).toString('latin1');
   const tags = {};
   for (const m of html.matchAll(/<\s*([a-zA-Z][a-zA-Z0-9:-]*)\b/g)) {
-    const t = m[1].toLowerCase();
+    const bruto = m[1].toLowerCase();
+    const t = TAGS_CONHECIDAS.has(bruto) ? bruto : 'outras';
     tags[t] = (tags[t] ?? 0) + 1;
   }
   // Tabelas: linhas e colunas máximas por tabela, sem olhar o texto das células.

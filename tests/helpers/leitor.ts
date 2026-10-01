@@ -13,9 +13,17 @@ import type {
   ProvedorDePecas,
 } from '../../src/domain/ports/ProvedorDePecas.js';
 
-/** Processo do TJGO com dígito verificador válido (o mesmo de `pecas.spec`). */
-export const PROCESSO_TJGO = '5818922-04.2026.8.09.0011';
-export const PROCESSO_TJGO_DIGITOS = '58189220420268090011';
+/**
+ * Número SINTÉTICO no TJGO (8.09), com dígito verificador válido.
+ *
+ * Sequencial 99999xx e origem 9999 de propósito: o repositório é público, e
+ * os testes do leitor não usam número de processo real (ver CLAUDE.md §6).
+ * Gerado com a mesma conta de `construirNumeroValido` (NumeroCNJ.spec).
+ */
+export const PROCESSO_TJGO = '9999901-96.2026.8.09.9999';
+export const PROCESSO_TJGO_DIGITOS = '99999019620268099999';
+/** Sintético no TJSP (8.26), para "o número de OUTRO processo". */
+export const OUTRO_PROCESSO = '9999902-10.2026.8.26.9999';
 
 export class ClockFalso implements Clock {
   ms = new Date('2026-10-01T12:00:00.000Z').getTime();

@@ -67,7 +67,7 @@ export const hashDeTeste: HashDeSenha = {
 
 /** Os valores de produção, sem pausa real: o teste injeta `esperar`. */
 export const CONFIG_LEITOR_DE_TESTE: ConfiguracaoLeitor = {
-  inicial: 10,
+  inicial: 5,
   maximo: 20,
   limiteRespostaBytes: 12 * 1_048_576,
   limiarCrescimentoBytes: 3 * 1_048_576,

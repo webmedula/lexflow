@@ -58,12 +58,19 @@ porque o `fetch` acumula os pedaços e depois concatena; leitura +8 MB).
 - Com o limite padrão de **12 MB**: ≈ **70 MB** acima do repouso do processo
   (que a sonda mediu em ~63 MB). Cabe com folga num contêiner de 512 MB.
 - O limite **corta o lote seguinte**, não o atual: a listagem não diz o tamanho
-  de nada, e só a resposta anterior informa. O primeiro lote (10 peças) é o
-  risco: com 10 peças do tamanho da maior já vista (3,9 MB), a resposta teria
-  ~39 MB e o pico seria ~150 MB. Medido no mesmo processo, só 1 em 279 peças
-  tinha esse tamanho.
-- Se o contêiner tiver teto de memória baixo (256 MB), use
-  `LEITOR_LOTE_INICIAL=5` e `LEITOR_LOTE_MAX_RESPOSTA_MB=8`.
+  de nada, e só a resposta anterior informa. O primeiro lote é, portanto, o
+  único pedido às cegas — e por isso ele é de **5 peças** (decisão do dono,
+  01/10/2026), não de 10. Pior caso: 5 peças do tamanho da maior já vista
+  (3,9 MB) → resposta de ~20 MB → pico de **~90 MB** (com 10 seriam ~150 MB).
+  O lote só dobra (5 → 10 → 20) depois de uma resposta abaixo de
+  `LEITOR_LOTE_CRESCER_ABAIXO_MB` (3 MB), ou seja, quando o próximo lote,
+  com o dobro de peças, ficaria na casa de 6 MB — metade do limite.
+- **Um job do leitor por vez no processo inteiro**, não só por credencial: dois
+  jobs em paralelo somariam os picos. A trava é do módulo (vale até para uma
+  segunda instância do serviço), e há teste que falha se dois lotes correrem
+  ao mesmo tempo.
+- Se o contêiner tiver teto de memória baixo (256 MB), use também
+  `LEITOR_LOTE_MAX_RESPOSTA_MB=8`.
 
 **Não medido:** resposta real de dezenas de MB do tribunal, e o comportamento
 do tribunal acima de 20 peças por chamada.

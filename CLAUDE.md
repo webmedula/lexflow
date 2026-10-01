@@ -826,7 +826,9 @@ Não são detalhes — moldam o código.
   hash do workspace — há teste de que o B nunca lê o arquivo do A); **prazo**
   (`LEITOR_TTL_HORAS`, 24 h, limpo pelo `Agendador`); **cota** por PDF e por
   workspace; **nome aleatório, fora do diretório servido e fora do backup**
-  (o backup copia o banco, não `leitor/`); **apagado na exclusão de conta**
+  (o backup copia o banco, não `leitor/`); **NÃO apagado no logout** (sair num
+  aparelho apagaria o PDF que a pessoa lê em outro — decisão do dono,
+  01/10/2026); **apagado na exclusão de conta**
   (`ServicoLeitor.apagarDoWorkspace`); e **processo em segredo de justiça não é
   guardado** — nem peça com `nivelSigilo > 0`. Os arquivos de trabalho (as peças
   baixadas para montar) são apagados assim que o PDF fica pronto.
@@ -849,7 +851,12 @@ Não são detalhes — moldam o código.
 - **Lote se adapta por BYTES.** A listagem não diz o tamanho de nada (2 KB a
   3,9 MB, medido); só a resposta anterior informa. Passou de
   `LEITOR_LOTE_MAX_RESPOSTA_MB` → o próximo lote cai pela metade e nunca mais
-  cresce naquele job. A conta da memória (pico ≈ 3 × resposta + 30 MB) está em
+  cresce naquele job. O PRIMEIRO lote é de 5 peças (`LEITOR_LOTE_INICIAL`): é o
+  único pedido às cegas, e 10 peças de 3,9 MB dariam ~150 MB de pico; só dobra
+  (10, 20) depois de uma resposta leve. E **um job do leitor por vez no
+  processo inteiro** — trava de módulo em `ServicoLeitor.processarFila`, para
+  dois jobs de credenciais diferentes não somarem os picos; há teste que falha
+  se dois lotes correrem juntos. A conta da memória (pico ≈ 3 × resposta + 30 MB) está em
   `docs/leitor-medicoes-v0.30.0.md`, e depende de o leitor de MTOM devolver
   VISTAS da resposta em vez de cópias — há teste que fixa isso.
 - **Página do índice é contada, nunca estimada.** O qpdf conta cada parte antes
@@ -915,7 +922,7 @@ acompanhar em lote e tela do processo orientada a providência,
 Basic Auth (v0.27.0), **catálogo de planos editável com preço e regras de
 teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
 **leitor de peças, Etapa 1: PDF combinado com índice** (v0.30.0),
-Dockerfile multi-stage, CI, 813 testes.
+Dockerfile multi-stage, CI, 816 testes.
 
 **Leitor de peças, Etapa 1 (v0.30.0):** `POST /v1/processos/:numero/leitor` com
 os ids das peças cria um job (fila mínima em SQLite, `jobs_leitor`, um job por
@@ -927,7 +934,9 @@ linearizado com `Range` e o índice de páginas. "Atualizar" consulta
 anterior. Medições e a proposta para HTML em `docs/leitor-medicoes-v0.30.0.md`.
 **Pendente:** a decisão do dono sobre HTML (estratégia A ou B, com a
 `scripts/sonda-html.mjs` pronta para medir a forma real), a Etapa 2 (painel ao
-lado, PDF.js) e a medição da camada de texto. Não há exclusão de conta no
+lado, PDF.js) e a medição da camada de texto. O leitor fica atrás do plano
+`pecas`; um recurso próprio `leitor` no catálogo fica para depois (decisão do
+dono, 01/10/2026). Não há exclusão de conta no
 produto ainda: `apagarDoWorkspace` existe e está testado para quando houver.
 
 **Visual (v0.29.0):** logo do dono do produto (limpo do arquivo do CorelDRAW,

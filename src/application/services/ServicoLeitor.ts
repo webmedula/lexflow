@@ -320,17 +320,25 @@ export class ServicoLeitor {
   }
 
   /**
-   * Roda a fila até esvaziar. Uma execução por vez — chamadas concorrentes
+   * Roda a fila até esvaziar. Chamadas concorrentes na mesma instância
    * recebem a mesma promessa.
    *
-   * Um job por vez no processo inteiro, e não só por credencial, é a forma
-   * mais simples de cumprir "um job por vez por credencial", e não custa
-   * vazão: o balde do MNI é global, então dois jobs em paralelo dividiriam as
-   * mesmas fichas e terminariam juntos, mais tarde cada um.
+   * **Um job por vez em TODO o processo**, não só por credencial (decisão do
+   * dono, 01/10/2026). O motivo é memória: cada lote segura a resposta inteira
+   * do tribunal (pico ≈ 3 × resposta + 30 MB, ver
+   * `docs/leitor-medicoes-v0.30.0.md`), e dois jobs de credenciais diferentes
+   * em paralelo SOMARIAM os picos. Também não se perde vazão: o balde do MNI é
+   * global, e dois jobs juntos dividiriam as mesmas fichas.
+   *
+   * A trava é do MÓDULO (`execucaoDoProcesso`), e não da instância: uma
+   * segunda instância de `ServicoLeitor` — por engano no composition root, ou
+   * num script — espera a primeira terminar em vez de correr ao lado dela.
    */
   processarFila(): Promise<number> {
     if (!this.rodando) {
-      this.rodando = this.drenar().finally(() => {
+      const minha = execucaoDoProcesso.then(() => this.drenar());
+      execucaoDoProcesso = minha.catch(() => undefined);
+      this.rodando = minha.finally(() => {
         this.rodando = undefined;
       });
     }
@@ -1005,6 +1013,9 @@ export class ServicoLeitor {
     }
   }
 }
+
+/** Ver `processarFila`: no processo inteiro, um job do leitor de cada vez. */
+let execucaoDoProcesso: Promise<unknown> = Promise.resolve();
 
 /** Ordem dos autos: cada documento seguido dos anexos dele, recursivamente. */
 function achatar(pecas: readonly Peca[]): Peca[] {

@@ -285,25 +285,36 @@ describe('ServicoLeitor — lotes', () => {
     return Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, bytes: pdf }));
   }
 
-  it('pede em lotes de 10 e cresce até 20 enquanto a resposta é leve', async () => {
+  it('o primeiro lote é de 5 e só dobra (10, 20) depois de ver resposta leve', async () => {
     const m = await montar(await muitas(45));
     await rodar(
       m,
       (await muitas(45)).map((p) => p.id),
     );
-    expect(m.provedor.lotes().map((l) => l.length)).toEqual([10, 20, 15]);
+    expect(m.provedor.lotes().map((l) => l.length)).toEqual([5, 10, 20, 10]);
+  });
+
+  it('resposta média no primeiro lote mantém o lote em 5', async () => {
+    // 6 MB com 5 peças: dobrar daria ~12 MB, no limite. Fica onde está.
+    const m = await montar(await muitas(15));
+    m.provedor.pesoDaResposta = () => 6 * 1_048_576;
+    await rodar(
+      m,
+      (await muitas(15)).map((p) => p.id),
+    );
+    expect(m.provedor.lotes().map((l) => l.length)).toEqual([5, 5, 5]);
   });
 
   it('corta o lote pela metade quando a resposta passa do limite em MB, e não volta a crescer', async () => {
     const m = await montar(await muitas(40));
-    // Primeira resposta pesada; as outras, levíssimas.
+    // Primeira resposta leve (cresce para 10), segunda pesada; as outras, levíssimas.
     let n = 0;
-    m.provedor.pesoDaResposta = () => (++n === 1 ? 13 * 1_048_576 : 1000);
+    m.provedor.pesoDaResposta = () => (++n === 2 ? 13 * 1_048_576 : 1000);
     await rodar(
       m,
       (await muitas(40)).map((p) => p.id),
     );
-    expect(m.provedor.lotes().map((l) => l.length)).toEqual([10, 5, 5, 5, 5, 5, 5]);
+    expect(m.provedor.lotes().map((l) => l.length)).toEqual([5, 10, 5, 5, 5, 5, 5]);
   });
 
   it('peça ausente numa resposta com sucesso é pedida UMA vez sozinha no fim', async () => {
@@ -315,7 +326,8 @@ describe('ServicoLeitor — lotes', () => {
     );
 
     expect(m.provedor.lotes()).toEqual([
-      ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10'],
+      ['p1', 'p2', 'p3', 'p4', 'p5'],
+      ['p6', 'p7', 'p8', 'p9', 'p10'],
       ['p11', 'p12'],
       ['p3'],
     ]);
@@ -341,7 +353,7 @@ describe('ServicoLeitor — lotes', () => {
       m,
       (await muitas(40)).map((p) => p.id),
     );
-    expect(m.provedor.lotes().map((l) => l.length)).toEqual([10, 10, 10, 10, 1]);
+    expect(m.provedor.lotes().map((l) => l.length)).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 1]);
   });
 
   it('respeita a pausa mínima de 3 s entre chamadas ao tribunal', async () => {
@@ -599,6 +611,49 @@ describe('ServicoLeitor — atualizar', () => {
     expect((await m.servico.consultar(WS, PROCESSO_TJGO, primeiro.id)).estado).toBe(
       'expirado',
     );
+  });
+});
+
+describe('ServicoLeitor — um job por vez no processo inteiro', () => {
+  it('dois jobs de credenciais diferentes nunca baixam ao mesmo tempo, nem em instâncias diferentes', async () => {
+    // Duas montagens independentes (banco, credencial, fila e instância de
+    // serviço próprios): só o MÓDULO é comum. Se a trava fosse da instância,
+    // os dois lotes correriam juntos e os picos de memória somariam.
+    let ativos = 0;
+    let maximo = 0;
+    const lento = (m: Montagem): void => {
+      const original = m.provedor.obterConteudosEmLote.bind(m.provedor);
+      m.provedor.obterConteudosEmLote = async (...args) => {
+        ativos += 1;
+        maximo = Math.max(maximo, ativos);
+        await new Promise((r) => setImmediate(r));
+        await new Promise((r) => setImmediate(r));
+        ativos -= 1;
+        return original(...args);
+      };
+    };
+    const pdf = await pdfSintetico(1, 'X');
+    const pecas = ['a', 'b', 'c'].map((id) => ({ id, bytes: pdf }));
+    const m1 = await montar(pecas, { inicial: 1, maximo: 1 });
+    const m2 = await montar(pecas, { inicial: 1, maximo: 1 });
+    lento(m1);
+    lento(m2);
+    const j1 = await m1.servico.criar(WS, PROCESSO_TJGO, ['a', 'b', 'c']);
+    const j2 = await m2.servico.criar(WS, PROCESSO_TJGO, ['a', 'b', 'c']);
+
+    await Promise.all([m1.servico.processarFila(), m2.servico.processarFila()]);
+
+    expect(maximo).toBe(1);
+    expect((await m1.servico.consultar(WS, PROCESSO_TJGO, j1.id)).estado).toBe('pronto');
+    expect((await m2.servico.consultar(WS, PROCESSO_TJGO, j2.id)).estado).toBe('pronto');
+  });
+
+  it('o composition root monta UMA instância do leitor', () => {
+    const raiz = readFileSync(
+      new URL('../../src/main/factories/makeProcessoSearchService.ts', import.meta.url),
+      'utf8',
+    );
+    expect(raiz.match(/new ServicoLeitor\(/g)).toHaveLength(1);
   });
 });
 

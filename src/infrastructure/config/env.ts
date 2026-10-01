@@ -122,8 +122,12 @@ const schema = z.object({
   LEITOR_PASTA: z.string().default(''),
   LEITOR_QPDF: z.string().default('qpdf'),
   // Lote adaptativo, medido na sonda de 01/10/2026: 20 peças numa chamada sem
-  // perda. Começa em 10 e só cresce com resposta leve.
-  LEITOR_LOTE_INICIAL: inteiroPositivo(10),
+  // perda. Começa em 5, e não em 10: o primeiro lote é o único pedido às
+  // cegas (a listagem não diz o tamanho de nada), e 10 peças do tamanho da
+  // maior já vista (3,9 MB) dariam um pico de ~150 MB. Com 5, ~90 MB. Só
+  // dobra (5 → 10 → 20) depois de uma resposta abaixo de
+  // LEITOR_LOTE_CRESCER_ABAIXO_MB — ou seja, depois de ver o tamanho real.
+  LEITOR_LOTE_INICIAL: inteiroPositivo(5),
   LEITOR_LOTE_MAXIMO: inteiroPositivo(20),
   // Resposta acima disto corta o lote seguinte pela metade. A conta está em
   // docs/leitor-medicoes-v0.30.0.md: pico ≈ 2 × resposta + 8 MB.
