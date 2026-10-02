@@ -55,6 +55,13 @@ export interface CapacidadesProvider {
  */
 export interface DiagnosticoProvider {
   readonly saudavel: boolean;
+  /**
+   * Respondeu devagar demais para a verificação, sem dar sinal de estar fora:
+   * nenhum erro, nenhuma recusa, só a resposta que não chegou a tempo. "Não
+   * consegui confirmar" não é "está fora do ar" — a fonte segue `saudavel`, e
+   * quem lê o diagnóstico vê que ela está LENTA. Ausente quando não se aplica.
+   */
+  readonly lenta?: true;
   /** Explicação legível — some quando está tudo bem e não há o que dizer. */
   readonly motivo?: string;
 }

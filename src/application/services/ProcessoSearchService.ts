@@ -313,9 +313,7 @@ export class ProcessoSearchService implements ProcessoProvider {
 
   /** Saudável se PELO MENOS UMA fonte da cadeia responder — é o ponto do fallback. */
   async healthCheck(): Promise<boolean> {
-    const resultados = await Promise.all(
-      this.providers.map((p) => this.estaSaudavel(p)),
-    );
+    const resultados = await Promise.all(this.providers.map((p) => this.estaSaudavel(p)));
     return resultados.some(Boolean);
   }
 
@@ -325,7 +323,7 @@ export class ProcessoSearchService implements ProcessoProvider {
    * beco sem saída para quem está tentando descobrir o que configurar.
    */
   async diagnostico(): Promise<
-    Array<{ provider: string; saudavel: boolean; motivo?: string }>
+    Array<{ provider: string; saudavel: boolean; lenta?: true; motivo?: string }>
   > {
     return Promise.all(
       this.providers.map(async (p) => {
@@ -333,6 +331,7 @@ export class ProcessoSearchService implements ProcessoProvider {
         return {
           provider: p.nome,
           saudavel: resultado.saudavel,
+          ...(resultado.lenta ? { lenta: true as const } : {}),
           ...(resultado.motivo !== undefined ? { motivo: resultado.motivo } : {}),
         };
       }),

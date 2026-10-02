@@ -44,13 +44,17 @@ const CONSULTA_DE_VERIFICACAO = {
 };
 
 /**
- * Teto do health check. 15s e não 5s: uma consulta FRIA no índice do CNJ pode
- * levar mais de 20s (medido: `took: 20514` numa busca real por número), e um
- * health check que reprova a fonte só porque ela é lenta mente sobre o estado
- * dela. Ainda assim é menor que o das consultas — health check que demora um
- * minuto não serve para nada.
+ * Teto padrão do health check (`DATAJUD_TIMEOUT_VERIFICACAO_MS`). 30s: uma
+ * consulta FRIA no índice do CNJ pode levar mais de 20s (medido: `took: 20514`
+ * numa busca real por número). Com 15s (até a v0.31.1), o /ready reprovava o
+ * DataJud duas vezes seguidas enquanto as consultas reais — com 60s —
+ * funcionavam no mesmo minuto. Ainda é metade do teto das consultas: health
+ * check que demora um minuto não serve para nada.
+ *
+ * E mesmo quando estoura, o resultado é "lenta", não "fora do ar" — ver
+ * `diagnosticar`.
  */
-const TIMEOUT_VERIFICACAO_MS = 15_000;
+const TIMEOUT_VERIFICACAO_PADRAO_MS = 30_000;
 
 /**
  * Timeout padrão das CONSULTAS.
@@ -81,6 +85,8 @@ export interface OpcoesDataJudAdapter {
   readonly apiKey: string;
   readonly baseUrl?: string;
   readonly timeoutMs?: number;
+  /** Teto da verificação de saúde (/ready, `cli saude`). Padrão: 30s. */
+  readonly timeoutVerificacaoMs?: number;
   /** Requisições por minuto que o adapter se autoimpõe. Padrão: 60. */
   readonly limitePorMinuto?: number;
   readonly httpClient?: HttpClient;
@@ -125,6 +131,8 @@ export class DataJudAdapter implements ProcessoProvider {
   private readonly rateLimiter: RateLimiter;
   private readonly logger: Logger;
   private readonly clock: Clock;
+  private readonly timeoutVerificacaoMs: number;
+  private readonly timeoutConsultaMs: number;
 
   constructor(opcoes: OpcoesDataJudAdapter) {
     if (!opcoes.apiKey?.trim()) {
@@ -136,11 +144,14 @@ export class DataJudAdapter implements ProcessoProvider {
     this.apiKey = opcoes.apiKey.trim();
     this.baseUrl = opcoes.baseUrl ?? 'https://api-publica.datajud.cnj.jus.br';
     this.clock = opcoes.clock ?? clockDoSistema;
+    this.timeoutVerificacaoMs =
+      opcoes.timeoutVerificacaoMs ?? TIMEOUT_VERIFICACAO_PADRAO_MS;
+    this.timeoutConsultaMs = opcoes.timeoutMs ?? TIMEOUT_CONSULTA_PADRAO_MS;
     this.logger = (opcoes.logger ?? loggerSilencioso).child({ provider: this.nome });
     this.http =
       opcoes.httpClient ??
       new HttpClient({
-        timeoutMs: opcoes.timeoutMs ?? TIMEOUT_CONSULTA_PADRAO_MS,
+        timeoutMs: this.timeoutConsultaMs,
         tentativas: TENTATIVAS_CONSULTA,
       });
     this.rateLimiter =
@@ -180,8 +191,7 @@ export class DataJudAdapter implements ProcessoProvider {
         Authorization: `APIKey ${this.apiKey}`,
       });
     } catch (erro) {
-      const motivo =
-        erro instanceof HttpTimeoutError ? 'timeout' : 'falha de rede';
+      const motivo = erro instanceof HttpTimeoutError ? 'timeout' : 'falha de rede';
       throw new ProviderIndisponivelError(this.nome, motivo, { cause: erro });
     }
 
@@ -208,10 +218,7 @@ export class DataJudAdapter implements ProcessoProvider {
     const primeiro = payload.hits.hits[0];
 
     if (!primeiro) {
-      throw new ProcessoNaoEncontradoError(
-        `número ${numero.formatado}`,
-        this.nome,
-      );
+      throw new ProcessoNaoEncontradoError(`número ${numero.formatado}`, this.nome);
     }
 
     return mapearProcesso(primeiro._source, this.clock.agora());
@@ -260,16 +267,26 @@ export class DataJudAdapter implements ProcessoProvider {
         // usuário (3 tentativas × 8s + backoff) fazia o /ready levar mais de 25
         // segundos só para dizer que a fonte está fora — tempo suficiente para
         // o orquestrador de contêiner concluir que o SERVIÇO é que morreu.
-        { timeoutMs: TIMEOUT_VERIFICACAO_MS, tentativas: 1 },
+        { timeoutMs: this.timeoutVerificacaoMs, tentativas: 1 },
       );
     } catch (erro) {
-      return {
-        saudavel: false,
-        motivo:
-          erro instanceof HttpTimeoutError
-            ? 'timeout ao contatar a API do CNJ'
-            : 'falha de rede ao contatar a API do CNJ',
-      };
+      // Timeout NÃO reprova a fonte. A conexão não foi recusada e nada voltou
+      // com erro: só a resposta não chegou no prazo da verificação, que é
+      // menor que o das consultas. Reprovar aqui fazia o /ready dizer "fora"
+      // enquanto a tela do processo mostrava dados do DataJud do mesmo minuto
+      // — "não consegui confirmar" apresentado como "está fora do ar".
+      if (erro instanceof HttpTimeoutError) {
+        return {
+          saudavel: true,
+          lenta: true,
+          motivo:
+            `lenta: a verificação não respondeu em ${Math.round(this.timeoutVerificacaoMs / 1000)}s. ` +
+            'O índice do CNJ demora na primeira consulta (medido: 20,5s); as buscas ' +
+            `têm ${Math.round(this.timeoutConsultaMs / 1000)}s e devem responder. ` +
+            'Se as consultas também falharem, aí é indisponibilidade.',
+        };
+      }
+      return { saudavel: false, motivo: 'falha de rede ao contatar a API do CNJ' };
     }
 
     if (resposta.ok) return { saudavel: true };

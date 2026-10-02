@@ -131,7 +131,8 @@ export interface Aplicacao {
    * configuradas — a área administrativa existe (as rotas respondem 501 com
    * instrução) mas não abre para ninguém.
    */
-  readonly adminCredenciais: { readonly usuario: string; readonly senha: string } | undefined;
+  readonly adminCredenciais:
+    { readonly usuario: string; readonly senha: string } | undefined;
   readonly preferenciasNotificacao: RepositorioNotificacao;
   /**
    * O canal de saída cru, exposto para DIAGNÓSTICO.
@@ -362,7 +363,12 @@ export function montarAplicacao(config: Config): Aplicacao {
   // tenha as publicações do DJEN que o tribunal não numera. Cai em cache, então
   // não custa consulta nova quando a tela acabou de carregar o processo.
   const buscarProcessoPorNumero = new BuscarProcessoPorNumero(provider);
-  const { pecas, leitor } = montarServicoPecas(config, db, logger, buscarProcessoPorNumero);
+  const { pecas, leitor } = montarServicoPecas(
+    config,
+    db,
+    logger,
+    buscarProcessoPorNumero,
+  );
 
   // O executor do leitor acorda a cada minuto para retomar job pausado por
   // bloqueio e pegar o que um redeploy interrompeu; o pedido novo não espera
@@ -736,6 +742,7 @@ function construirProviders(config: Config, logger: Logger): ProcessoProvider[] 
             apiKey: config.dataJud.apiKey,
             baseUrl: config.dataJud.baseUrl,
             timeoutMs: config.dataJud.timeoutMs,
+            timeoutVerificacaoMs: config.dataJud.timeoutVerificacaoMs,
             limitePorMinuto: config.dataJud.limitePorMinuto,
             logger,
           }),
