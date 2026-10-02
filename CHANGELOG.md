@@ -9,6 +9,62 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.31.1] — 2026-10-02
+
+Ajustes do leitor de peças pedidos depois do teste do dono com a 0.31.0.
+
+### Alterado
+
+- **Remarcar.** "Ler peças ao lado" abre com **"Nova seleção"** e, quando há
+  um PDF guardado no prazo, **"Reabrir o PDF já pronto"** com a data e a hora
+  em que foi montado. A seleção nova começa com **todas as caixas desmarcadas**
+  (antes vinha com a seleção anterior, e remarcar virava desmarcar uma a uma);
+  **"Limpar seleção"** fica sempre à mão, e **"Repetir a seleção anterior"** é
+  um botão separado. O botão do topo do painel passou de "Marcar peças" a
+  "Nova seleção".
+- **Peça já guardada não volta ao tribunal.** Numa seleção nova, a peça que
+  está em algum PDF deste processo ainda no prazo tem as páginas copiadas de
+  lá; só a realmente nova é pedida — o mesmo caminho do "Atualizar". A tela diz
+  quantas das marcadas são reaproveitadas, e a estimativa de tempo conta só as
+  outras. `GET /v1/processos/:numero/leitor` passou a devolver também `pronto`
+  (o PDF guardado mais recente) e `reaproveitaveis` (ids).
+- **A seleção nova gera PDF NOVO e o anterior fica** até o próprio prazo (24 h).
+  Só a atualização substitui o PDF de que partiu. **Regra de substituição pela
+  cota:** com a conta no limite, saem primeiro os PDFs mais antigos de OUTROS
+  processos, depois os deste; nunca um PDF de que uma combinação em andamento
+  ainda vai copiar páginas (a limpeza do prazo também espera). Se nada puder
+  sair, 413 antes de qualquer consulta. Antes, cota cheia era sempre recusa.
+
+### Adicionado
+
+- **"Baixar selecionadas (N)"**, no painel do PDF pronto ("Baixar só algumas
+  peças deste PDF"): gera um PDF só com as páginas das peças marcadas,
+  **recortadas do PDF guardado** — nenhuma consulta ao tribunal. Ordem dos
+  autos, índice próprio contado do arquivo gerado, linearizado, nome
+  `processo-<numero>-pecas-selecionadas.pdf`. Mesmo isolamento por workspace,
+  mesma cota e mesmo prazo do PDF de origem (até 3 recortes por PDF). Rotas:
+  `POST /v1/processos/:numero/leitor/:jobId/extratos` e
+  `GET .../extratos/:extratoId/pdf` (com `Range`).
+- `PdfDoLeitorExpiradoError` (**410**): o PDF de origem já saiu do disco. A tela
+  diz isso e manda montar de novo pela "Nova seleção" — nunca baixa de novo em
+  silêncio. `PecasForaDoPdfError` (400) para peça que não está naquele PDF.
+- Motivo `origem_expirada` no índice: a peça seria reaproveitada de um PDF que
+  foi apagado entre a listagem e a montagem — vira página de aviso, não erro.
+
+### Corrigido
+
+- **"Fechar" e "Baixar PDF" cortados na borda direita.** Medido no Chromium: o
+  `<select>` "Ir para a peça" tem a largura da opção mais longa (728 px com
+  rótulo longo do TJGO) e passava da borda do painel em qualquer janela, de
+  1500 a 600 px de largura; e a largura arrastada no divisor, guardada no
+  navegador, podia ser maior que a janela atual. Agora o painel usa
+  `min(largura, 100vw)`, a largura guardada é ajustada à janela (sem perder a
+  preferência), e nada dentro do painel empurra a borda (`min-width: 0`).
+- Fechar e reabrir o painel sem a tela redesenhar deixava a seleção sem peças
+  ("0 peças marcadas" ao clicar nas caixas).
+- Um PDF novo que ficava pronto com outro PDF aberto no painel não era
+  carregado: o painel continuava mostrando o anterior.
+
 ## [0.31.0] — 2026-10-01
 
 Leitor de peças, **Etapa 2 — ler ao lado** (especificação

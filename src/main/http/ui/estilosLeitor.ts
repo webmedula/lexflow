@@ -10,11 +10,18 @@
 export const ESTILOS_LEITOR = `
 /* ---------- leitor: o painel à direita ---------- */
 :root{--leitor-w:46vw}
-body.com-leitor .app{padding-right:var(--leitor-w)}
+/* O painel NUNCA passa da janela (v0.31.1). A largura salva pelo divisor
+   vale para a janela em que foi arrastada; numa janela menor, min() a corta.
+   E nada dentro dele empurra a borda: o select "Ir para a peça" media a
+   opção mais longa (~730px com rótulos reais do TJGO) e jogava "Baixar PDF"
+   para fora da tela. */
+body.com-leitor .app{padding-right:min(var(--leitor-w),100vw)}
 body.com-leitor .env{max-width:none}
-#leitor{position:fixed;top:0;right:0;bottom:0;width:var(--leitor-w);z-index:40;
+#leitor{position:fixed;top:0;right:0;bottom:0;width:min(var(--leitor-w),100vw);
+  max-width:100vw;z-index:40;overflow-x:hidden;
   background:var(--papel);border-left:1px solid var(--linha);display:flex;
   flex-direction:column;box-shadow:-6px 0 18px rgba(11,25,44,.08)}
+#leitor .topo>*,#leitor .ferramentas>*{min-width:0;max-width:100%}
 /* Só a área das páginas encolhe e rola; o resto tem a altura do conteúdo. */
 #leitor>.topo,#leitor>.estado,#leitor>.ferramentas,#leitor>.onde{flex-shrink:0}
 #leitor .divisor{position:absolute;left:-5px;top:0;bottom:0;width:10px;cursor:col-resize;
@@ -24,7 +31,8 @@ body.com-leitor .env{max-width:none}
 #leitor .divisor:hover::after,#leitor .divisor.arrastando::after{background:var(--acento)}
 #leitor .topo{display:flex;align-items:center;gap:8px;padding:10px 12px;
   border-bottom:1px solid var(--linha);flex-wrap:wrap}
-#leitor .topo h3{margin:0;font-size:15px;font-weight:800;flex-grow:1}
+#leitor .topo h3{margin:0;font-size:15px;font-weight:800;flex-grow:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #leitor .topo .voltar{display:none}
 #leitor .estado{padding:12px 14px;border-bottom:1px solid var(--linha2);font-size:13.5px;
   color:var(--tinta2);max-height:38vh;overflow:auto}
@@ -40,7 +48,7 @@ body.com-leitor .env{max-width:none}
 #leitor .ferramentas{display:flex;align-items:center;gap:6px;padding:8px 12px;
   border-bottom:1px solid var(--linha);flex-wrap:wrap;font-size:13px}
 #leitor .ferramentas input,#leitor .ferramentas select{min-height:34px;width:auto;
-  flex:1 1 150px;padding:5px 10px;font-size:13px}
+  flex:1 1 150px;padding:5px 10px;font-size:13px;min-width:0;text-overflow:ellipsis}
 #leitor .ferramentas button{min-height:34px;padding:0 10px;font-size:13px}
 #leitor .ferramentas .pg{color:var(--tinta3);font-variant-numeric:tabular-nums;
   white-space:nowrap}
@@ -56,6 +64,22 @@ body.com-leitor .env{max-width:none}
   color:#64748b;background:rgba(255,255,255,.85);padding:0 4px;border-radius:3px}
 #leitor .pagina.achada{outline:3px solid var(--atencao-ponto)}
 #leitor .vazio-leitor{padding:24px 16px;color:var(--tinta3);font-size:13.5px}
+#leitor .abertura{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+#leitor .abertura .bt{white-space:normal;text-align:left;line-height:1.3}
+#leitor .abertura small{display:block;font-weight:500;font-size:12px;opacity:.85}
+#leitor .reaproveita{margin-top:6px;font-size:12.5px;color:var(--verde-tinta)}
+#leitor details.recorte{margin-top:10px;border-top:1px solid var(--linha2);padding-top:8px}
+#leitor details.recorte summary{cursor:pointer;font-weight:700;color:var(--tinta)}
+#leitor .lista-recorte{max-height:26vh;overflow:auto;margin:8px 0;padding:0;list-style:none;
+  border:1px solid var(--linha2);border-radius:8px}
+#leitor .lista-recorte li{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;
+  border-top:1px solid var(--linha2);font-size:12.5px}
+#leitor .lista-recorte li:first-child{border-top:0}
+#leitor .lista-recorte label{display:flex;gap:8px;align-items:flex-start;cursor:pointer;
+  min-width:0;flex:1}
+#leitor .lista-recorte .rot{overflow-wrap:anywhere}
+#leitor .lista-recorte .pp{margin-left:auto;color:var(--tinta3);white-space:nowrap;
+  font-variant-numeric:tabular-nums}
 
 /* ---------- leitor: a seleção na linha do tempo ---------- */
 #leitor .chip.on{border-color:var(--acento);color:var(--acento);background:var(--acento-bg)}

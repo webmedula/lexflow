@@ -32,9 +32,18 @@ export interface FilaDeJobs {
   expirados(agora: Date): Promise<JobLeitor[]>;
 
   /** O job mais recente deste workspace para o processo (qualquer estado). */
-  ultimoDoProcesso(workspace: string, numeroProcesso: string): Promise<JobLeitor | undefined>;
+  ultimoDoProcesso(
+    workspace: string,
+    numeroProcesso: string,
+  ): Promise<JobLeitor | undefined>;
 
-  /** Todos os jobs de um workspace — para a exclusão de conta. */
+  /**
+   * Todos os jobs deste workspace para o processo, do mais recente ao mais
+   * antigo — para achar páginas reaproveitáveis numa seleção nova.
+   */
+  doProcesso(workspace: string, numeroProcesso: string): Promise<JobLeitor[]>;
+
+  /** Todos os jobs de um workspace — para a exclusão de conta e a limpeza por cota. */
   doWorkspace(workspace: string): Promise<JobLeitor[]>;
 
   /** Remove as linhas de um workspace. @returns quantas. */

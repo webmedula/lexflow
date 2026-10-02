@@ -8,6 +8,8 @@ import {
   JobDoLeitorNaoEncontradoError,
   LimiteDeArmazenamentoExcedidoError,
   MniBloqueadoError,
+  PdfDoLeitorExpiradoError,
+  PecasForaDoPdfError,
   ProviderIndisponivelError,
 } from '../../src/domain/errors/index.js';
 import type { Logger } from '../../src/domain/ports/Logger.js';
@@ -21,7 +23,9 @@ import { CONFIG_LEITOR_DE_TESTE } from '../helpers/aplicacao.js';
 import {
   ClockFalso,
   PNG_1X1,
+  OUTRO_PROCESSO,
   PROCESSO_TJGO,
+  PROCESSO_TJGO_DIGITOS,
   ProvedorDeLoteFalso,
   HTML_SINTETICO,
   MARCADOR_ATRIBUTO,
@@ -35,6 +39,7 @@ import {
 import type { PecaFalsa } from '../helpers/leitor.js';
 
 const WS = 'ws-advogada-a';
+const OUTRO_PROCESSO_DIGITOS = OUTRO_PROCESSO.replace(/\D/g, '');
 const SENHA = 'senha-do-projudi-123';
 
 /** Logger que guarda tudo, para provar o que NÃO aparece nele. */
@@ -69,7 +74,7 @@ interface Montagem {
   readonly armazem: ArmazemEmDisco;
   readonly logger: LoggerGravador;
   readonly esperas: number[];
-  novoServico(): ServicoLeitor;
+  novoServico(config?: Partial<ConfiguracaoLeitor>): ServicoLeitor;
 }
 
 let pasta: ReturnType<typeof pastaTemporaria>;
@@ -101,7 +106,7 @@ async function montar(
   const logger = new LoggerGravador();
   const esperas: number[] = [];
   let seq = 0;
-  const novoServico = (): ServicoLeitor =>
+  const novoServico = (extra: Partial<ConfiguracaoLeitor> = {}): ServicoLeitor =>
     new ServicoLeitor({
       provedor,
       credenciais,
@@ -118,7 +123,7 @@ async function montar(
       },
       gerarId: () => (++seq).toString(16).padStart(32, 'a'),
       identificarCredencial: () => 'cred1234',
-      config: { ...CONFIG_LEITOR_DE_TESTE, ...config },
+      config: { ...CONFIG_LEITOR_DE_TESTE, ...config, ...extra },
     });
   return {
     servico: novoServico(),
@@ -595,16 +600,62 @@ describe('ServicoLeitor — guarda, cota e isolamento', () => {
     ]);
   });
 
-  it('cota do workspace cheia recusa o pedido antes de consultar o tribunal', async () => {
+  it('cota do workspace cheia: o PDF mais antigo sai para abrir espaço, e o novo é montado', async () => {
     const m = await montar([{ id: 'a', bytes: await pdfSintetico(1, 'A') }], {
       cotaPorWorkspaceBytes: 1,
     });
-    await rodar(m, ['a']);
+    const antigo = await rodar(m, ['a']);
+    await m.servico.criar(WS, PROCESSO_TJGO, ['a']);
+    const depois = await m.servico.consultar(WS, PROCESSO_TJGO, antigo.id);
+    expect(depois.estado).toBe('expirado');
+    expect(depois.mensagem).toContain('abrir espaço');
+    expect(m.logger.linhas.join('\n')).toContain('cota da conta');
+  });
+
+  it('cota cheia sem nada que possa sair: recusa antes de consultar o tribunal', async () => {
+    const m = await montar([{ id: 'a', bytes: await pdfSintetico(1, 'A') }], {
+      cotaPorWorkspaceBytes: 1,
+    });
+    const pronto = await rodar(m, ['a']);
+    // Uma atualização na fila vai copiar páginas do PDF pronto: ele não sai.
+    m.provedor.hashDocumentos = 'hash-2';
+    await m.servico.atualizar(WS, PROCESSO_TJGO, pronto.id);
     const chamadas = m.provedor.chamadas.length;
     await expect(m.servico.criar(WS, PROCESSO_TJGO, ['a'])).rejects.toBeInstanceOf(
       LimiteDeArmazenamentoExcedidoError,
     );
     expect(m.provedor.chamadas).toHaveLength(chamadas);
+    expect((await m.servico.consultar(WS, PROCESSO_TJGO, pronto.id)).estado).not.toBe(
+      'expirado',
+    );
+  });
+
+  it('a limpeza por cota tira primeiro o PDF de OUTRO processo, mesmo mais novo', async () => {
+    const m = await montar([{ id: 'a', bytes: await pdfSintetico(1, 'A') }]);
+    const desteProcesso = await rodar(m, ['a']);
+    const usoDeste = await m.armazem.usoDoWorkspace(WS);
+    // Um PDF de outro processo, mais NOVO, com 1000 bytes no disco.
+    const idOutro = 'f'.repeat(32);
+    const outro: JobLeitor = {
+      ...desteProcesso,
+      id: idOutro,
+      numeroProcesso: OUTRO_PROCESSO_DIGITOS,
+      arquivo: {
+        localizador: await m.armazem.gravarPeca(WS, idOutro, 0, new Uint8Array(1000)),
+        bytes: 1000,
+        paginas: 1,
+      },
+      criadoEm: new Date(m.clock.agora().getTime() + 1000),
+      concluidoEm: new Date(m.clock.agora().getTime() + 1000),
+    };
+    await m.fila.criar(outro);
+
+    const servico = m.novoServico({ cotaPorWorkspaceBytes: usoDeste + 500 });
+    await servico.criar(WS, PROCESSO_TJGO, ['a']);
+    expect((await m.fila.obter(WS, idOutro))?.estado).toBe('expirado');
+    expect((await m.servico.consultar(WS, PROCESSO_TJGO, desteProcesso.id)).estado).toBe(
+      'pronto',
+    );
   });
 
   it('a senha do advogado e o conteúdo das peças nunca vão para o log', async () => {
@@ -670,6 +721,212 @@ describe('ServicoLeitor — atualizar', () => {
     // O PDF anterior foi substituído e saiu do disco.
     expect((await m.servico.consultar(WS, PROCESSO_TJGO, primeiro.id)).estado).toBe(
       'expirado',
+    );
+  });
+});
+
+describe('ServicoLeitor — seleção nova (remarcar)', () => {
+  it('peça que já está num PDF guardado NÃO volta ao tribunal: só a nova é baixada', async () => {
+    const m = await montar([
+      { id: 'a', bytes: await pdfSintetico(2, 'PECA-A') },
+      { id: 'b', bytes: await pdfSintetico(1, 'PECA-B') },
+      { id: 'c', bytes: await pdfSintetico(1, 'PECA-C') },
+    ]);
+    await rodar(m, ['a', 'b']);
+    const lotesAntes = m.provedor.lotes().length;
+
+    const novo = await rodar(m, ['b', 'c']);
+    expect(m.provedor.lotes().slice(lotesAntes)).toEqual([['c']]);
+    expect(novo.estado).toBe('pronto');
+    expect(novo.indice?.map((e) => [e.pecaId, e.paginaInicial, e.paginaFinal])).toEqual([
+      ['b', 1, 1],
+      ['c', 2, 2],
+    ]);
+    expect(await marcasDasPaginas(await bytesDoPdf(m, novo))).toEqual([
+      'PECA-B-p1',
+      'PECA-C-p1',
+    ]);
+  });
+
+  it('a seleção nova gera PDF NOVO e o anterior continua até o próprio prazo', async () => {
+    const m = await montar([
+      { id: 'a', bytes: await pdfSintetico(1, 'PECA-A') },
+      { id: 'b', bytes: await pdfSintetico(1, 'PECA-B') },
+    ]);
+    const primeiro = await rodar(m, ['a', 'b']);
+    const segundo = await rodar(m, ['a']);
+    expect(segundo.id).not.toBe(primeiro.id);
+    expect((await m.servico.consultar(WS, PROCESSO_TJGO, primeiro.id)).estado).toBe(
+      'pronto',
+    );
+    expect(await marcasDasPaginas(await bytesDoPdf(m, primeiro))).toEqual([
+      'PECA-A-p1',
+      'PECA-B-p1',
+    ]);
+    const g = await m.servico.guardadosDoProcesso(WS, PROCESSO_TJGO);
+    expect(g.pronto?.id).toBe(segundo.id);
+    expect([...g.reaproveitaveis].sort()).toEqual(['a', 'b']);
+  });
+
+  it('PDF vencido não serve de origem: a peça é baixada de novo', async () => {
+    const m = await montar([{ id: 'a', bytes: await pdfSintetico(1, 'PECA-A') }]);
+    await rodar(m, ['a']);
+    m.clock.avancar(24 * 3_600_000 + 1);
+    const antes = m.provedor.lotes().length;
+    await rodar(m, ['a']);
+    expect(m.provedor.lotes().slice(antes)).toEqual([['a']]);
+  });
+
+  it('origem apagada entre a listagem e a montagem vira página de aviso, não erro', async () => {
+    const m = await montar([{ id: 'a', bytes: await pdfSintetico(1, 'PECA-A') }]);
+    const primeiro = await rodar(m, ['a']);
+    const job = await m.servico.criar(WS, PROCESSO_TJGO, ['a']);
+    // A origem some logo depois da listagem, antes da montagem.
+    const salvar = m.fila.salvar.bind(m.fila);
+    m.fila.salvar = async (j) => {
+      await salvar(j);
+      if (j.id === job.id && j.estado === 'baixando' && j.pecas.length > 0) {
+        await m.armazem.apagarJob(WS, primeiro.id);
+      }
+    };
+    await m.servico.processarFila();
+    const novo = await m.servico.consultar(WS, PROCESSO_TJGO, job.id);
+    expect(novo.estado).toBe('parcial');
+    expect(novo.indice?.[0]).toMatchObject({ pecaId: 'a', situacao: 'nao_obtida' });
+    expect(novo.indice?.[0]?.motivo).toContain('marque-a de novo');
+  });
+
+  it('a limpeza do prazo espera a combinação que ainda vai copiar páginas do PDF', async () => {
+    const m = await montar([{ id: 'a', bytes: await pdfSintetico(1, 'PECA-A') }]);
+    const primeiro = await rodar(m, ['a']);
+    m.provedor.hashDocumentos = 'hash-2';
+    await m.servico.atualizar(WS, PROCESSO_TJGO, primeiro.id);
+    m.clock.avancar(24 * 3_600_000 + 1);
+    await m.servico.limparExpirados();
+    expect((await m.servico.consultar(WS, PROCESSO_TJGO, primeiro.id)).estado).toBe(
+      'pronto',
+    );
+  });
+});
+
+describe('ServicoLeitor — baixar só algumas (recorte)', () => {
+  async function pronto(): Promise<{ m: Montagem; job: JobLeitor }> {
+    const m = await montar([
+      { id: 'a', bytes: await pdfSintetico(2, 'PECA-A') },
+      { id: 'b', bytes: await pdfSintetico(1, 'PECA-B') },
+      { id: 'c', bytes: await pdfSintetico(3, 'PECA-C') },
+    ]);
+    return { m, job: await rodar(m, ['a', 'b', 'c']) };
+  }
+
+  async function bytesDoExtrato(m: Montagem, jobId: string, id: string): Promise<Buffer> {
+    const pdf = await m.servico.abrirExtrato(WS, PROCESSO_TJGO, jobId, id);
+    const pedacos: Buffer[] = [];
+    for await (const p of pdf.ler(0, pdf.tamanho - 1)) pedacos.push(Buffer.from(p));
+    return Buffer.concat(pedacos);
+  }
+
+  it('recorta as páginas do PDF guardado, na ordem dos autos, sem consultar o tribunal', async () => {
+    const { m, job } = await pronto();
+    const chamadas = m.provedor.chamadas.length;
+    const { extrato } = await m.servico.extrair(WS, PROCESSO_TJGO, job.id, ['c', 'a']);
+
+    expect(m.provedor.chamadas).toHaveLength(chamadas);
+    expect(extrato.paginas).toBe(5);
+    expect(extrato.indice.map((e) => [e.pecaId, e.paginaInicial, e.paginaFinal])).toEqual(
+      [
+        ['a', 1, 2],
+        ['c', 3, 5],
+      ],
+    );
+    const bytes = await bytesDoExtrato(m, job.id, extrato.id);
+    expect(await marcasDasPaginas(bytes)).toEqual([
+      'PECA-A-p1',
+      'PECA-A-p2',
+      'PECA-C-p1',
+      'PECA-C-p2',
+      'PECA-C-p3',
+    ]);
+    // Linearizado, como o combinado: o PDF.js lê por trechos.
+    expect(bytes.subarray(0, 1024).toString('latin1')).toContain('/Linearized');
+    const pdf = await m.servico.abrirExtrato(WS, PROCESSO_TJGO, job.id, extrato.id);
+    expect(pdf.nomeArquivo).toBe(
+      `processo-${PROCESSO_TJGO_DIGITOS}-pecas-selecionadas.pdf`,
+    );
+  });
+
+  it('o workspace B nunca recorta nem lê o recorte do workspace A', async () => {
+    const { m, job } = await pronto();
+    const { extrato } = await m.servico.extrair(WS, PROCESSO_TJGO, job.id, ['b']);
+    await expect(
+      m.servico.extrair('ws-b', PROCESSO_TJGO, job.id, ['b']),
+    ).rejects.toBeInstanceOf(JobDoLeitorNaoEncontradoError);
+    await expect(
+      m.servico.abrirExtrato('ws-b', PROCESSO_TJGO, job.id, extrato.id),
+    ).rejects.toBeInstanceOf(JobDoLeitorNaoEncontradoError);
+    expect(await m.armazem.tamanho('ws-b', extrato.localizador)).toBeUndefined();
+  });
+
+  it('PDF original vencido: diz que expirou e NÃO baixa de novo', async () => {
+    const { m, job } = await pronto();
+    m.clock.avancar(24 * 3_600_000 + 1);
+    await m.servico.limparExpirados();
+    const chamadas = m.provedor.chamadas.length;
+    await expect(
+      m.servico.extrair(WS, PROCESSO_TJGO, job.id, ['a']),
+    ).rejects.toBeInstanceOf(PdfDoLeitorExpiradoError);
+    expect(m.provedor.chamadas).toHaveLength(chamadas);
+  });
+
+  it('o recorte sai do disco junto com o combinado, no fim do prazo', async () => {
+    const { m, job } = await pronto();
+    const { extrato } = await m.servico.extrair(WS, PROCESSO_TJGO, job.id, ['a']);
+    m.clock.avancar(24 * 3_600_000 + 1);
+    await m.servico.limparExpirados();
+    expect(await m.armazem.tamanho(WS, extrato.localizador)).toBeUndefined();
+    await expect(
+      m.servico.abrirExtrato(WS, PROCESSO_TJGO, job.id, extrato.id),
+    ).rejects.toBeInstanceOf(PdfDoLeitorExpiradoError);
+    expect(await m.armazem.usoDoWorkspace(WS)).toBe(0);
+  });
+
+  it('peça que não está no PDF é recusada; a página de aviso de uma peça faltante vai junto', async () => {
+    const m = await montar([
+      { id: 'a', bytes: await pdfSintetico(1, 'PECA-A') },
+      { id: 'b' }, // sem teor: página de aviso no combinado
+    ]);
+    const job = await rodar(m, ['a', 'b']);
+    await expect(
+      m.servico.extrair(WS, PROCESSO_TJGO, job.id, ['a', 'zzz']),
+    ).rejects.toBeInstanceOf(PecasForaDoPdfError);
+    const { extrato } = await m.servico.extrair(WS, PROCESSO_TJGO, job.id, ['b']);
+    expect(extrato.indice).toEqual([
+      expect.objectContaining({ pecaId: 'b', situacao: 'nao_obtida', paginaInicial: 1 }),
+    ]);
+  });
+
+  it('cota do workspace vale para o recorte', async () => {
+    const { m, job } = await pronto();
+    const uso = await m.armazem.usoDoWorkspace(WS);
+    const servico = m.novoServico({ cotaPorWorkspaceBytes: uso + 10 });
+    await expect(
+      servico.extrair(WS, PROCESSO_TJGO, job.id, ['a', 'b', 'c']),
+    ).rejects.toBeInstanceOf(LimiteDeArmazenamentoExcedidoError);
+    // O arquivo que estourou não fica no disco.
+    expect(await m.armazem.usoDoWorkspace(WS)).toBe(uso);
+  });
+
+  it('guarda no máximo 3 recortes por PDF; o mais antigo sai do disco', async () => {
+    const { m, job } = await pronto();
+    const primeiro = (await m.servico.extrair(WS, PROCESSO_TJGO, job.id, ['a'])).extrato;
+    for (const id of ['b', 'c', 'a'])
+      await m.servico.extrair(WS, PROCESSO_TJGO, job.id, [id]);
+    const salvo = await m.servico.consultar(WS, PROCESSO_TJGO, job.id);
+    expect(salvo.extratos).toHaveLength(3);
+    expect(await m.armazem.tamanho(WS, primeiro.localizador)).toBeUndefined();
+    // O combinado continua lá.
+    expect(await m.armazem.tamanho(WS, job.arquivo?.localizador ?? '')).toBeGreaterThan(
+      0,
     );
   });
 });

@@ -270,6 +270,92 @@ describe('API — leitor de peças', () => {
   });
 });
 
+describe('API — baixar só algumas peças (recorte)', () => {
+  it('201 com índice próprio; o PDF sai com o nome de "selecionadas" e aceita Range', async () => {
+    const jobId = await combinar();
+    const lotes = provedor.lotes().length;
+    const r = await servidor.inject({
+      method: 'POST',
+      url: `${URL}/${jobId}/extratos`,
+      headers: A,
+      payload: { pecas: ['b', 'a'] },
+    });
+    expect(r.statusCode).toBe(201);
+    const x = r.json();
+    expect(Object.keys(x).sort()).toEqual([
+      'bytes',
+      'criadoEm',
+      'extratoId',
+      'indice',
+      'jobId',
+      'paginas',
+    ]);
+    expect(x.indice.map((e: { pecaId: string }) => e.pecaId)).toEqual(['a', 'b']);
+    expect(x.paginas).toBe(3);
+    expect(provedor.lotes()).toHaveLength(lotes);
+
+    const pdf = await servidor.inject({
+      url: `${URL}/${jobId}/extratos/${x.extratoId}/pdf`,
+      headers: { ...A, range: 'bytes=0-99' },
+    });
+    expect(pdf.statusCode).toBe(206);
+    expect(pdf.headers['content-disposition']).toContain(
+      `processo-${PROCESSO_TJGO.replace(/\D/g, '')}-pecas-selecionadas.pdf`,
+    );
+    expect(pdf.headers['cache-control']).toBe('private, no-store');
+  });
+
+  it('o workspace B não recorta nem baixa o recorte do workspace A (404)', async () => {
+    const jobId = await combinar();
+    const x = (
+      await servidor.inject({
+        method: 'POST',
+        url: `${URL}/${jobId}/extratos`,
+        headers: A,
+        payload: { pecas: ['a'] },
+      })
+    ).json();
+    expect(
+      (
+        await servidor.inject({
+          method: 'POST',
+          url: `${URL}/${jobId}/extratos`,
+          headers: B,
+          payload: { pecas: ['a'] },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await servidor.inject({
+          url: `${URL}/${jobId}/extratos/${x.extratoId}/pdf`,
+          headers: B,
+        })
+      ).statusCode,
+    ).toBe(404);
+  });
+
+  it('peça fora do PDF é 400; recorte de id inexistente é 404', async () => {
+    const jobId = await combinar();
+    const r = await servidor.inject({
+      method: 'POST',
+      url: `${URL}/${jobId}/extratos`,
+      headers: A,
+      payload: { pecas: ['nao-existe'] },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().erro).toBe('PECAS_FORA_DO_PDF');
+    expect(
+      (
+        await servidor.inject({
+          url: `${URL}/${jobId}/extratos/${'0'.repeat(32)}/pdf`,
+          headers: A,
+        })
+      ).statusCode,
+    ).toBe(404);
+  });
+});
+
 describe('API — leitor com peça HTML', () => {
   it('a rota devolve html_convertida no índice e nenhum HTML cru em resposta alguma', async () => {
     provedor.pecas.push({

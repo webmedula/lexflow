@@ -10,6 +10,8 @@ import {
   EmailJaCadastradoError,
   JobDoLeitorNaoEncontradoError,
   LeitorAindaNaoProntoError,
+  PdfDoLeitorExpiradoError,
+  PecasForaDoPdfError,
   LimiteDeArmazenamentoExcedidoError,
   MniBloqueadoError,
   SegredoDeJusticaNaoGuardadoError,
@@ -106,6 +108,15 @@ export function mapearErro(erro: unknown): RespostaDeErro {
   // consulta o progresso em vez de tratar como erro.
   if (erro instanceof LeitorAindaNaoProntoError) {
     return { status: 409, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  // 410: existiu e não existe mais — "monte de novo", não "não encontrado".
+  if (erro instanceof PdfDoLeitorExpiradoError) {
+    return { status: 410, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
+  if (erro instanceof PecasForaDoPdfError) {
+    return { status: 400, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 
   // 413: o conteúdo pedido não cabe na guarda temporária. É do cliente (dividir

@@ -1,11 +1,14 @@
 import { Readable } from 'node:stream';
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { ServicoAssinaturas } from '../../../application/services/ServicoAssinaturas.js';
-import type { ServicoLeitor } from '../../../application/services/ServicoLeitor.js';
+import type {
+  PdfDoLeitor,
+  ServicoLeitor,
+} from '../../../application/services/ServicoLeitor.js';
 import type { EntradaIndice } from '../../../domain/entities/IndicePagina.js';
 import { progressoDoJob } from '../../../domain/entities/JobLeitor.js';
-import type { JobLeitor } from '../../../domain/entities/JobLeitor.js';
+import type { ExtratoDoJob, JobLeitor } from '../../../domain/entities/JobLeitor.js';
 import {
   OperacaoNaoSuportadaError,
   WorkspaceNaoResolvidoError,
@@ -28,6 +31,7 @@ const corpoCriar = z.object({
 });
 
 type Params = { numero: string; jobId: string };
+type ParamsExtrato = Params & { extratoId: string };
 
 /**
  * Rotas do leitor de peças: pedir a combinação, acompanhar, ler o PDF.
@@ -92,18 +96,25 @@ export function rotasDoLeitor(
     );
 
     /*
-     * O job mais recente deste processo, para a tela reabrir o PDF que já
-     * existe em vez de pedir tudo ao tribunal de novo. `job: null` quando
-     * nunca houve — não é erro.
+     * O que a tela precisa para abrir o painel. `job`: o pedido mais recente
+     * (pode estar andando, ou ter falhado). `pronto`: o PDF guardado mais
+     * recente, para "Reabrir o PDF já pronto". `reaproveitaveis`: as peças que
+     * já estão em algum PDF guardado — uma seleção nova não as pede ao
+     * tribunal de novo, e a estimativa de tempo conta só as outras. Tudo
+     * `null`/vazio quando nunca houve — não é erro.
      */
     servidor.get<{ Params: { numero: string } }>(
       '/v1/processos/:numero/leitor',
       async (req) => {
-        const job = await exigirServico().ultimoDoProcesso(
-          workspaceDe(req),
-          req.params.numero,
-        );
-        return { job: job ? visaoDoJob(job) : null };
+        const servico = exigirServico();
+        const ws = workspaceDe(req);
+        const job = await servico.ultimoDoProcesso(ws, req.params.numero);
+        const guardados = await servico.guardadosDoProcesso(ws, req.params.numero);
+        return {
+          job: job ? visaoDoJob(job) : null,
+          pronto: guardados.pronto ? visaoDoJob(guardados.pronto) : null,
+          reaproveitaveis: guardados.reaproveitaveis,
+        };
       },
     );
 
@@ -170,46 +181,84 @@ export function rotasDoLeitor(
           req.params.numero,
           req.params.jobId,
         );
+        return servirPdf(req, resposta, pdf);
+      },
+    );
 
-        void resposta.header('accept-ranges', 'bytes');
-        void resposta.header('content-type', 'application/pdf');
-        // Autos de processo: nenhum cache compartilhado guarda isto.
-        void resposta.header('cache-control', 'private, no-store');
-        void resposta.header('x-content-type-options', 'nosniff');
-        void resposta.header(
-          'content-disposition',
-          `attachment; filename="${pdf.nomeArquivo}"`,
+    /*
+     * "Baixar só algumas" (v0.31.1): recorta do PDF guardado as páginas das
+     * peças marcadas. NÃO consulta o tribunal, e por isso não exige plano —
+     * como a leitura, é o que a pessoa já tem.
+     */
+    servidor.post<{ Params: Params; Body: unknown }>(
+      '/v1/processos/:numero/leitor/:jobId/extratos',
+      async (req, resposta) => {
+        const { pecas } = corpoCriar.parse(req.body ?? {});
+        const { extrato } = await exigirServico().extrair(
+          workspaceDe(req),
+          req.params.numero,
+          req.params.jobId,
+          pecas,
         );
-        // A procedência viaja junto do arquivo, para quem o abrir por fora da
-        // tela saber de quando ele é. Nunca é "ao vivo".
-        if (pdf.job.concluidoEm) {
-          void resposta.header(
-            'x-processovivo-baixado-em',
-            pdf.job.concluidoEm.toISOString(),
-          );
-        }
+        void resposta.code(201);
+        return visaoDoExtrato(req.params.jobId, extrato);
+      },
+    );
 
-        const faixa = interpretarRange(req.headers.range, pdf.tamanho);
-        if (faixa === 'insatisfazivel') {
-          void resposta.code(416);
-          void resposta.header('content-range', `bytes */${pdf.tamanho}`);
-          return resposta.send();
-        }
-        if (faixa) {
-          void resposta.code(206);
-          void resposta.header(
-            'content-range',
-            `bytes ${faixa.inicio}-${faixa.fim}/${pdf.tamanho}`,
-          );
-          void resposta.header('content-length', String(faixa.fim - faixa.inicio + 1));
-          return resposta.send(Readable.from(pdf.ler(faixa.inicio, faixa.fim)));
-        }
-        void resposta.header('content-length', String(pdf.tamanho));
-        if (pdf.tamanho === 0) return resposta.send(Buffer.alloc(0));
-        return resposta.send(Readable.from(pdf.ler(0, pdf.tamanho - 1)));
+    servidor.get<{ Params: ParamsExtrato }>(
+      '/v1/processos/:numero/leitor/:jobId/extratos/:extratoId/pdf',
+      async (req, resposta) => {
+        const pdf = await exigirServico().abrirExtrato(
+          workspaceDe(req),
+          req.params.numero,
+          req.params.jobId,
+          req.params.extratoId,
+        );
+        return servirPdf(req, resposta, pdf);
       },
     );
   };
+}
+
+/** O PDF, com suporte a `Range` — o combinado e o recorte saem iguais. */
+async function servirPdf(
+  req: FastifyRequest,
+  resposta: FastifyReply,
+  pdf: PdfDoLeitor,
+): Promise<FastifyReply> {
+  void resposta.header('accept-ranges', 'bytes');
+  void resposta.header('content-type', 'application/pdf');
+  // Autos de processo: nenhum cache compartilhado guarda isto.
+  void resposta.header('cache-control', 'private, no-store');
+  void resposta.header('x-content-type-options', 'nosniff');
+  void resposta.header(
+    'content-disposition',
+    `attachment; filename="${pdf.nomeArquivo}"`,
+  );
+  // A procedência viaja junto do arquivo, para quem o abrir por fora da
+  // tela saber de quando ele é. Nunca é "ao vivo".
+  if (pdf.job.concluidoEm) {
+    void resposta.header('x-processovivo-baixado-em', pdf.job.concluidoEm.toISOString());
+  }
+
+  const faixa = interpretarRange(req.headers.range, pdf.tamanho);
+  if (faixa === 'insatisfazivel') {
+    void resposta.code(416);
+    void resposta.header('content-range', `bytes */${pdf.tamanho}`);
+    return resposta.send();
+  }
+  if (faixa) {
+    void resposta.code(206);
+    void resposta.header(
+      'content-range',
+      `bytes ${faixa.inicio}-${faixa.fim}/${pdf.tamanho}`,
+    );
+    void resposta.header('content-length', String(faixa.fim - faixa.inicio + 1));
+    return resposta.send(Readable.from(pdf.ler(faixa.inicio, faixa.fim)));
+  }
+  void resposta.header('content-length', String(pdf.tamanho));
+  if (pdf.tamanho === 0) return resposta.send(Buffer.alloc(0));
+  return resposta.send(Readable.from(pdf.ler(0, pdf.tamanho - 1)));
 }
 
 /**
@@ -251,6 +300,18 @@ function procedencia(job: JobLeitor): Record<string, unknown> {
     expiraEm: job.expiraEm?.toISOString() ?? null,
     // Explícito para nenhuma tela confundir arquivo guardado com consulta.
     aoVivo: false,
+  };
+}
+
+/** O recorte, sem localizador. O endereço do arquivo vai pronto. */
+function visaoDoExtrato(jobId: string, x: ExtratoDoJob): Record<string, unknown> {
+  return {
+    extratoId: x.id,
+    jobId,
+    paginas: x.paginas,
+    bytes: x.bytes,
+    criadoEm: x.criadoEm.toISOString(),
+    indice: x.indice.map(visaoDaEntrada),
   };
 }
 

@@ -64,6 +64,7 @@ export type MotivoNaoObtida =
   | 'pdf_protegido'
   | 'imagem_invalida'
   | 'html_invalido'
+  | 'origem_expirada'
   /** Só em jobs gravados antes da conversão de HTML existir (legado da 0.30.0). */
   | 'html_aguardando_estrategia';
 
@@ -84,6 +85,8 @@ export const DESCRICAO_DO_MOTIVO: Readonly<Record<MotivoNaoObtida, string>> = {
   imagem_invalida: 'a imagem do tribunal não pôde ser convertida em página',
   html_invalido:
     'o documento HTML do tribunal não pôde ser convertido em texto — baixe-o individualmente pela linha do tempo',
+  origem_expirada:
+    'a peça seria reaproveitada de um PDF anterior, que foi apagado antes da montagem — marque-a de novo',
   html_aguardando_estrategia:
     'documento do tribunal em HTML: ainda não incorporado ao PDF — baixe-o individualmente pela linha do tempo',
 };
@@ -103,10 +106,17 @@ export interface PecaDoJob {
   /** Localizador do arquivo baixado, no armazém. Nunca vai para a resposta. */
   readonly arquivo?: string;
   /**
-   * Páginas que esta peça já ocupa no PDF do job anterior (atualização).
-   * Presente = não se baixa de novo: a montagem copia o intervalo de lá.
+   * Páginas que esta peça já ocupa num PDF guardado deste processo — o do job
+   * que esta atualização substitui, ou (v0.31.1) qualquer PDF ainda no prazo
+   * quando é uma seleção nova. Presente = não se baixa de novo: a montagem
+   * copia o intervalo de lá.
    */
   readonly reaproveitada?: {
+    /**
+     * Job cujo PDF tem as páginas. Ausente em jobs gravados pela v0.31.0, em
+     * que a origem era sempre `atualizaDe`.
+     */
+    readonly deJob?: string;
     readonly paginaInicial: number;
     readonly paginaFinal: number;
     readonly situacao: 'incorporada' | 'convertida' | 'html_convertida';
@@ -157,6 +167,24 @@ export interface JobLeitor {
   readonly atualizaDe?: string;
   readonly arquivo?: ArquivoCombinado;
   readonly indice?: readonly EntradaIndice[];
+  /**
+   * PDFs com SÓ ALGUMAS peças, recortados deste (v0.31.1). Moram na pasta do
+   * job e seguem o prazo dele: quando o combinado sai do disco, eles saem
+   * junto.
+   */
+  readonly extratos?: readonly ExtratoDoJob[];
+}
+
+/** Um recorte do PDF combinado — páginas copiadas dele, sem tribunal. */
+export interface ExtratoDoJob {
+  readonly id: string;
+  /** Localizador opaco, como o do combinado. Nunca vai para a resposta. */
+  readonly localizador: string;
+  readonly bytes: number;
+  readonly paginas: number;
+  readonly criadoEm: Date;
+  /** Índice PRÓPRIO, contado do arquivo recortado. */
+  readonly indice: readonly EntradaIndice[];
 }
 
 export interface ArquivoCombinado {

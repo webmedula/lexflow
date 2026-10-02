@@ -158,3 +158,18 @@ esse custo não se soma ao pico de um lote.
 `poppler-utils` entrou na imagem (decisão do dono). A medição de camada de texto
 em 2 ou 3 processos reais (seção 6.1 da especificação) **não foi feita** — é
 consulta ao tribunal, e fica para quando o dono autorizar.
+
+## 7. Largura do painel (v0.31.1)
+
+Medido no Chromium, contra o servidor local de teste, com o painel aberto num PDF pronto e um rótulo de
+peça longo (como os do TJGO), nas larguras 1500, 1366, 1024, 920 e 600 px.
+
+| | 0.31.0 | 0.31.1 |
+|---|---|---|
+| Borda direita do select "Ir para a peça" (janela de 1366 px) | 1479 px — 113 px fora da tela | 1120 px |
+| Largura mínima do select | 728 px (a opção mais longa) | encolhe com o painel |
+| Painel com largura salva de 1400 px numa janela de 1366 px | 1400 px (maior que a janela) | 1006 px (janela − 360) |
+| `scrollWidth` da barra de ferramentas > largura visível | em todas as larguras | em nenhuma |
+
+Nada aqui consultou o tribunal: é a página do console contra o servidor local
+com dados sintéticos.

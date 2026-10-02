@@ -479,6 +479,35 @@ export class JobDoLeitorNaoEncontradoError extends DomainError {
   }
 }
 
+/**
+ * O PDF combinado existiu e saiu do disco (prazo de guarda, substituição ou
+ * limpeza por cota). Recortar dele não é mais possível — e o sistema DIZ isso
+ * em vez de baixar tudo de novo do tribunal sem ninguém pedir.
+ */
+export class PdfDoLeitorExpiradoError extends DomainError {
+  readonly codigo = 'PDF_DO_LEITOR_EXPIRADO';
+
+  constructor() {
+    super(
+      'O PDF combinado de onde as peças seriam recortadas já foi apagado ' +
+        '(prazo de guarda ou espaço da conta). Monte um novo pelo leitor.',
+    );
+  }
+}
+
+/** Pediu um recorte com peças que não estão no PDF combinado. */
+export class PecasForaDoPdfError extends DomainError {
+  readonly codigo = 'PECAS_FORA_DO_PDF';
+
+  constructor(readonly quantas: number) {
+    super(
+      quantas === 1
+        ? 'Uma das peças pedidas não está neste PDF combinado.'
+        : `${quantas} das peças pedidas não estão neste PDF combinado.`,
+    );
+  }
+}
+
 /** Pediu o PDF ou o índice de uma combinação que ainda não terminou. */
 export class LeitorAindaNaoProntoError extends DomainError {
   readonly codigo = 'LEITOR_AINDA_NAO_PRONTO';

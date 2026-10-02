@@ -4,12 +4,14 @@ import { montarIndice } from '../../domain/entities/IndicePagina.js';
 import type { EntradaIndice, ItemDoIndice } from '../../domain/entities/IndicePagina.js';
 import {
   DESCRICAO_DO_MOTIVO,
+  ESTADOS_ATIVOS,
   ESTADOS_COM_ARQUIVO,
   estimarFaixa,
   estimarSegundos,
   proximoTamanhoDeLote,
 } from '../../domain/entities/JobLeitor.js';
 import type {
+  ExtratoDoJob,
   JobLeitor,
   MotivoNaoObtida,
   PecaDoJob,
@@ -24,6 +26,8 @@ import {
   LimiteDeArmazenamentoExcedidoError,
   MniBloqueadoError,
   OperacaoNaoSuportadaError,
+  PdfDoLeitorExpiradoError,
+  PecasForaDoPdfError,
   SegredoDeJusticaNaoGuardadoError,
 } from '../../domain/errors/index.js';
 import type { ArmazemDoLeitor } from '../../domain/ports/ArmazemDoLeitor.js';
@@ -98,6 +102,13 @@ export interface PdfDoLeitor {
   ler(inicio: number, fim: number): AsyncIterable<Uint8Array>;
 }
 
+/**
+ * Quantos recortes ("baixar só algumas") cada PDF combinado guarda. O recorte
+ * é barato de refazer — sai do disco, sem tribunal —, então guardar mais não
+ * compra nada além de espaço ocupado.
+ */
+const MAX_EXTRATOS_POR_JOB = 3;
+
 /** Peça sendo levada à montagem: ou é um intervalo de arquivo, ou um aviso. */
 type Destino =
   | { readonly tipo: 'arquivo'; readonly parte: ParteDoPdf }
@@ -136,6 +147,8 @@ export class ServicoLeitor {
 
   private ultimaChamada: number | undefined;
   private rodando: Promise<number> | undefined;
+  /** Recortes em fila: dois ao mesmo tempo no mesmo job brigariam pela lista. */
+  private recortes: Promise<unknown> = Promise.resolve();
 
   constructor(opcoes: OpcoesServicoLeitor) {
     this.provedor = opcoes.provedor;
@@ -200,6 +213,28 @@ export class ServicoLeitor {
   }
 
   /**
+   * O que a tela precisa para abrir o painel: o PDF pronto mais recente (que
+   * pode não ser o último pedido — esse pode ter falhado) e as peças que já
+   * estão em algum PDF guardado deste processo, que uma seleção nova não pede
+   * ao tribunal de novo.
+   */
+  async guardadosDoProcesso(
+    workspace: string,
+    numeroProcesso: string,
+  ): Promise<{
+    readonly pronto: JobLeitor | undefined;
+    readonly reaproveitaveis: readonly string[];
+  }> {
+    const numero = NumeroCNJ.criar(numeroProcesso).digitos;
+    const fontes = await this.pdfsGuardados(workspace, numero);
+    const ids = new Set<string>();
+    for (const f of fontes) {
+      for (const e of f.indice ?? []) if (reaproveitavel(e)) ids.add(e.pecaId);
+    }
+    return { pronto: fontes[0], reaproveitaveis: [...ids] };
+  }
+
+  /**
    * Enfileira um pedido. NÃO consulta o tribunal: a listagem, a assinatura de
    * mudança e os lotes acontecem no executor, que respeita disjuntor e pausa.
    * Uma rota HTTP que esperasse o tribunal ficaria pendurada minutos.
@@ -218,7 +253,7 @@ export class ServicoLeitor {
       numeroProcesso,
     );
 
-    const uso = await this.armazem.usoDoWorkspace(workspace);
+    const uso = await this.abrirEspaco(workspace, { numero, preservar: new Set() });
     if (uso >= this.config.cotaPorWorkspaceBytes) {
       throw new LimiteDeArmazenamentoExcedidoError(
         'workspace',
@@ -360,6 +395,52 @@ export class ServicoLeitor {
   }
 
   /**
+   * "Baixar só algumas": um PDF com as páginas destas peças, RECORTADAS do
+   * combinado guardado. Nenhuma consulta ao tribunal — as páginas já estão no
+   * disco. Ordem dos autos (a do índice, não a do clique) e índice próprio,
+   * contado do arquivo gerado.
+   *
+   * O combinado saiu do disco → `PdfDoLeitorExpiradoError`. Montar de novo
+   * consultaria o tribunal com a senha do advogado, e isso só acontece quando
+   * ele pede.
+   *
+   * @throws {PdfDoLeitorExpiradoError | LeitorAindaNaoProntoError}
+   * @throws {PecasForaDoPdfError | LimiteDeArmazenamentoExcedidoError}
+   */
+  extrair(
+    workspace: string,
+    numeroProcesso: string,
+    jobId: string,
+    idsPecas: readonly string[],
+  ): Promise<{ readonly job: JobLeitor; readonly extrato: ExtratoDoJob }> {
+    const minha = this.recortes.then(() =>
+      this.recortar(workspace, numeroProcesso, jobId, idsPecas),
+    );
+    this.recortes = minha.catch(() => undefined);
+    return minha;
+  }
+
+  async abrirExtrato(
+    workspace: string,
+    numeroProcesso: string,
+    jobId: string,
+    extratoId: string,
+  ): Promise<PdfDoLeitor> {
+    const job = await this.consultar(workspace, numeroProcesso, jobId);
+    if (job.estado === 'expirado') throw new PdfDoLeitorExpiradoError();
+    const extrato = job.extratos?.find((x) => x.id === extratoId);
+    if (!extrato) throw new JobDoLeitorNaoEncontradoError(extratoId);
+    const tamanho = await this.armazem.tamanho(workspace, extrato.localizador);
+    if (tamanho === undefined) throw new PdfDoLeitorExpiradoError();
+    return {
+      job,
+      tamanho,
+      nomeArquivo: `processo-${job.numeroProcesso}-pecas-selecionadas.pdf`,
+      ler: (inicio, fim) => this.armazem.ler(workspace, extrato.localizador, inicio, fim),
+    };
+  }
+
+  /**
    * Roda a fila até esvaziar. Chamadas concorrentes na mesma instância
    * recebem a mesma promessa.
    *
@@ -394,6 +475,10 @@ export class ServicoLeitor {
     let apagados = 0;
     let bytes = 0;
     for (const job of await this.fila.expirados(agora)) {
+      // Uma combinação em andamento copia páginas deste PDF: ele espera ela
+      // terminar (a próxima limpeza o pega). Apagar agora transformaria peças
+      // já baixadas em páginas de aviso.
+      if ((await this.emUsoPorJobAtivo(job.workspace)).has(job.id)) continue;
       bytes += await this.armazem.apagarJob(job.workspace, job.id);
       await this.fila.salvar(
         semArquivo({
@@ -604,41 +689,48 @@ export class ServicoLeitor {
     const anterior = job.atualizaDe
       ? await this.fila.obter(job.workspace, job.atualizaDe)
       : undefined;
-    const arquivoAnterior =
-      anterior?.arquivo &&
-      (await this.armazem.tamanho(job.workspace, anterior.arquivo.localizador)) !==
-        undefined
-        ? anterior.arquivo
-        : undefined;
     const jaListados = new Set(anterior?.idsListados ?? []);
     const novas = anterior ? idsListados.filter((id) => !jaListados.has(id)) : [];
     const pedidas = [...new Set([...job.pedidas, ...novas])];
-    const noIndiceAnterior = new Map(
-      (arquivoAnterior ? (anterior?.indice ?? []) : []).map((e) => [e.pecaId, e]),
-    );
+
+    // De onde copiar páginas em vez de pedir ao tribunal. Na atualização, só
+    // do PDF que ela substitui. Numa seleção NOVA (v0.31.1), de qualquer PDF
+    // deste processo ainda no prazo — o mais recente primeiro. A seleção nova
+    // não apaga nenhum deles: cada um sai no próprio prazo, ou pela cota.
+    const fontes = job.atualizaDe
+      ? (await this.pdfsGuardados(job.workspace, job.numeroProcesso)).filter(
+          (f) => f.id === job.atualizaDe,
+        )
+      : (await this.pdfsGuardados(job.workspace, job.numeroProcesso)).filter(
+          (f) => f.id !== job.id,
+        );
+    const noIndiceAnterior = new Map<string, { deJob: string; e: EntradaIndice }>();
+    for (const f of fontes) {
+      for (const e of f.indice ?? []) {
+        if (!noIndiceAnterior.has(e.pecaId))
+          noIndiceAnterior.set(e.pecaId, { deJob: f.id, e });
+      }
+    }
 
     const querida = new Set(pedidas);
     const pecas: PecaDoJob[] = [];
     for (const p of todas) {
       if (!querida.has(p.id)) continue;
       const base = pecaDoJob(p, pecas.length);
-      const reaproveitavel = noIndiceAnterior.get(p.id);
+      const achada = noIndiceAnterior.get(p.id);
+      const situacao = achada ? reaproveitavel(achada.e) : undefined;
       if (p.sigilosa) {
         pecas.push({ ...base, situacao: 'nao_obtida', motivo: 'sigilosa' });
-      } else if (
-        reaproveitavel &&
-        (reaproveitavel.situacao === 'incorporada' ||
-          reaproveitavel.situacao === 'convertida' ||
-          reaproveitavel.situacao === 'html_convertida')
-      ) {
+      } else if (achada && situacao) {
         pecas.push({
           ...base,
           situacao: 'obtida',
           reaproveitada: {
-            paginaInicial: reaproveitavel.paginaInicial,
-            paginaFinal: reaproveitavel.paginaFinal,
-            situacao: reaproveitavel.situacao,
-            ...(reaproveitavel.motivo ? { motivo: reaproveitavel.motivo } : {}),
+            deJob: achada.deJob,
+            paginaInicial: achada.e.paginaInicial,
+            paginaFinal: achada.e.paginaFinal,
+            situacao,
+            ...(achada.e.motivo ? { motivo: achada.e.motivo } : {}),
           },
         });
       } else {
@@ -892,9 +984,27 @@ export class ServicoLeitor {
     const anterior = job.atualizaDe
       ? await this.fila.obter(ws, job.atualizaDe)
       : undefined;
-    const caminhoAnterior = anterior?.arquivo
-      ? await this.armazem.caminhoLocal(ws, anterior.arquivo.localizador)
-      : undefined;
+    // O caminho de cada PDF de origem, resolvido uma vez. `undefined` = saiu
+    // do disco desde a listagem.
+    const origens = new Map<string, string | undefined>();
+    const caminhoDaOrigem = async (id: string): Promise<string | undefined> => {
+      if (!origens.has(id)) {
+        const origem = await this.fila.obter(ws, id);
+        const arquivo =
+          origem && ESTADOS_COM_ARQUIVO.includes(origem.estado)
+            ? origem.arquivo
+            : undefined;
+        const existe =
+          arquivo && (await this.armazem.tamanho(ws, arquivo.localizador)) !== undefined;
+        origens.set(
+          id,
+          arquivo && existe
+            ? await this.armazem.caminhoLocal(ws, arquivo.localizador)
+            : undefined,
+        );
+      }
+      return origens.get(id);
+    };
 
     const destinos: Destino[] = [];
     const itens: Array<Omit<ItemDoIndice, 'paginas'>> = [];
@@ -919,11 +1029,17 @@ export class ServicoLeitor {
     };
 
     for (const p of [...job.pecas].sort((a, b) => a.ordem - b.ordem)) {
-      if (p.reaproveitada && caminhoAnterior) {
+      if (p.reaproveitada) {
+        const deJob = p.reaproveitada.deJob ?? job.atualizaDe;
+        const caminhoOrigem = deJob ? await caminhoDaOrigem(deJob) : undefined;
+        if (!caminhoOrigem) {
+          naoIncorporada(p, 'origem_expirada');
+          continue;
+        }
         destinos.push({
           tipo: 'arquivo',
           parte: {
-            arquivo: caminhoAnterior,
+            arquivo: caminhoOrigem,
             paginas: [p.reaproveitada.paginaInicial, p.reaproveitada.paginaFinal],
           },
         });
@@ -1035,6 +1151,8 @@ export class ServicoLeitor {
     });
 
     // O PDF anterior foi substituído: sai do disco agora, não no fim do prazo.
+    // Só na ATUALIZAÇÃO — numa seleção nova, os PDFs de onde vieram páginas
+    // continuam valendo até o próprio prazo.
     if (anterior) {
       await this.armazem.apagarJob(ws, anterior.id);
       await this.fila.salvar(
@@ -1046,7 +1164,211 @@ export class ServicoLeitor {
         }),
       );
     }
+    // O PDF novo pode ter levado a conta acima da cota (páginas copiadas
+    // ocupam espaço de novo). Quem sai é o mais antigo — nunca este.
+    await this.abrirEspaco(ws, {
+      numero: job.numeroProcesso,
+      preservar: new Set([job.id]),
+      acimaDe: true,
+    });
     await this.registrarUsoDeDisco();
+  }
+
+  /**
+   * PDFs deste processo que ainda servem de origem de páginas: com arquivo,
+   * dentro do prazo e presentes no disco. Do mais recente ao mais antigo.
+   */
+  private async pdfsGuardados(workspace: string, numero: string): Promise<JobLeitor[]> {
+    const agora = this.clock.agora().getTime();
+    const saida: JobLeitor[] = [];
+    for (const j of await this.fila.doProcesso(workspace, numero)) {
+      if (!ESTADOS_COM_ARQUIVO.includes(j.estado) || !j.arquivo) continue;
+      if (j.expiraEm && j.expiraEm.getTime() <= agora) continue;
+      if ((await this.armazem.tamanho(workspace, j.arquivo.localizador)) === undefined)
+        continue;
+      saida.push(j);
+    }
+    return saida;
+  }
+
+  /** Ids dos PDFs de que algum job ainda em andamento vai copiar páginas. */
+  private async emUsoPorJobAtivo(workspace: string): Promise<Set<string>> {
+    const usados = new Set<string>();
+    for (const j of await this.fila.doWorkspace(workspace)) {
+      if (!ESTADOS_ATIVOS.includes(j.estado)) continue;
+      if (j.atualizaDe) usados.add(j.atualizaDe);
+      for (const p of j.pecas)
+        if (p.reaproveitada?.deJob) usados.add(p.reaproveitada.deJob);
+    }
+    return usados;
+  }
+
+  /**
+   * A REGRA DE SUBSTITUIÇÃO (v0.31.1). Seleção nova não apaga o PDF anterior:
+   * ele fica até o próprio prazo. Só a cota da conta força a saída antes — e
+   * então saem os PDFs mais antigos (pela hora em que ficaram prontos), os de
+   * OUTROS processos primeiro, os deste por último (são deles que a seleção
+   * nova copia páginas). Nunca sai o que está em `preservar` nem um PDF de que
+   * uma combinação em andamento ainda vai copiar páginas.
+   *
+   * @returns o uso da conta depois da limpeza.
+   */
+  private async abrirEspaco(
+    workspace: string,
+    opcoes: {
+      readonly numero: string;
+      readonly preservar: ReadonlySet<string>;
+      /** `true`: limpa só se PASSOU da cota (depois de montar); senão, se chegou nela. */
+      readonly acimaDe?: boolean;
+    },
+  ): Promise<number> {
+    const cota = this.config.cotaPorWorkspaceBytes;
+    const passou = (uso: number): boolean => (opcoes.acimaDe ? uso > cota : uso >= cota);
+    let uso = await this.armazem.usoDoWorkspace(workspace);
+    if (!passou(uso)) return uso;
+
+    const emUso = await this.emUsoPorJobAtivo(workspace);
+    const candidatos = (await this.fila.doWorkspace(workspace))
+      .filter(
+        (j) =>
+          ESTADOS_COM_ARQUIVO.includes(j.estado) &&
+          j.arquivo !== undefined &&
+          !opcoes.preservar.has(j.id) &&
+          !emUso.has(j.id),
+      )
+      .sort((a, b) => {
+        const mesmoA = a.numeroProcesso === opcoes.numero ? 1 : 0;
+        const mesmoB = b.numeroProcesso === opcoes.numero ? 1 : 0;
+        if (mesmoA !== mesmoB) return mesmoA - mesmoB;
+        return (
+          (a.concluidoEm ?? a.criadoEm).getTime() -
+          (b.concluidoEm ?? b.criadoEm).getTime()
+        );
+      });
+
+    const agora = this.clock.agora();
+    for (const j of candidatos) {
+      if (!passou(uso)) break;
+      const liberados = await this.armazem.apagarJob(workspace, j.id);
+      await this.fila.salvar(
+        semArquivo({
+          ...j,
+          estado: 'expirado',
+          mensagem:
+            'Apagado antes do prazo para abrir espaço a um PDF mais novo ' +
+            '(limite de guarda da conta).',
+          atualizadoEm: agora,
+        }),
+      );
+      this.logger.info('leitor: PDF apagado pela cota da conta', {
+        workspace,
+        job: j.id,
+        bytes: liberados,
+      });
+      uso = await this.armazem.usoDoWorkspace(workspace);
+    }
+    return uso;
+  }
+
+  private async recortar(
+    workspace: string,
+    numeroProcesso: string,
+    jobId: string,
+    idsPecas: readonly string[],
+  ): Promise<{ readonly job: JobLeitor; readonly extrato: ExtratoDoJob }> {
+    const job = await this.consultar(workspace, numeroProcesso, jobId);
+    if (job.estado === 'expirado') throw new PdfDoLeitorExpiradoError();
+    const arquivo = job.arquivo;
+    if (!ESTADOS_COM_ARQUIVO.includes(job.estado) || !arquivo || !job.indice) {
+      throw new LeitorAindaNaoProntoError(job.estado);
+    }
+    if ((await this.armazem.tamanho(workspace, arquivo.localizador)) === undefined) {
+      throw new PdfDoLeitorExpiradoError();
+    }
+
+    const pedidas = new Set(idsPecas);
+    const conhecidas = new Set(job.indice.map((e) => e.pecaId));
+    const fora = [...pedidas].filter((id) => !conhecidas.has(id)).length;
+    if (fora > 0 || pedidas.size === 0) throw new PecasForaDoPdfError(fora || 1);
+    // A ordem é a do índice (a dos autos), nunca a do clique.
+    const entradas = job.indice.filter((e) => pedidas.has(e.pecaId));
+
+    const uso = await this.abrirEspaco(workspace, {
+      numero: job.numeroProcesso,
+      preservar: new Set([job.id]),
+    });
+    if (uso >= this.config.cotaPorWorkspaceBytes) {
+      throw new LimiteDeArmazenamentoExcedidoError(
+        'workspace',
+        this.config.cotaPorWorkspaceBytes,
+      );
+    }
+
+    const origem = await this.armazem.caminhoLocal(workspace, arquivo.localizador);
+    const localizador = this.armazem.novoArquivo(workspace, job.id, 'pdf');
+    const destino = await this.armazem.caminhoLocal(workspace, localizador);
+    const existentes = (job.extratos ?? []).map((x) => x.localizador);
+    try {
+      const montado = await this.montador.montar(
+        entradas.map((e) => ({
+          arquivo: origem,
+          paginas: [e.paginaInicial, e.paginaFinal] as const,
+        })),
+        destino,
+      );
+      if (montado.bytes > this.config.cotaPorPdfBytes) {
+        throw new LimiteDeArmazenamentoExcedidoError('pdf', this.config.cotaPorPdfBytes);
+      }
+      if (uso + montado.bytes > this.config.cotaPorWorkspaceBytes) {
+        throw new LimiteDeArmazenamentoExcedidoError(
+          'workspace',
+          this.config.cotaPorWorkspaceBytes,
+        );
+      }
+      const indice = montarIndice(
+        entradas.map((e, i) => ({
+          pecaId: e.pecaId,
+          rotulo: e.rotulo,
+          situacao: e.situacao,
+          paginas: montado.paginasPorParte[i] ?? 0,
+          ...(e.movimento !== undefined ? { movimento: e.movimento } : {}),
+          ...(e.data !== undefined ? { data: e.data } : {}),
+          ...(e.motivo !== undefined ? { motivo: e.motivo } : {}),
+        })),
+      );
+      const extrato: ExtratoDoJob = {
+        id: this.gerarId(),
+        localizador,
+        bytes: montado.bytes,
+        paginas: montado.paginas,
+        criadoEm: this.clock.agora(),
+        indice,
+      };
+      const extratos = [
+        ...(job.extratos ?? []).slice(-(MAX_EXTRATOS_POR_JOB - 1)),
+        extrato,
+      ];
+      const salvo: JobLeitor = { ...job, extratos };
+      await this.fila.salvar(salvo);
+      // Os recortes que saíram da lista saem do disco.
+      await this.armazem.limparTrabalho(workspace, job.id, [
+        arquivo.localizador,
+        ...extratos.map((x) => x.localizador),
+      ]);
+      this.logger.info('leitor: recorte gerado', {
+        workspace,
+        job: job.id,
+        pecas: indice.length,
+        paginas: montado.paginas,
+        bytes: montado.bytes,
+      });
+      return { job: salvo, extrato };
+    } catch (erro) {
+      await this.armazem
+        .limparTrabalho(workspace, job.id, [arquivo.localizador, ...existentes])
+        .catch(() => undefined);
+      throw erro;
+    }
   }
 
   private async registrarUsoDeDisco(): Promise<void> {
@@ -1155,6 +1477,17 @@ function semRetomada(job: JobLeitor): JobLeitor {
 }
 
 function semArquivo(job: JobLeitor): JobLeitor {
-  const { arquivo: _arquivo, expiraEm: _expiraEm, ...resto } = job;
+  const { arquivo: _arquivo, expiraEm: _expiraEm, extratos: _extratos, ...resto } = job;
   return resto;
+}
+
+/** Só página que de fato tem a peça se copia; página de aviso não. */
+function reaproveitavel(
+  e: EntradaIndice,
+): 'incorporada' | 'convertida' | 'html_convertida' | undefined {
+  return e.situacao === 'incorporada' ||
+    e.situacao === 'convertida' ||
+    e.situacao === 'html_convertida'
+    ? e.situacao
+    : undefined;
 }

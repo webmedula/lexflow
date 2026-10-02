@@ -44,7 +44,8 @@ function novoEstado(numero){
     timer:null,estimativaTimer:null,pdf:null,lib:null,zoom:'largura',escala:1,
     larguraBase:0,alturaBase:0,desenhadas:[],observador:null,pagina:1,
     busca:{id:0,termo:'',paginas:[],i:-1},textos:{},destaque:null,erroPoll:0,
-    ultimaEstimativa:null};
+    ultimaEstimativa:null,pronto:null,reaproveitaveis:{},recorte:{},recorteAberto:false,
+    indiceDe:null,pdfDe:null,redimensionar:null};
 }
 
 function pv(){return window.__pv}
@@ -62,6 +63,10 @@ function minutos(seg){
 }
 function soDigitos(n){return String(n||'').replace(/\D/g,'')}
 function base(){return '/v1/processos/'+encodeURIComponent(st.numero)+'/leitor'}
+function ativo(j){
+  return !!j&&(j.estado==='na_fila'||j.estado==='baixando'||j.estado==='montando'||
+    j.estado==='pausado_por_bloqueio');
+}
 
 /* ---------- as peças que a régua conhece ---------- */
 /* Todas, inclusive as escondidas pelos filtros da linha do tempo e as que
@@ -86,6 +91,7 @@ function montarPainel(){
   if($('leitor'))return;
   var w=null; try{w=localStorage.getItem(LARGURA)}catch(e){}
   if(w)document.documentElement.style.setProperty('--leitor-w',w);
+  ajustarLargura();
   var el=document.createElement('aside');
   el.id='leitor';
   el.setAttribute('aria-label','Leitor de peças');
@@ -93,7 +99,7 @@ function montarPainel(){
     '<div class="topo">'+
       '<button class="bt bt2 voltar" id="leitor-voltar">&larr; linha do tempo</button>'+
       '<h3>Leitor de peças</h3>'+
-      '<button class="bt bt2" id="leitor-marcar">Marcar peças</button>'+
+      '<button class="bt bt2" id="leitor-marcar">Nova seleção</button>'+
       '<button class="bt bt3" id="leitor-fechar" title="Fechar o leitor">Fechar</button>'+
     '</div>'+
     '<div class="estado" id="leitor-estado"></div>'+
@@ -136,6 +142,27 @@ function montarPainel(){
   $('leitor-baixar').addEventListener('click',baixar);
   $('leitor-paginas').addEventListener('scroll',aoRolar);
   ligarDivisor();
+  var espera=null;
+  st.redimensionar=function(){
+    if(espera)clearTimeout(espera);
+    espera=setTimeout(function(){
+      espera=null;ajustarLargura();
+      if(st.zoom==='largura')relayout();
+    },200);
+  };
+  window.addEventListener('resize',st.redimensionar);
+}
+
+/* A largura arrastada vale para a janela em que foi arrastada. Numa janela
+   menor (outro monitor, janela reduzida), ela encolhe para caber — sem
+   apagar a preferência gravada, que volta a valer na janela grande. O CSS
+   tem a mesma trava em min(); esta aqui mantém espaço para a linha do tempo. */
+function ajustarLargura(){
+  if(window.innerWidth<=900)return;
+  var v=getComputedStyle(document.documentElement).getPropertyValue('--leitor-w').trim();
+  var m=/^(\d+(?:\.\d+)?)px$/.exec(v); if(!m)return;
+  var max=Math.max(320,window.innerWidth-360);
+  if(Number(m[1])>max)document.documentElement.style.setProperty('--leitor-w',max+'px');
 }
 
 function ligarDivisor(){
@@ -166,13 +193,46 @@ function abrirPainel(){
   document.body.classList.remove('leitor-escondido');
   estado('<span class="gira"></span>Procurando um PDF já montado deste processo…');
   pv().api(base()).then(function(r){
-    var j=r.job;
-    if(j&&j.estado!=='expirado'&&j.estado!=='falhou')mostrarJob(j);
-    else{
-      if(j)mostrarJob(j);
-      entrarNaSelecao();
-    }
+    guardarGuardados(r);
+    // Um pedido andando: a tela acompanha ele. Senão, a pessoa escolhe.
+    if(ativo(r.job))mostrarJob(r.job);
+    else telaDeAbertura(r.job);
   }).catch(function(e){estado(erroTexto(e));entrarNaSelecao()});
+}
+
+function guardarGuardados(r){
+  st.pronto=r.pronto||null;
+  st.reaproveitaveis={};
+  (r.reaproveitaveis||[]).forEach(function(id){st.reaproveitaveis[id]=1});
+}
+
+/* A abertura do painel (v0.31.1): "Nova seleção" e, quando existe e está no
+   prazo, "Reabrir o PDF já pronto" — com a hora em que foi montado, porque
+   não é consulta ao vivo. Nenhum dos dois é escolhido pela pessoa sem ela
+   clicar. */
+function telaDeAbertura(ultimo){
+  st.marcando=false;
+  var bm=$('leitor-marcar'); if(bm)bm.textContent='Nova seleção';
+  var p=st.pronto, h='';
+  if(ultimo&&ultimo.estado==='falhou'&&(!p||p.jobId!==ultimo.jobId))
+    h+='<div class="nota" style="color:var(--erro)">O último pedido não foi concluído: '+
+      esc(ultimo.mensagem||'')+'</div>';
+  h+=p?'<div>Há um PDF montado deste processo, guardado até '+
+      esc(pv().dth(p.procedencia&&p.procedencia.expiraEm))+'.</div>'
+    :'<div>Nenhum PDF deste processo está guardado agora.</div>';
+  h+='<div class="abertura"><button class="bt" id="leitor-nova">Nova seleção</button>';
+  if(p)h+='<button class="bt bt2" id="leitor-reabrir-pronto">Reabrir o PDF já pronto'+
+    '<small>montado em '+esc(pv().dth(p.procedencia&&p.procedencia.baixadoEm))+' · '+
+    p.total+' '+(p.total===1?'peça':'peças')+', '+p.paginas+' páginas</small></button>';
+  h+='</div>';
+  estado(h);
+  var area=$('leitor-paginas');
+  if(area&&!st.pdf)area.innerHTML='<div class="vazio-leitor">'+(p?'Reabra o PDF já montado, '+
+    'ou comece uma seleção nova: peças que já estão nele não voltam ao tribunal.'
+    :'Comece uma seleção: marque as peças na linha do tempo.')+'</div>';
+  $('leitor-nova').addEventListener('click',entrarNaSelecao);
+  var rb=$('leitor-reabrir-pronto');
+  if(rb)rb.addEventListener('click',function(){mostrarJob(p)});
 }
 
 function erroTexto(e){
@@ -182,6 +242,7 @@ function erroTexto(e){
 
 function fechar(){
   pararPoll();
+  if(st.redimensionar)window.removeEventListener('resize',st.redimensionar);
   if(st.estimativaTimer)clearTimeout(st.estimativaTimer);
   if(st.observador)st.observador.disconnect();
   if(st.pdf){try{st.pdf.destroy()}catch(e){}}
@@ -189,7 +250,11 @@ function fechar(){
   var r=$('leitor-reabrir'); if(r)r.remove();
   document.body.classList.remove('com-leitor','leitor-escondido');
   limparLinhaDoTempo();
+  /* As peças da régua continuam as mesmas: fechar e reabrir o painel sem a
+     tela do processo ser redesenhada não pode deixar a seleção sem peças. */
+  var pecas=st.pecas;
   st=novoEstado(st.numero);
+  st.pecas=pecas;
 }
 
 function limparLinhaDoTempo(){
@@ -199,17 +264,37 @@ function limparLinhaDoTempo(){
 }
 
 /* ---------- marcar peças ---------- */
+/* Seleção nova começa VAZIA (v0.31.1). Pré-marcar a anterior fazia "remarcar"
+   virar "desmarcar uma a uma"; quem quer a anterior pede, com o botão. */
 function entrarNaSelecao(){
   st.marcando=true;
-  var b=$('leitor-marcar'); if(b)b.textContent='Cancelar marcação';
+  st.selecao={};
+  var b=$('leitor-marcar'); if(b)b.textContent='Cancelar seleção';
   injetarCaixas();
+  sincronizarCaixas();
   desenharSelecao();
 }
 function sairDaSelecao(){
   st.marcando=false;
-  var b=$('leitor-marcar'); if(b)b.textContent='Marcar peças';
+  var b=$('leitor-marcar'); if(b)b.textContent='Nova seleção';
   document.querySelectorAll('label.sel').forEach(function(l){l.remove()});
-  if(st.job)mostrarJob(st.job); else estado('');
+  if(st.job)mostrarJob(st.job); else telaDeAbertura(null);
+}
+
+/* As peças do último PDF pronto, marcadas de novo — só quando a pessoa pede. */
+function repetirAnterior(){
+  var p=st.pronto; if(!p)return;
+  var marcar=function(indice){
+    var sig={}; st.pecas.forEach(function(x){if(x.sigilosa)sig[x.id]=1});
+    var existe={}; st.pecas.forEach(function(x){existe[x.id]=1});
+    st.selecao={};
+    indice.forEach(function(e){if(existe[e.pecaId]&&!sig[e.pecaId])st.selecao[e.pecaId]=1});
+    sincronizarCaixas();desenharSelecao();
+  };
+  if(st.indice&&st.indiceDe===p.jobId){marcar(st.indice);return}
+  pv().api(base()+'/'+encodeURIComponent(p.jobId)+'/indice').then(function(r){
+    marcar(r.indice||[]);
+  }).catch(function(e){var el=$('leitor-estimativa'); if(el)el.innerHTML=erroTexto(e)});
 }
 
 function injetarCaixas(){
@@ -244,6 +329,10 @@ function sincronizarCaixas(){
 function marcadas(){
   return st.pecas.filter(function(p){return st.selecao[p.id]}).map(function(p){return p.id});
 }
+/* As marcadas que vão ao tribunal: as que não estão em nenhum PDF guardado. */
+function novasMarcadas(){
+  return marcadas().filter(function(id){return !st.reaproveitaveis[id]}).length;
+}
 
 function grupos(){
   var g={};
@@ -259,14 +348,19 @@ function grupos(){
 function desenharSelecao(){
   var disponiveis=st.pecas.filter(function(p){return !p.sigilosa});
   var sigilosas=st.pecas.length-disponiveis.length;
-  var n=marcadas().length;
+  var n=marcadas().length, novas=novasMarcadas(), reuso=n-novas;
   var h='<div><strong id="leitor-contagem">'+n+' '+(n===1?'peça marcada':'peças marcadas')+
     '</strong> de '+st.pecas.length+'</div>';
-  h+='<div class="nota" id="leitor-estimativa">'+(n?'calculando o tempo…':
-    'Marque as peças na linha do tempo, ou use os atalhos abaixo.')+'</div>';
+  h+='<div class="nota" id="leitor-estimativa">'+(!n?
+    'Marque as peças na linha do tempo, ou use os atalhos abaixo.':novas?'calculando o tempo…':
+    'Nenhuma consulta ao tribunal: todas as marcadas já estão num PDF guardado.')+'</div>';
+  if(reuso)h+='<div class="reaproveita">'+reuso+' '+(reuso===1?'já está':'já estão')+
+    ' num PDF guardado: as páginas são copiadas de lá, sem consultar o tribunal.</div>';
   h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+
     '<button class="bt bt2" id="leitor-todas">Selecionar todas ('+disponiveis.length+')</button>'+
-    '<button class="bt bt2" id="leitor-limpar">Limpar</button></div>';
+    '<button class="bt bt2" id="leitor-limpar">Limpar seleção</button>'+
+    (st.pronto?'<button class="bt bt2" id="leitor-repetir">Repetir a seleção anterior</button>':'')+
+    '</div>';
   if(sigilosas)h+='<div class="nota">'+sigilosas+' peça(s) sob sigilo ficam de fora: '+
     'não são guardadas no PDF combinado. Baixe-as individualmente.</div>';
   var gs=grupos();
@@ -290,6 +384,7 @@ function desenharSelecao(){
   $('leitor-limpar').addEventListener('click',function(){
     st.selecao={};sincronizarCaixas();desenharSelecao();
   });
+  var rp=$('leitor-repetir'); if(rp)rp.addEventListener('click',repetirAnterior);
   document.querySelectorAll('[data-grupo]').forEach(function(el){
     el.addEventListener('click',function(){
       var g=gs[Number(el.getAttribute('data-grupo'))]; if(!g)return;
@@ -299,7 +394,7 @@ function desenharSelecao(){
     });
   });
   $('leitor-montar').addEventListener('click',montar);
-  pedirEstimativa(n);
+  pedirEstimativa(novas);
 }
 
 /* A faixa vem do servidor, calculada com os números medidos — a mesma conta
@@ -309,7 +404,7 @@ function pedirEstimativa(n){
   if(!n)return;
   st.estimativaTimer=setTimeout(function(){
     pv().api('/v1/leitor/estimativa?pecas='+n).then(function(r){
-      var el=$('leitor-estimativa'); if(!el||marcadas().length!==n)return;
+      var el=$('leitor-estimativa'); if(!el||novasMarcadas()!==n)return;
       var a=minutos(r.minimoSegundos), z=minutos(r.maximoSegundos);
       el.textContent='Tempo estimado: '+(a===z?a:'entre '+a+' e '+z)+
         ' (ordem de grandeza: depende da fila e do tamanho das peças, que o '+
@@ -324,8 +419,9 @@ function pedirEstimativa(n){
 function montar(){
   var ids=marcadas(); if(!ids.length)return;
   var e=st.ultimaEstimativa;
-  if(e&&e.pecas===ids.length&&e.exigeConfirmacao){
-    var ok=window.confirm('São '+ids.length+' peças. Montar o PDF deve levar entre '+
+  var novas=novasMarcadas();
+  if(novas&&e&&e.pecas===novas&&e.exigeConfirmacao){
+    var ok=window.confirm('São '+novas+' peças a pedir ao tribunal. Montar o PDF deve levar entre '+
       minutos(e.minimoSegundos)+' e '+minutos(e.maximoSegundos)+
       ', consultando o tribunal com o seu acesso. Continuar?');
     if(!ok)return;
@@ -333,7 +429,7 @@ function montar(){
   var b=$('leitor-montar'); if(b){b.disabled=true;b.innerHTML='<span class="gira"></span>Pedindo'}
   pv().api(base(),{method:'POST',body:{pecas:ids}}).then(function(job){
     st.marcando=false;
-    var bm=$('leitor-marcar'); if(bm)bm.textContent='Marcar peças';
+    var bm=$('leitor-marcar'); if(bm)bm.textContent='Nova seleção';
     document.querySelectorAll('label.sel').forEach(function(l){l.remove()});
     mostrarJob(job);
   }).catch(function(err){
@@ -375,7 +471,6 @@ function procedencia(j){
 }
 
 function mostrarJob(j){
-  var mudou=!st.job||st.job.jobId!==j.jobId;
   st.job=j;
   if(st.marcando)return;
   var h='';
@@ -408,12 +503,12 @@ function mostrarJob(j){
   pararPoll();
   if(j.estado==='falhou'){
     estado('<strong style="color:var(--erro)">Não foi possível montar o PDF.</strong> '+
-      esc(j.mensagem||'')+'<div class="nota">Use "Marcar peças" para pedir de novo.</div>');
+      esc(j.mensagem||'')+'<div class="nota">Use "Nova seleção" para pedir de novo.</div>');
     return;
   }
   if(j.estado==='expirado'){
-    estado('<strong>O PDF anterior foi apagado</strong> ao fim do prazo de guarda. '+
-      'Use "Marcar peças" para montar de novo.');
+    estado('<strong>O PDF anterior foi apagado</strong>'+(j.mensagem?': '+esc(j.mensagem):
+      ' ao fim do prazo de guarda.')+' Use "Nova seleção" para montar de novo.');
     return;
   }
   // pronto ou parcial
@@ -431,7 +526,13 @@ function mostrarJob(j){
   }
   h+='<div style="margin-top:8px"><button class="bt bt2" id="leitor-atualizar">'+
     'Atualizar com peças novas</button></div>';
+  h+='<details class="recorte" id="leitor-recorte-caixa"'+(st.recorteAberto?' open':'')+
+    '><summary>Baixar só algumas peças deste PDF</summary><div id="leitor-recorte">'+
+    '<div class="nota"><span class="gira"></span>Carregando o índice…</div></div></details>';
   estado(h);
+  var caixa=$('leitor-recorte-caixa');
+  if(caixa)caixa.addEventListener('toggle',function(){st.recorteAberto=caixa.open});
+  desenharRecorte();
   var at=$('leitor-atualizar');
   if(at)at.addEventListener('click',function(){
     at.disabled=true;at.innerHTML='<span class="gira"></span>Conferindo o tribunal';
@@ -442,12 +543,21 @@ function mostrarJob(j){
       }).catch(function(e){at.disabled=false;at.textContent='Atualizar com peças novas';
         estado(erroTexto(e))});
   });
-  if(mudou||!st.pdf)carregarDocumento(j);
+  /* O PDF aberto é o DESTE job? Comparar só o job da tela não basta: o
+     pedido novo já é o job da tela desde a fila, e quando fica pronto o
+     painel ainda mostra o PDF anterior. */
+  if(st.pdfDe!==j.jobId){
+    // Um PDF novo ficou pronto: ele passa a ser origem de páginas para a
+    // próxima seleção, e "Reabrir" passa a apontar para ele.
+    pv().api(base()).then(guardarGuardados).catch(function(){});
+    carregarDocumento(j);
+  }
 }
 
 /* ---------- o PDF ---------- */
 function carregarDocumento(j){
   var area=$('leitor-paginas'); if(!area)return;
+  st.pdfDe=j.jobId;
   if(st.observador)st.observador.disconnect();
   if(st.pdf){try{st.pdf.destroy()}catch(e){}st.pdf=null}
   st.desenhadas=[];st.textos={};st.busca={id:st.busca.id+1,termo:'',paginas:[],i:-1};
@@ -459,6 +569,9 @@ function carregarDocumento(j){
     import(PDFJS+'pdf.min.mjs')
   ]).then(function(r){
     st.indice=r[0].indice||[];
+    st.indiceDe=j.jobId;
+    st.recorte={};
+    desenharRecorte();
     st.lib=r[1];
     st.lib.GlobalWorkerOptions.workerSrc=PDFJS+'pdf.worker.min.mjs';
     return st.lib.getDocument({url:url,
@@ -694,6 +807,85 @@ function pularOcorrencia(d){
   if(onde)onde.textContent='Ocorrência '+(st.busca.i+1)+' de '+l.length+' páginas · p. '+l[st.busca.i];
 }
 
+/* ---------- baixar só algumas (v0.31.1) ---------- */
+/* As páginas destas peças, recortadas do PDF guardado. Nada vai ao
+   tribunal: se o PDF já foi apagado, a tela DIZ isso, e montar de novo é
+   decisão da pessoa ("Nova seleção"). */
+function recorteMarcado(){
+  return (st.indice||[]).filter(function(e){return st.recorte[e.pecaId]})
+    .map(function(e){return e.pecaId});
+}
+function desenharRecorte(){
+  var el=$('leitor-recorte');
+  if(!el||!st.job||!st.indice||st.indiceDe!==st.job.jobId)return;
+  var h='<div class="nota">Gera um PDF só com as páginas destas peças, recortadas deste '+
+    'arquivo — sem consultar o tribunal.</div><ul class="lista-recorte">';
+  st.indice.forEach(function(e,i){
+    var aviso=e.situacao==='nao_obtida'||e.situacao==='html_nao_incorporada';
+    h+='<li><label><input type="checkbox" class="sel-recorte" data-recorte="'+esc(e.pecaId)+'"'+
+      (st.recorte[e.pecaId]?' checked':'')+'><span class="rot">'+(i+1)+'. '+esc(e.rotulo)+
+      (aviso?' <em>(página de aviso)</em>':'')+'</span></label><span class="pp">p. '+
+      e.paginaInicial+(e.paginaFinal>e.paginaInicial?'–'+e.paginaFinal:'')+'</span></li>';
+  });
+  h+='</ul><div style="display:flex;gap:6px;flex-wrap:wrap">'+
+    '<button class="bt" id="leitor-baixar-sel"></button>'+
+    '<button class="bt bt2" id="leitor-limpar-recorte">Limpar</button></div>'+
+    '<div class="nota" id="leitor-recorte-msg"></div>';
+  el.innerHTML=h;
+  el.querySelectorAll('.sel-recorte').forEach(function(cx){
+    cx.addEventListener('change',function(){
+      var id=cx.getAttribute('data-recorte');
+      if(cx.checked)st.recorte[id]=1; else delete st.recorte[id];
+      rotularRecorte();
+    });
+  });
+  $('leitor-limpar-recorte').addEventListener('click',function(){
+    st.recorte={};
+    el.querySelectorAll('.sel-recorte').forEach(function(cx){cx.checked=false});
+    rotularRecorte();
+  });
+  $('leitor-baixar-sel').addEventListener('click',baixarSelecionadas);
+  rotularRecorte();
+}
+/* O rótulo diz o número — e o alvo é lido no clique, nunca congelado. */
+function rotularRecorte(){
+  var b=$('leitor-baixar-sel'); if(!b)return;
+  var n=recorteMarcado().length;
+  b.textContent='Baixar selecionadas ('+n+')';b.disabled=!n;
+}
+function baixarSelecionadas(){
+  var ids=recorteMarcado(); if(!ids.length||!st.job)return;
+  var b=$('leitor-baixar-sel'), msg=$('leitor-recorte-msg');
+  var u=base()+'/'+encodeURIComponent(st.job.jobId)+'/extratos';
+  b.disabled=true;b.innerHTML='<span class="gira"></span>Recortando';
+  if(msg)msg.textContent='';
+  var chave=pv().chave();
+  pv().api(u,{method:'POST',body:{pecas:ids}}).then(function(x){
+    return fetch(u+'/'+encodeURIComponent(x.extratoId)+'/pdf',
+      {headers:chave?{'x-api-key':chave}:{}})
+      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.blob()})
+      .then(function(blob){
+        salvarArquivo(blob,'processo-'+soDigitos(st.numero)+'-pecas-selecionadas.pdf');
+        if(msg)msg.textContent='Baixado: '+ids.length+' '+(ids.length===1?'peça':'peças')+', '+
+          x.paginas+' '+(x.paginas===1?'página':'páginas')+', na ordem dos autos.';
+      });
+  }).catch(function(e){
+    if(!msg)return;
+    msg.innerHTML=e&&e.status===410
+      ?'<span style="color:var(--atencao)"><strong>O PDF combinado já foi apagado</strong> '+
+        '(prazo de guarda ou espaço da conta). Nada foi pedido ao tribunal. Use "Nova '+
+        'seleção" para montar de novo.</span>'
+      :erroTexto(e);
+  }).then(function(){rotularRecorte()});
+}
+
+function salvarArquivo(blob,nome){
+  var u=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=u;a.download=nome;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(u);
+}
+
 /* ---------- baixar ---------- */
 function baixar(){
   if(!st.job)return;
@@ -703,10 +895,8 @@ function baixar(){
     {headers:chave?{'x-api-key':chave}:{}})
     .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.blob()})
     .then(function(blob){
-      var u=URL.createObjectURL(blob), a=document.createElement('a');
-      a.href=u;a.download='processo-'+soDigitos(st.numero)+'-pecas.pdf';
-      document.body.appendChild(a);a.click();document.body.removeChild(a);
-      URL.revokeObjectURL(u);b.disabled=false;b.textContent='Baixar PDF';
+      salvarArquivo(blob,'processo-'+soDigitos(st.numero)+'-pecas.pdf');
+      b.disabled=false;b.textContent='Baixar PDF';
     }).catch(function(){b.disabled=false;b.textContent='falhou — tentar de novo'});
 }
 

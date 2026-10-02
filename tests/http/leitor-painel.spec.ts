@@ -117,7 +117,8 @@ describe('API — apoio ao painel', () => {
 
   it('reabre o último PDF do processo — e só o do próprio workspace', async () => {
     const url = `/v1/processos/${PROCESSO_TJGO}/leitor`;
-    expect((await servidor.inject({ url, headers: A })).json()).toEqual({ job: null });
+    const vazio = { job: null, pronto: null, reaproveitaveis: [] };
+    expect((await servidor.inject({ url, headers: A })).json()).toEqual(vazio);
 
     const criado = await servidor.inject({
       method: 'POST',
@@ -129,7 +130,10 @@ describe('API — apoio ao painel', () => {
 
     const ultimo = (await servidor.inject({ url, headers: A })).json();
     expect(ultimo.job).toMatchObject({ jobId: criado.json().jobId, estado: 'pronto' });
-    expect((await servidor.inject({ url, headers: B })).json()).toEqual({ job: null });
+    // "Reabrir o PDF já pronto" e as peças que uma seleção nova não pede de novo.
+    expect(ultimo.pronto).toMatchObject({ jobId: criado.json().jobId });
+    expect(ultimo.reaproveitaveis).toEqual(['a']);
+    expect((await servidor.inject({ url, headers: B })).json()).toEqual(vazio);
   });
 });
 
@@ -188,6 +192,41 @@ describe('console — o painel do leitor', () => {
     expect(SCRIPT_LEITOR).toContain('j.recusadas.forEach');
     // Três falhas seguidas na consulta de progresso: para e diz, com botão.
     expect(SCRIPT_LEITOR).toContain('st.erroPoll>=3');
+  });
+
+  it('abre com "Nova seleção" e "Reabrir o PDF já pronto"; a seleção nova começa VAZIA', () => {
+    expect(SCRIPT_LEITOR).toContain('Reabrir o PDF já pronto');
+    const inicio = SCRIPT_LEITOR.indexOf('function entrarNaSelecao(){');
+    const corpo = SCRIPT_LEITOR.slice(
+      inicio,
+      SCRIPT_LEITOR.indexOf('function sairDaSelecao', inicio),
+    );
+    expect(corpo).toContain('st.selecao={}');
+    // "Limpar seleção" sempre à mão; a anterior só volta se a pessoa pedir.
+    expect(SCRIPT_LEITOR).toContain('Limpar seleção');
+    expect(SCRIPT_LEITOR).toContain('Repetir a seleção anterior');
+    // A estimativa conta só o que vai ao tribunal.
+    expect(SCRIPT_LEITOR).toContain('pedirEstimativa(novas)');
+  });
+
+  it('"Baixar selecionadas (N)" recorta sem tribunal e diz quando o PDF já expirou', () => {
+    expect(SCRIPT_LEITOR).toContain("'Baixar selecionadas ('+n+')'");
+    expect(SCRIPT_LEITOR).toContain('-pecas-selecionadas.pdf');
+    expect(SCRIPT_LEITOR).toContain('e.status===410');
+    expect(SCRIPT_LEITOR).toContain('Nada foi pedido ao tribunal');
+  });
+
+  it('o painel nunca passa da largura da janela', () => {
+    // A largura salva pelo divisor numa janela grande é cortada na pequena.
+    expect(ESTILOS_LEITOR).toContain('width:min(var(--leitor-w),100vw)');
+    expect(ESTILOS_LEITOR).toContain('padding-right:min(var(--leitor-w),100vw)');
+    expect(ESTILOS_LEITOR).toContain('overflow-x:hidden');
+    // O select "Ir para a peça" media a opção mais longa e empurrava a borda.
+    expect(ESTILOS_LEITOR).toMatch(/#leitor \.ferramentas select\{[^}]*min-width:0/);
+    expect(SCRIPT_LEITOR).toContain("window.addEventListener('resize',st.redimensionar)");
+    expect(SCRIPT_LEITOR).toContain(
+      "window.removeEventListener('resize',st.redimensionar)",
+    );
   });
 
   it('lê o PDF por trechos e desenha só o que está perto da tela', () => {

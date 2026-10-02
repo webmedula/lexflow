@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { EntradaIndice } from '../../../domain/entities/IndicePagina.js';
 import { DESCRICAO_DO_MOTIVO } from '../../../domain/entities/JobLeitor.js';
 import type {
+  ExtratoDoJob,
   JobLeitor,
   MotivoNaoObtida,
   PecaDoJob,
@@ -33,6 +34,7 @@ const pecaSchema = z.object({
   arquivo: z.string().optional(),
   reaproveitada: z
     .object({
+      deJob: z.string().optional(),
       paginaInicial: z.number().int().positive(),
       paginaFinal: z.number().int().positive(),
       situacao: z.enum(['incorporada', 'convertida', 'html_convertida']),
@@ -80,6 +82,18 @@ const dadosSchema = z.object({
     })
     .optional(),
   indice: z.array(indiceSchema).optional(),
+  extratos: z
+    .array(
+      z.object({
+        id: z.string(),
+        localizador: z.string(),
+        bytes: z.number().nonnegative(),
+        paginas: z.number().int().positive(),
+        criadoEm: z.string(),
+        indice: z.array(indiceSchema),
+      }),
+    )
+    .optional(),
 });
 
 interface Linha {
@@ -178,6 +192,16 @@ export class FilaDeJobsSqlite implements FilaDeJobs {
     return linha ? ler(linha) : undefined;
   }
 
+  async doProcesso(workspace: string, numeroProcesso: string): Promise<JobLeitor[]> {
+    const linhas = this.db
+      .prepare(
+        `SELECT * FROM jobs_leitor WHERE workspace = ? AND numero = ?
+          ORDER BY criado_em DESC`,
+      )
+      .all(workspace, numeroProcesso) as unknown as Linha[];
+    return linhas.map(ler);
+  }
+
   async doWorkspace(workspace: string): Promise<JobLeitor[]> {
     const linhas = this.db
       .prepare('SELECT * FROM jobs_leitor WHERE workspace = ? ORDER BY criado_em DESC')
@@ -220,7 +244,12 @@ export class FilaDeJobsSqlite implements FilaDeJobs {
       mensagem: job.mensagem,
       atualizaDe: job.atualizaDe,
       arquivo: job.arquivo,
-      indice: job.indice?.map((e) => ({ ...e, data: e.data?.toISOString() })),
+      indice: job.indice?.map(entradaParaGravar),
+      extratos: job.extratos?.map((x) => ({
+        ...x,
+        criadoEm: x.criadoEm.toISOString(),
+        indice: x.indice.map(entradaParaGravar),
+      })),
     };
     return [
       job.workspace,
@@ -256,6 +285,9 @@ function ler(linha: Linha): JobLeitor {
             paginaInicial: p.reaproveitada.paginaInicial,
             paginaFinal: p.reaproveitada.paginaFinal,
             situacao: p.reaproveitada.situacao,
+            ...(p.reaproveitada.deJob !== undefined
+              ? { deJob: p.reaproveitada.deJob }
+              : {}),
             ...(p.reaproveitada.motivo !== undefined
               ? { motivo: p.reaproveitada.motivo }
               : {}),
@@ -263,15 +295,14 @@ function ler(linha: Linha): JobLeitor {
         }
       : {}),
   }));
-  const indice: EntradaIndice[] | undefined = d.indice?.map((e) => ({
-    pecaId: e.pecaId,
-    rotulo: e.rotulo,
-    paginaInicial: e.paginaInicial,
-    paginaFinal: e.paginaFinal,
-    situacao: e.situacao,
-    ...(e.movimento !== undefined ? { movimento: e.movimento } : {}),
-    ...(e.data !== undefined ? { data: new Date(e.data) } : {}),
-    ...(e.motivo !== undefined ? { motivo: e.motivo } : {}),
+  const indice: EntradaIndice[] | undefined = d.indice?.map(lerEntrada);
+  const extratos: ExtratoDoJob[] | undefined = d.extratos?.map((x) => ({
+    id: x.id,
+    localizador: x.localizador,
+    bytes: x.bytes,
+    paginas: x.paginas,
+    criadoEm: new Date(x.criadoEm),
+    indice: x.indice.map(lerEntrada),
   }));
   return {
     id: linha.id,
@@ -297,5 +328,23 @@ function ler(linha: Linha): JobLeitor {
     ...(d.atualizaDe !== undefined ? { atualizaDe: d.atualizaDe } : {}),
     ...(d.arquivo !== undefined ? { arquivo: d.arquivo } : {}),
     ...(indice !== undefined ? { indice } : {}),
+    ...(extratos !== undefined ? { extratos } : {}),
+  };
+}
+
+function entradaParaGravar(e: EntradaIndice): Record<string, unknown> {
+  return { ...e, data: e.data?.toISOString() };
+}
+
+function lerEntrada(e: z.infer<typeof indiceSchema>): EntradaIndice {
+  return {
+    pecaId: e.pecaId,
+    rotulo: e.rotulo,
+    paginaInicial: e.paginaInicial,
+    paginaFinal: e.paginaFinal,
+    situacao: e.situacao,
+    ...(e.movimento !== undefined ? { movimento: e.movimento } : {}),
+    ...(e.data !== undefined ? { data: new Date(e.data) } : {}),
+    ...(e.motivo !== undefined ? { motivo: e.motivo } : {}),
   };
 }

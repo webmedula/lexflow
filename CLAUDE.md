@@ -193,6 +193,8 @@ interface ProcessoProvider {
 | `LimiteDeArmazenamentoExcedidoError` | cota do PDF ou do workspace na guarda temporária | 413; dividir a seleção ou esperar o prazo |
 | `SegredoDeJusticaNaoGuardadoError` | processo sob sigilo não tem PDF combinado guardado | 403; as peças avulsas continuam |
 | `PdfInvalidoError` | a contagem de páginas do PDF gerado não bate com a soma das peças | o job falha; índice desalinhado é pior que nenhum |
+| `PdfDoLeitorExpiradoError` | pediu recorte de um PDF combinado que já saiu do disco | 410; a tela diz que expirou — NÃO baixa de novo do tribunal sem a pessoa pedir |
+| `PecasForaDoPdfError` | pediu recorte com peça que não está naquele PDF | 400 |
 
 **A distinção que sustenta o produto:** "esse processo não existe" ≠ "não
 consegui ver esse processo". Colapsar as duas coisas faz o sistema dizer ao
@@ -832,6 +834,32 @@ Não são detalhes — moldam o código.
   (`ServicoLeitor.apagarDoWorkspace`); e **processo em segredo de justiça não é
   guardado** — nem peça com `nivelSigilo > 0`. Os arquivos de trabalho (as peças
   baixadas para montar) são apagados assim que o PDF fica pronto.
+- **Seleção nova não apaga o PDF anterior; a cota é que decide** (v0.31.1). Peça
+  que já está num PDF guardado deste processo, no prazo, NÃO volta ao tribunal:
+  as páginas são copiadas de lá (`reaproveitada.deJob`), e só a peça realmente
+  nova vira consulta — o mesmo caminho do "Atualizar". O PDF novo é outro
+  arquivo; o antigo fica até o próprio prazo. Só a ATUALIZAÇÃO substitui (e
+  apaga) o PDF de que partiu. A REGRA DE SUBSTITUIÇÃO quando a cota da conta
+  enche (`abrirEspaco`): saem os PDFs mais antigos pela hora em que ficaram
+  prontos, os de OUTROS processos primeiro e os deste por último (são deles
+  que a seleção nova copia páginas); nunca sai o PDF de que um job em andamento
+  ainda vai copiar páginas — e a limpeza do prazo também espera esse job. Se
+  nada puder sair, o pedido é recusado (413) antes de qualquer consulta. Origem
+  que sumiu entre a listagem e a montagem vira página de aviso
+  (`origem_expirada`), nunca erro.
+- **"Baixar só algumas" recorta, não consulta** (v0.31.1). O PDF das peças
+  marcadas sai do combinado guardado (`qpdf --pages`, argumentos em vetor,
+  linearizado), na ordem dos autos, com índice próprio contado do arquivo
+  gerado; mora na pasta do job (mesmo dono, mesmo prazo, mesma cota; no máximo
+  3 por PDF). Combinado já apagado → `PdfDoLeitorExpiradoError` (410): a tela
+  diz que expirou e manda montar de novo pela "Nova seleção" — remontar em
+  silêncio seria consultar o tribunal com a senha do advogado sem ele pedir.
+- **O painel nunca passa da largura da janela** (v0.31.1). A largura do divisor
+  é guardada no navegador, e numa janela menor ela é cortada (`min(...,
+  100vw)` no CSS e `ajustarLargura` no script, que não apaga a preferência).
+  Controle dentro do painel tem `min-width: 0`: um `<select>` mede a opção mais
+  longa, e o "Ir para a peça" com rótulos reais do TJGO tinha ~730 px — era ele
+  que empurrava "Baixar PDF" para fora da tela.
 - **Um MNI, um balde, um disjuntor.** Peça avulsa, régua e leitor usam a MESMA
   instância de `MniAdapter`: dois baldes de 30/min somariam acima do teto
   relatado do tribunal, e o bloqueio é do IP, de todos os assinantes. O leitor
@@ -944,7 +972,16 @@ Basic Auth (v0.27.0), **catálogo de planos editável com preço e regras de
 teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
 **leitor de peças, Etapa 1: PDF combinado com índice** (v0.30.0),
 **Etapa 2: ler ao lado, com PDF.js servido pelo próprio servidor** (v0.31.0),
-Dockerfile multi-stage, CI, 849 testes.
+**remarcar com reaproveitamento e "baixar só algumas"** (v0.31.1),
+Dockerfile multi-stage, CI, 869 testes.
+
+**Leitor de peças, ajustes (v0.31.1):** o painel abre com "Nova seleção" ao lado
+de "Reabrir o PDF já pronto" (com data e hora); a seleção nova começa vazia,
+com "Limpar seleção" sempre à mão e "Repetir a seleção anterior" como botão;
+peça já guardada não volta ao tribunal (a estimativa conta só as novas); "Baixar
+selecionadas (N)" recorta do PDF guardado (`POST
+/v1/processos/:numero/leitor/:jobId/extratos`, arquivo em
+`.../extratos/:extratoId/pdf`); e o painel nunca passa da janela.
 
 **Leitor de peças, Etapa 2 (v0.31.0):** botão "Ler peças ao lado" no cartão
 das peças abre um painel à direita (divisor arrastável; tela cheia no celular).
