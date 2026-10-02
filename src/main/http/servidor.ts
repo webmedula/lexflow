@@ -139,10 +139,10 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(rotasDeSaude(app));
   void servidor.register(rotasDeInterface());
   void servidor.register(rotasDeProcesso(app));
-  void servidor.register(rotasDeAcompanhamento(app.acompanhamento));
+  void servidor.register(rotasDeAcompanhamento(app.acompanhamento, config.telas));
   void servidor.register(rotasDePecas(app.pecas, app.assinaturas));
   void servidor.register(rotasDoLeitor(app.leitor, app.assinaturas));
-  void servidor.register(rotasDoPainel(app.acompanhamento, app.pecas));
+  void servidor.register(rotasDoPainel(app.acompanhamento, app.pecas, config.telas.pendenciaJanelaDias));
   void servidor.register(
     rotasDoCalendario(app.calendario, app.assinaturas, { urlBase: config.http.urlBase }),
   );

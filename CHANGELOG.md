@@ -9,6 +9,40 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.32.1] — 2026-10-02
+
+Três ajustes pedidos por advogados que usaram o sistema. Especificação:
+`docs/ajustes-e-pasta-digital-especificacao-v1.0.0.md` (seções 2 a 4).
+
+### Alterado
+
+- **Atualizações: uma linha por processo.** A atualização mais recente fica em
+  destaque e as anteriores do mesmo processo ficam atrás de "+N anteriores", que
+  expande na própria linha. A janela padrão é de 15 dias (`NOVIDADES_JANELA_DIAS`),
+  com a alternância "Últimos 15 dias | Todas" e o aviso "N atualizações mais
+  antigas não mostradas". Nada é descartado, e `exigeAcao` não filtra: ele só
+  MARCA — uma anterior que pede providência avisa no botão fechado e continua
+  marcada depois de aberto. Menu e painel seguem contando atualizações não
+  vistas, não linhas. `GET /v1/novidades` ganhou `grupos`, `janelaDias`,
+  `janelaPadraoDias` e `foraDaJanela` (`?janela=todas` desliga a janela); o campo
+  `novidades` continua, achatado. A tela mora em `ui/atualizacoes.ts`.
+- **Tela do processo:** o card "Peças do processo" vem logo depois dos dados do
+  processo (capa e ficha). Os demais blocos mantêm a ordem relativa.
+- **"Pede providência": janela de 30 para 10 dias**, configuração única
+  `PENDENCIA_JANELA_DIAS` lida pelo selo da carteira, pelo card do painel e pelo
+  bloco da tela do processo (o servidor entrega o valor: `cards.pendenciaJanelaDias`
+  em `/v1/painel` e `pendenciaJanelaDias` em `/v1/facetas`). O bloco lista só os
+  atos dentro da janela e diz quantos atos anteriores que pedem providência ficaram
+  de fora ("veja na linha do tempo"), que continua marcando todos. Não é cálculo
+  de prazo.
+
+### Adicionado
+
+- `NOVIDADES_JANELA_DIAS` (15) e `PENDENCIA_JANELA_DIAS` (10) em `.env.example`.
+- `domain/entities/agruparNovidades.ts` (agrupamento e janela, relógio injetado).
+
+---
+
 ## [0.32.0] — 2026-10-02
 
 Calendário: agenda por workspace, com eventos lidos dos andamentos (sugeridos,

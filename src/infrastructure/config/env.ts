@@ -131,6 +131,14 @@ const schema = z.object({
   LEITOR_LOTE_CRESCER_ABAIXO_MB: inteiroPositivo(3),
   LEITOR_PAUSA_ENTRE_CHAMADAS_MS: z.coerce.number().int().min(0).default(3000),
   LEITOR_TTL_HORAS: inteiroPositivo(24),
+
+  // --- Telas: janelas de tempo (v0.32.1) --------------------------------------
+  // Atualizações: quantos dias a tela mostra por padrão (há "Todas" na tela).
+  NOVIDADES_JANELA_DIAS: inteiroPositivo(15),
+  // Por quanto tempo um ato que pede providência ainda conta como pendente.
+  // UM valor para o selo da carteira, o card do painel e a tela do processo.
+  PENDENCIA_JANELA_DIAS: inteiroPositivo(10),
+
   LEITOR_COTA_POR_PDF_MB: inteiroPositivo(300),
   LEITOR_COTA_POR_WORKSPACE_MB: inteiroPositivo(1024),
   LEITOR_AVISO_DISCO_MB: inteiroPositivo(10_240),
@@ -280,6 +288,10 @@ export interface Config {
     readonly cookieSeguro: boolean;
     readonly urlBase: string;
     readonly corsOrigins: readonly string[];
+  };
+  readonly telas: {
+    readonly novidadesJanelaDias: number;
+    readonly pendenciaJanelaDias: number;
   };
   readonly admin: {
     /** Vazio quando a área administrativa está desligada (as duas variáveis vazias). */
@@ -459,6 +471,10 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
       cookieSeguro: env.COOKIE_SECURE,
       urlBase: env.PROCESSOVIVO_URL_BASE.trim().replace(/\/+$/, ''),
       corsOrigins: listaSeparadaPorVirgula(env.CORS_ORIGINS),
+    },
+    telas: {
+      novidadesJanelaDias: env.NOVIDADES_JANELA_DIAS,
+      pendenciaJanelaDias: env.PENDENCIA_JANELA_DIAS,
     },
     admin: {
       usuario: env.PROCESSOVIVO_ADMIN_USUARIO.trim(),

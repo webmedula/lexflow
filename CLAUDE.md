@@ -822,10 +822,22 @@ Não são detalhes — moldam o código.
   `EstadoDaPasta` tem `rotulo` e `naoVerificado` separados, e a tabela desenha os
   dois. Mesma raiz da regra do `ServicoNotificacao`.
 - **Janela nas heurísticas que marcam pendência.** "Pede providência" olha os
-  últimos 30 dias (`DIAS_DE_PENDENCIA`). Sem janela, um "intime-se" de 2019
+  últimos 10 dias (`PENDENCIA_JANELA_DIAS`; era 30 até a v0.32.0, e a carteira de
+  um escritório ativo vivia marcada). Sem janela, um "intime-se" de 2019
   deixaria a pasta marcada para sempre, toda linha da carteira antiga ficaria
   vermelha, e o selo passaria a ser ignorado justamente quando estiver certo.
-  Não é cálculo de prazo e não se apresenta como tal.
+  É UM valor, lido pelo selo da carteira, pelo card do painel e pelo bloco da
+  tela do processo — o servidor o entrega à tela, e a tela nunca escreve o
+  número. O bloco lista só os atos dentro da janela e conta os anteriores que
+  pedem providência ("veja na linha do tempo"); a linha do tempo continua
+  marcando todos: sair do topo não é sumir. Não é cálculo de prazo e não se
+  apresenta como tal.
+- **Atualizações: uma linha por processo, janela de 15 dias** (v0.32.1,
+  `NOVIDADES_JANELA_DIAS`). "+N anteriores" expande na própria linha, a tela diz
+  quantas atualizações mais antigas ficaram de fora e oferece "Todas". A janela
+  decide pela hora em que o sistema PERCEBEU (`detectadaEm`), nunca pela data do
+  ato — a primeira varredura de um processo antigo detecta atos de meses atrás.
+  `exigeAcao` só marca; o único critério que tira atualização da tela é o tempo.
 - **Encerramento se decide pelo ato MAIS RECENTE, nunca pelo histórico.**
   Processo arquivado e depois desarquivado tem os dois atos nos autos; procurar
   "existe arquivamento" marcaria como encerrada a pasta que voltou a correr — e
@@ -1033,7 +1045,8 @@ teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
 **Etapa 2: ler ao lado, com PDF.js servido pelo próprio servidor** (v0.31.0),
 **remarcar com reaproveitamento e "baixar só algumas"** (v0.31.1),
 **calendário: detecção, agenda, tela e feed ICS** (v0.32.0),
-Dockerfile multi-stage, CI, 1035 testes.
+**ajustes dos advogados: Atualizações por processo, peças no topo, providência em 10 dias** (v0.32.1),
+Dockerfile multi-stage, CI, 1065 testes.
 
 **Calendário (v0.32.0):** eventos por workspace — detectados nos andamentos
 (sugeridos, a confirmar, com procedência) e manuais (confirmados) — em
