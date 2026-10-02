@@ -9,6 +9,7 @@ import {
   DomainError,
   EmailJaCadastradoError,
   EventoDeCalendarioNaoEncontradoError,
+  FeedDoCalendarioAusenteError,
   FeedDoCalendarioNaoEncontradoError,
   TransicaoDeEventoInvalidaError,
   JobDoLeitorNaoEncontradoError,
@@ -116,7 +117,8 @@ export function mapearErro(erro: unknown): RespostaDeErro {
     erro instanceof ProcessoNaoEncontradoError ||
     erro instanceof ChaveApiNaoEncontradaError ||
     erro instanceof JobDoLeitorNaoEncontradoError ||
-    erro instanceof EventoDeCalendarioNaoEncontradoError
+    erro instanceof EventoDeCalendarioNaoEncontradoError ||
+    erro instanceof FeedDoCalendarioAusenteError
   ) {
     return { status: 404, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }

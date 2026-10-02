@@ -205,6 +205,7 @@ interface ProcessoProvider {
 | `EventoDeCalendarioInvalidoError` | data que não existe, hora fora do relógio, intervalo acima de 400 dias, processo fora da carteira | 400 |
 | `EventoDeCalendarioNaoEncontradoError` | evento não existe PARA ESTE workspace | 404; mesma resposta para "não existe" e "é de outro" |
 | `TransicaoDeEventoInvalidaError` | mexer em evento descartado | 409; descartado é final |
+| `FeedDoCalendarioAusenteError` | pediu para alterar o feed e não há feed vigente | 404 na rota autenticada; diz o que falta |
 | `FeedDoCalendarioNaoEncontradoError` | token do feed inválido, revogado, assinatura bloqueada ou plano sem o recurso | 404 com o MESMO corpo seco nos quatro casos |
 
 **A distinção que sustenta o produto:** "esse processo não existe" ≠ "não
@@ -949,7 +950,9 @@ Não são detalhes — moldam o código.
   frase, e nasce `sugerido` — vale quando o advogado confirma. Tipo `prazo` só
   com data final escrita ("até 20/10/2026"); "prazo de 15 dias" NÃO vira
   evento, porque transformar isso em data é contar dias úteis, suspensão e
-  recesso, e apresentar a conta como fato. Na dúvida (duas datas no mesmo
+  recesso, e apresentar a conta como fato. Redesignação com data nova escrita
+  logo depois de "para" vira sugestão nova, e a antiga fica marcada para
+  revisão (spec v1.0.3). Na dúvida (duas datas no mesmo
   gatilho, data solta na frase, dois tipos de gatilho), não gera: falso
   negativo continua no andamento que o advogado também recebe; falso positivo
   confiante vira compromisso na agenda dele. O teste que vale é
@@ -973,6 +976,11 @@ Não são detalhes — moldam o código.
   são o MESMO 404. E o log de acesso registra o PADRÃO dessa rota, não o
   caminho — o caminho é o token (`ROTAS_COM_SEGREDO_NO_CAMINHO` em
   `servidor.ts`; rota nova com segredo no caminho entra ali).
+- **A tela do calendário tem o próprio contraste.** O `--tinta3` do console
+  sobre o fundo claro mede 4,2–4,4:1 (axe-core), abaixo dos 4,5:1 para texto
+  pequeno; dentro de `.cal` nota e selo neutro usam `--tinta2`. O resto do
+  console continua com o valor antigo — trocar a variável global mexe em todas
+  as telas e é decisão à parte.
 - **Data de calendário não passa por UTC.** Evento guarda `dataLocal`
   (`AAAA-MM-DD`) e `horaLocal`, no fuso fixo de São Paulo (-03:00, sem horário
   de verão desde 2019). Dia inteiro sai no ICS como `VALUE=DATE` direto da
@@ -1024,18 +1032,20 @@ teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
 **leitor de peças, Etapa 1: PDF combinado com índice** (v0.30.0),
 **Etapa 2: ler ao lado, com PDF.js servido pelo próprio servidor** (v0.31.0),
 **remarcar com reaproveitamento e "baixar só algumas"** (v0.31.1),
-**calendário, Parte 1: detecção, agenda e feed ICS** (v0.32.0),
-Dockerfile multi-stage, CI, 1009 testes.
+**calendário: detecção, agenda, tela e feed ICS** (v0.32.0),
+Dockerfile multi-stage, CI, 1035 testes.
 
-**Calendário, Parte 1 (v0.32.0):** eventos por workspace — detectados nos
-andamentos (sugeridos, a confirmar, com procedência) e manuais (confirmados) —
-em `/v1/calendario/eventos`, e o feed ICS em `/calendario/feed/<token>.ics`
-(criar/regenerar/revogar em `/v1/calendario/feed`). Recurso `calendario` em
-todos os planos. Retroativo de 180 dias pelo `Agendador`, sem rede.
-Especificação e as quatro decisões do dono: `docs/calendario-especificacao-v1.0.2.md`.
-**Pendente:** a tela (Parte 2, `ui/calendario.ts`) e o deep link
-`/?processo=<número>` que o feed já usa na descrição; até lá ele abre o
-console na tela inicial.
+**Calendário (v0.32.0):** eventos por workspace — detectados nos andamentos
+(sugeridos, a confirmar, com procedência) e manuais (confirmados) — em
+`/v1/calendario/eventos`, e o feed ICS em `/calendario/feed/<token>.ics`
+(criar/regenerar/revogar/alterar "incluir sugeridos" em `/v1/calendario/feed`).
+Recurso `calendario` em todos os planos. Retroativo de 180 dias pelo
+`Agendador`, sem rede. A tela mora em `ui/calendario.ts` (Agenda e Mês, feed,
+formulário) e fala com o console só por `window.__pv`,
+`window.__pvCalendario` e `window.__pvAoIniciar`; o mesmo arquivo atende o
+link `/?processo=<número>` que o feed põe na descrição de cada evento.
+`script.ts` NÃO cresce — há teste que fixa o tamanho. Especificação e as
+decisões do dono: `docs/calendario-especificacao-v1.0.3.md`.
 
 **Leitor de peças, ajustes (v0.31.1):** o painel abre com "Nova seleção" ao lado
 de "Reabrir o PDF já pronto" (com data e hora); a seleção nova começa vazia,

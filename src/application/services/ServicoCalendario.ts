@@ -19,6 +19,7 @@ import {
   AssinaturaInativaError,
   EventoDeCalendarioInvalidoError,
   EventoDeCalendarioNaoEncontradoError,
+  FeedDoCalendarioAusenteError,
   FeedDoCalendarioNaoEncontradoError,
   PlanoDesconhecidoError,
   RecursoNaoIncluidoNoPlanoError,
@@ -229,6 +230,23 @@ export class ServicoCalendario {
 
   async feed(workspace: string): Promise<FeedDoCalendario | undefined> {
     return this.eventos.feedAtivo(workspace);
+  }
+
+  /**
+   * Liga ou desliga os sugeridos no feed que já existe, SEM trocar o token:
+   * regenerar obrigaria o advogado a assinar de novo em cada aparelho só para
+   * mudar uma opção.
+   *
+   * @throws {FeedDoCalendarioAusenteError} quando não há feed vigente.
+   */
+  async alterarFeed(
+    workspace: string,
+    incluiSugeridos: boolean,
+  ): Promise<FeedDoCalendario> {
+    const feed = await this.eventos.alterarFeed(workspace, incluiSugeridos);
+    if (!feed) throw new FeedDoCalendarioAusenteError();
+    this.log.info('feed do calendário alterado', { workspace, incluiSugeridos });
+    return feed;
   }
 
   async revogarFeed(workspace: string): Promise<boolean> {

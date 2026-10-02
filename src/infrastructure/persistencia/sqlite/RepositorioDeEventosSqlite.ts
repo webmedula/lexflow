@@ -161,6 +161,19 @@ export class RepositorioDeEventosSqlite implements RepositorioDeEventos {
     }
   }
 
+  async alterarFeed(
+    workspace: string,
+    incluiSugeridos: boolean,
+  ): Promise<FeedDoCalendario | undefined> {
+    this.db
+      .prepare(
+        `UPDATE calendario_feeds SET inclui_sugeridos = ?
+          WHERE workspace = ? AND revogado_em IS NULL`,
+      )
+      .run(incluiSugeridos ? 1 : 0, workspace);
+    return this.feedAtivo(workspace);
+  }
+
   async revogarFeed(workspace: string, agora: Date): Promise<boolean> {
     const r = this.db
       .prepare(

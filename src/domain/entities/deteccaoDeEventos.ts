@@ -21,7 +21,8 @@ import { LIMITE_TRECHO, dataExiste, somarDias } from './EventoDeCalendario.js';
  *   - duas datas presas ao mesmo gatilho não geram nenhuma das duas, e uma
  *     data futura solta numa frase com gatilho anula a frase;
  *   - andamento que fala em cancelar, retirar de pauta, redesignar ou adiar
- *     não gera sugestão — marca para revisão o que já existia;
+ *     marca para revisão o que já existia; só a REDESIGNAÇÃO com data nova
+ *     escrita logo depois de "para" gera sugestão (a data nova);
  *   - "prazo de N dias" sem data final escrita NÃO gera evento. Transformar
  *     isso em data seria calcular prazo, e o sistema não afirma prazo.
  */
@@ -113,9 +114,11 @@ export function detectarEventosNoAndamento(
 
   const horizonte = somarDias(contexto.hoje, 365 * ANOS_DE_HORIZONTE);
 
-  // Mudança vale para o andamento INTEIRO: "Audiência redesignada para
-  // 12/11/2026" não cria sugestão — marca a que existia para o advogado
-  // conferir e corrigir.
+  // Mudança vale para o andamento INTEIRO: marca para revisão o que já
+  // existia. Cancelada, retirada de pauta, adiada: nenhuma sugestão nasce.
+  // REDESIGNADA com data nova e explícita ("redesignada para o dia
+  // 20/11/2026 às 14h") é a exceção (decisão do dono, v1.0.3): a data nova
+  // vira sugestão, e a antiga continua marcada para o advogado conferir.
   if (MUDANCA.test(texto)) {
     const tipos = new Set<TipoDeEvento>();
     for (const g of GATILHOS) {
@@ -127,7 +130,10 @@ export function detectarEventosNoAndamento(
       tipos.add('audiencia');
       tipos.add('outro');
     }
-    return { sugestoes: [], mudanca: { tipos: [...tipos] } };
+    return {
+      sugestoes: sugestoesDeRedesignacao(andamento, texto, contexto, horizonte),
+      mudanca: { tipos: [...tipos] },
+    };
   }
 
   const movimentacaoId = chaveDaMovimentacao(andamento);
@@ -205,6 +211,64 @@ export function detectarEventosNoAndamento(
   }
 
   return { sugestoes };
+}
+
+/** "redesignada", "redesigno", "redesignação". */
+const REDESIGNACAO = /redesigna(?:d[ao]s?|[çc][ãa]o)|redesigno/i;
+
+/** A data nova vem logo depois de "para", "para o dia", "para a data de". */
+const RE_PARA_ANTES = /\bpara\s+(?:o\s+dia\s+|a\s+data\s+de\s+|o\s+próximo\s+dia\s+)?$/i;
+
+/**
+ * A data nova de uma redesignação.
+ *
+ * Só na frase que diz "redesign…", só com UM tipo de gatilho nela, e só com
+ * UMA data futura escrita logo depois de "para" — "redesignada de 10/11/2026
+ * para 20/11/2026" usa a segunda. Duas datas depois de "para", ou nenhuma: não
+ * é claro, não gera.
+ */
+function sugestoesDeRedesignacao(
+  andamento: Movimentacao,
+  texto: string,
+  contexto: ContextoDaDeteccao,
+  horizonte: string,
+): SugestaoDeEvento[] {
+  if (!REDESIGNACAO.test(texto)) return [];
+  const movimentacaoId = chaveDaMovimentacao(andamento);
+  const sugestoes: SugestaoDeEvento[] = [];
+  const vistas = new Set<string>();
+
+  for (const frase of frases(texto)) {
+    if (!REDESIGNACAO.test(frase.texto)) continue;
+    const gatilhos = gatilhosNaFrase(frase.texto);
+    const tipos = new Set(gatilhos.map((g) => g.tipo));
+    if (tipos.size !== 1) continue;
+    const candidatas = datasNaFrase(frase.texto).filter((d) =>
+      RE_PARA_ANTES.test(frase.texto.slice(0, d.inicio)),
+    );
+    if (candidatas.length !== 1) continue;
+    const data = candidatas[0];
+    const gatilho = gatilhos[0];
+    if (!data || !gatilho) continue;
+    if (data.dataLocal < contexto.hoje || data.dataLocal > horizonte) continue;
+
+    const tipo = tipoDoGatilho(gatilho.tipo);
+    const id = `${tipo}|${data.dataLocal}|${data.horaLocal ?? ''}`;
+    if (vistas.has(id)) continue;
+    vistas.add(id);
+    sugestoes.push({
+      tipo,
+      titulo: tituloDoGatilho(gatilho, frase.texto),
+      dataLocal: data.dataLocal,
+      ...(data.horaLocal !== undefined ? { horaLocal: data.horaLocal } : {}),
+      procedencia: {
+        movimentacaoId,
+        dataDoAndamento: andamento.data,
+        trecho: trechoSemNomes(frase.texto, data, contexto.nomesProtegidos ?? []),
+      },
+    });
+  }
+  return sugestoes;
 }
 
 function textoDoAndamento(a: Movimentacao): string {

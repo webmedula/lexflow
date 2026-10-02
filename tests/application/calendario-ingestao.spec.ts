@@ -121,6 +121,24 @@ describe('ingestão de andamentos no calendário', () => {
     expect((await listar())[0]?.revisar).toBe(false);
   });
 
+  it('redesignação com data nova: sugere a nova e marca a antiga para revisão', async () => {
+    await acompanhamento.acompanhar('A', NUMERO_TJSP_A);
+    movimentacoes = [
+      DESIGNACAO,
+      {
+        data: new Date('2026-09-29T13:00:00.000Z'),
+        titulo: 'Intimação',
+        conteudo: 'Audiência de conciliação redesignada para o dia 20/11/2026 às 14h.',
+      },
+    ];
+    await acompanhamento.sincronizar();
+    const lista = await listar();
+    expect(lista.map((e) => [e.dataLocal, e.horaLocal, e.estado, e.revisar])).toEqual([
+      ['2026-11-12', '14:30', 'sugerido', true],
+      ['2026-11-20', '14:00', 'sugerido', false],
+    ]);
+  });
+
   it('descartado não reaparece como sugerido', async () => {
     await acompanhamento.acompanhar('A', NUMERO_TJSP_A);
     const [e] = await listar();

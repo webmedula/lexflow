@@ -11,10 +11,9 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ## [0.32.0] — 2026-10-02
 
-Calendário, Parte 1: o backend. Agenda por workspace, com eventos lidos dos
-andamentos (sugeridos, a confirmar) e eventos criados pelo advogado, e um feed
-ICS assinável. A tela vem na Parte 2. Especificação:
-`docs/calendario-especificacao-v1.0.2.md`.
+Calendário: agenda por workspace, com eventos lidos dos andamentos (sugeridos,
+a confirmar) e eventos criados pelo advogado, numa tela do console e num feed
+ICS assinável. Especificação: `docs/calendario-especificacao-v1.0.3.md`.
 
 ### Adicionado
 
@@ -36,6 +35,24 @@ ICS assinável. A tela vem na Parte 2. Especificação:
   relendo os andamentos dos últimos 180 dias. Falha vai para o log; a
   sincronização segue. Idempotente pelo índice único da chave de detecção, que
   cobre também os descartados.
+- **Redesignação com data nova vira sugestão** (decisão do dono, spec v1.0.3):
+  "audiência redesignada para o dia 20/11/2026 às 14h" sugere a data nova e
+  mantém a antiga marcada para revisão. Duas datas na frase: vale só a que vem
+  logo depois de "para"; se não for claro, não gera.
+- **Tela do calendário** (`ui/calendario.ts`, arquivo próprio — `script.ts`
+  não cresceu): item "Calendário" no menu; visões Agenda (padrão) e Mês, com
+  anterior/próximo/hoje; sugerido com rótulo escrito "Sugerido", procedência
+  ("lido do andamento de dd/mm/aaaa"), trecho e "ver o andamento" (abre o
+  processo e destaca o andamento na linha do tempo); Confirmar, Editar,
+  Descartar; aviso de revisão; descartados fora da lista com a contagem dita;
+  formulário de evento com busca na carteira; painel "Assinar no meu
+  calendário" (criar, regenerar, revogar, copiar a URL mostrada uma vez,
+  incluir sugeridos, instruções para Google, Outlook e Apple). Sem o recurso no
+  plano, a mensagem do servidor e o resto do console igual.
+- **`/?processo=<número>`** abre a tela do processo — é o link da descrição do
+  evento no feed.
+- **`PATCH /v1/calendario/feed`** altera só "incluir sugeridos", sem trocar o
+  token.
 - **Preenchimento retroativo** pelo `Agendador` (de hora em hora, só banco):
   relê os andamentos já gravados de cada workspace uma vez.
 - **Rotas** `GET/POST /v1/calendario/eventos`, `PATCH /v1/calendario/eventos/:id`

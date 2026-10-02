@@ -600,3 +600,16 @@ export class FeedDoCalendarioNaoEncontradoError extends DomainError {
     super('Não encontrado.');
   }
 }
+
+/**
+ * Pediu para alterar o feed, e o workspace não tem feed vigente. É da rota
+ * AUTENTICADA (`PATCH /v1/calendario/feed`): diz com clareza o que falta,
+ * porque quem pergunta é o dono da agenda — diferente do feed público.
+ */
+export class FeedDoCalendarioAusenteError extends DomainError {
+  readonly codigo = 'FEED_DO_CALENDARIO_AUSENTE';
+
+  constructor() {
+    super('Você ainda não tem um feed do calendário. Crie um antes de alterá-lo.');
+  }
+}

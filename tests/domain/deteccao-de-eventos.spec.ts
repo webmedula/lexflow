@@ -178,11 +178,7 @@ describe('detecção — na dúvida, NÃO gera', () => {
 describe('detecção — mudança marca revisão e não cria sugestão', () => {
   it.each<[string, string, string[]]>([
     ['cancelada', 'Audiência de conciliação cancelada.', ['audiencia']],
-    [
-      'redesignada com data nova',
-      'Audiência redesignada para 12/11/2026 às 14:30.',
-      ['audiencia'],
-    ],
+    ['redesignada sem data', 'Audiência redesignada a pedido das partes.', ['audiencia']],
     ['retirado de pauta, sem dizer de quê', 'Retirado de pauta.', ['audiencia', 'outro']],
     ['perícia adiada', 'Perícia adiada a pedido do perito.', ['pericia']],
     ['cancelamento sem tipo reconhecível', 'Penhora cancelada.', []],
@@ -190,6 +186,50 @@ describe('detecção — mudança marca revisão e não cria sugestão', () => {
     const r = detectarEventosNoAndamento(andamento(texto), { hoje: HOJE });
     expect(r.sugestoes).toEqual([]);
     expect([...(r.mudanca?.tipos ?? [])].sort()).toEqual([...tipos].sort());
+  });
+});
+
+describe('detecção — redesignação com data nova (v1.0.3)', () => {
+  it.each<[string, string, Array<[string, string, string | null]>]>([
+    [
+      'audiência redesignada "para o dia" com hora',
+      'Audiência de conciliação redesignada para o dia 20/11/2026 às 14h.',
+      [['audiencia', '2026-11-20', '14:00']],
+    ],
+    [
+      'perícia redesignada "para"',
+      'Redesigno a perícia para 15/12/2026, às 9:30.',
+      [['pericia', '2026-12-15', '09:30']],
+    ],
+    [
+      'duas datas: usa só a que vem depois de "para"',
+      'Audiência redesignada de 12/11/2026 para 20/11/2026 às 10:00.',
+      [['audiencia', '2026-11-20', '10:00']],
+    ],
+    [
+      'duas datas depois de "para": não é claro, não gera',
+      'Audiência redesignada para 20/11/2026 ou para 27/11/2026.',
+      [],
+    ],
+    ['data sem "para": não gera', 'Audiência redesignada: 20/11/2026.', []],
+    ['data nova já passada: não gera', 'Audiência redesignada para 01/09/2026.', []],
+    [
+      'redesignação com audiência e perícia na frase: não gera',
+      'Redesignadas audiência e perícia para 20/11/2026.',
+      [],
+    ],
+    [
+      'cancelada (não redesignada) com data: não gera',
+      'Audiência de 20/11/2026 cancelada.',
+      [],
+    ],
+  ])('%s', (_nome, texto, esperado) => {
+    const r = detectarEventosNoAndamento(andamento(texto), { hoje: HOJE });
+    expect(r.sugestoes.map((s) => [s.tipo, s.dataLocal, s.horaLocal ?? null])).toEqual(
+      esperado,
+    );
+    // E o evento antigo continua marcado para revisão.
+    expect(r.mudanca?.tipos.length).toBeGreaterThan(0);
   });
 });
 

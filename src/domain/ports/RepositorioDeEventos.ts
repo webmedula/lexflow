@@ -69,6 +69,17 @@ export interface RepositorioDeEventos {
    */
   substituirFeed(feed: FeedDoCalendario): Promise<void>;
 
+  /**
+   * Muda só a opção "incluir sugeridos" do feed vigente — o token continua o
+   * mesmo, e a URL que já está no calendário do advogado segue valendo.
+   *
+   * @returns o feed alterado, ou `undefined` quando não há feed vigente.
+   */
+  alterarFeed(
+    workspace: string,
+    incluiSugeridos: boolean,
+  ): Promise<FeedDoCalendario | undefined>;
+
   /** @returns `true` quando havia feed vigente para revogar. */
   revogarFeed(workspace: string, agora: Date): Promise<boolean>;
 

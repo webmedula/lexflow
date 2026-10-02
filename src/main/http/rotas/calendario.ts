@@ -83,6 +83,7 @@ const corpoAlterar = z
   })
   .strict();
 
+const corpoAlterarFeed = z.object({ incluiSugeridos: z.boolean() }).strict();
 const corpoFeed = z.object({ incluiSugeridos: z.boolean().optional() }).strict();
 
 /** `<token>.ics`. O token é base64url de 32 bytes (43 caracteres). */
@@ -205,6 +206,16 @@ export function rotasDoCalendario(
       const { ws, cal } = await preparar(req);
       const feed = await cal.feed(ws);
       return feed ? { existe: true, ...feedParaJson(feed) } : { existe: false };
+    });
+
+    // Só a opção "incluir sugeridos"; o token (e a URL já assinada) não muda.
+    servidor.patch('/v1/calendario/feed', async (req) => {
+      const { ws, cal } = await preparar(req);
+      const c = corpoAlterarFeed.parse(req.body ?? {});
+      return {
+        existe: true,
+        ...feedParaJson(await cal.alterarFeed(ws, c.incluiSugeridos)),
+      };
     });
 
     servidor.delete('/v1/calendario/feed', async (req) => {

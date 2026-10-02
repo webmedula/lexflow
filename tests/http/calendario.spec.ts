@@ -354,6 +354,63 @@ describe('API — feed', () => {
     );
   });
 
+  it('alterar "incluir sugeridos" não troca o token: a mesma URL passa a trazer a sugestão', async () => {
+    const { caminho } = await criarFeed(false);
+    expect((await servidor.inject({ method: 'GET', url: caminho })).body).not.toContain(
+      'BEGIN:VEVENT',
+    );
+
+    const r = await servidor.inject({
+      method: 'PATCH',
+      url: '/v1/calendario/feed',
+      headers: A,
+      payload: { incluiSugeridos: true },
+    });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ existe: true, incluiSugeridos: true });
+    expect(r.body).not.toContain('url');
+
+    const depois = await servidor.inject({ method: 'GET', url: caminho });
+    expect(depois.statusCode).toBe(200);
+    expect(depois.body).toContain('SUMMARY:[sugerido] Audiência');
+  });
+
+  it('alterar o feed sem feed: 404 explicado; corpo fora do contrato: 400', async () => {
+    const sem = await servidor.inject({
+      method: 'PATCH',
+      url: '/v1/calendario/feed',
+      headers: B,
+      payload: { incluiSugeridos: true },
+    });
+    expect(sem.statusCode).toBe(404);
+    expect(sem.json().erro).toBe('FEED_DO_CALENDARIO_AUSENTE');
+
+    await criarFeed();
+    const ruim = await servidor.inject({
+      method: 'PATCH',
+      url: '/v1/calendario/feed',
+      headers: A,
+      payload: { incluiSugeridos: 'sim' },
+    });
+    expect(ruim.statusCode).toBe(400);
+  });
+
+  it('B não altera o feed de A', async () => {
+    await criarFeed(false);
+    await servidor.inject({
+      method: 'PATCH',
+      url: '/v1/calendario/feed',
+      headers: B,
+      payload: { incluiSugeridos: true },
+    });
+    const a = await servidor.inject({
+      method: 'GET',
+      url: '/v1/calendario/feed',
+      headers: A,
+    });
+    expect(a.json()).toMatchObject({ incluiSugeridos: false });
+  });
+
   it('regenerar mata o token antigo; revogar mata o atual', async () => {
     const antigo = await criarFeed();
     const novo = await criarFeed();
@@ -450,7 +507,12 @@ describe('API — feed', () => {
         PROCESSOVIVO_URL_BASE: URL_BASE,
       } as NodeJS.ProcessEnv),
     );
-    const r = await comLog.inject({ method: 'POST', url: '/v1/calendario/feed', headers: A, payload: {} });
+    const r = await comLog.inject({
+      method: 'POST',
+      url: '/v1/calendario/feed',
+      headers: A,
+      payload: {},
+    });
     const caminho = String(r.json().url).slice(URL_BASE.length);
     const token = caminho.split('/').pop()?.replace('.ics', '') ?? '';
     await comLog.inject({ method: 'GET', url: caminho });

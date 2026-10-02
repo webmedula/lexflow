@@ -211,7 +211,7 @@ function vazio(icone,titulo,texto,acao){
 
 /* ---------------- chrome ---------------- */
 function pintarNav(){
-  ['novidades','processos','buscar','vigilancia','credenciais','conta'].forEach(function(a){
+  ['novidades','processos','calendario','buscar','vigilancia','credenciais','conta'].forEach(function(a){
     var b=$('nav-'+a); if(b)b.classList.toggle('ativo',estado.aba===a&&!estado.detalhe)});
 }
 function atualizarBolha(){
@@ -1154,10 +1154,9 @@ function abrir(numero){
   });
 }
 window.__processovivo_abrir=abrir;
-/* O que o leitor de peças (scriptLeitor.ts, arquivo próprio) usa do console.
-   Um objeto pequeno e explícito: o painel não lê o estado da tela por dentro. */
-window.__pv={api:api,esc:esc,explicar:explicar,dth:dth,
-  chave:function(){return estado.chave}};
+/* O que o leitor (scriptLeitor.ts) e o calendário (calendario.ts) usam do console.
+   Um objeto pequeno e explícito: eles não leem o estado da tela por dentro. */
+window.__pv={api:api,esc:esc,explicar:explicar,dth:dth,erroBloco:erroBloco,vazio:vazio,abrir:abrir,chave:function(){return estado.chave}};
 
 function ligarBotoesDetalhe(numero,acompanhado){
   var b=$('acompanhar');
@@ -1357,7 +1356,7 @@ function processoHtml(p,acomp,op){
     if(a!==anoAtual){anoAtual=a;h+='<div class="ano">'+a+'</div>'}
     var m=g.mov, longo=m.conteudo&&m.conteudo.length>320;
     var decisao=m.ehDecisao||MARCOS[m.codigoTpu];
-    h+='<div class="ev'+(decisao?' decisao':'')+(m.exigeAcao?' pede':'')+'">'+
+    h+='<div class="ev'+(decisao?' decisao':'')+(m.exigeAcao?' pede':'')+'" data-quando="'+esc(m.data)+'">'+
       '<div class="dt">'+dt(m.data)+'</div><div>'+
       '<div class="tt">'+esc(m.titulo)+(g.n>1?' <span class="xn">×'+g.n+'</span>':'')+
       (decisao?' <span class="selo mc">decisão</span>':'')+
@@ -2369,6 +2368,7 @@ function render(){
   if(estado.aba==='vigilancia')return verVigilancia();
   if(estado.aba==='credenciais')return verCredenciais();
   if(estado.aba==='conta')return verConta();
+  if(estado.aba==='calendario'&&window.__pvCalendario)return window.__pvCalendario.ver($('conteudo'));// ui/calendario.ts
   return verBuscar();
 }
 
@@ -2432,7 +2432,7 @@ function iniciar(){
     estado.facetas=f;
     atualizarBolha();
     pintarNav();
-    render();
+    render();if(window.__pvAoIniciar)window.__pvAoIniciar();// link /?processo= (ui/calendario.ts)
   }).catch(function(e){
     if(e.status===401){
       estado.chave='';try{localStorage.removeItem(CH)}catch(x){}
@@ -2442,7 +2442,7 @@ function iniciar(){
   });
 }
 
-['novidades','processos','buscar','vigilancia','credenciais','conta'].forEach(function(a){
+['novidades','processos','calendario','buscar','vigilancia','credenciais','conta'].forEach(function(a){
   var b=$('nav-'+a); if(b)b.addEventListener('click',function(){ir(a)})});
 
 $('sair').addEventListener('click',function(){
