@@ -163,7 +163,12 @@ interface ProcessoProvider {
    só `false` obriga quem opera a adivinhar entre chave errada, rede e tribunal
    fora do ar. E cuidado com a classificação: **4xx que não é de autenticação
    significa que a fonte respondeu e a chave passou** — reprovar por isso tira da
-   cadeia uma fonte que estava funcionando.
+   cadeia uma fonte que estava funcionando. E **timeout na verificação é
+   `lenta`, não "fora do ar"** (v0.31.2): `saudavel: true, lenta: true`, com o
+   motivo. Só recusa de conexão, 401/403, 429 e 5xx reprovam. O /ready do
+   DataJud reprovava a fonte com 15s de teto enquanto as consultas de 60s do
+   mesmo minuto funcionavam — índice frio do CNJ, não indisponibilidade. O teto
+   da verificação é `DATAJUD_TIMEOUT_VERIFICACAO_MS` (30s).
 6. Devolva `Processo`, nunca o payload da fonte.
 
 ### Erros e o que cada um provoca no orquestrador
@@ -973,7 +978,7 @@ teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
 **leitor de peças, Etapa 1: PDF combinado com índice** (v0.30.0),
 **Etapa 2: ler ao lado, com PDF.js servido pelo próprio servidor** (v0.31.0),
 **remarcar com reaproveitamento e "baixar só algumas"** (v0.31.1),
-Dockerfile multi-stage, CI, 869 testes.
+Dockerfile multi-stage, CI, 872 testes.
 
 **Leitor de peças, ajustes (v0.31.1):** o painel abre com "Nova seleção" ao lado
 de "Reabrir o PDF já pronto" (com data e hora); a seleção nova começa vazia,

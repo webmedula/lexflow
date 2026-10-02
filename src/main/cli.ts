@@ -225,8 +225,8 @@ async function main(): Promise<number> {
 
     case 'saude': {
       const diagnostico = await app.orquestrador.diagnostico();
-      for (const { provider, saudavel, motivo } of diagnostico) {
-        console.log(`${saudavel ? 'OK  ' : 'FORA'}  ${provider}`);
+      for (const { provider, saudavel, lenta, motivo } of diagnostico) {
+        console.log(`${lenta ? 'LENTA' : saudavel ? 'OK   ' : 'FORA '}  ${provider}`);
         if (motivo) console.log(`        ${motivo}`);
       }
       return diagnostico.some((d) => d.saudavel) ? 0 : 2;
@@ -347,7 +347,9 @@ async function main(): Promise<number> {
             return 0;
           }
           const agora = new Date();
-          const nomes = new Map((await app.planos.listar()).map((p) => [p.codigo, p.nome]));
+          const nomes = new Map(
+            (await app.planos.listar()).map((p) => [p.codigo, p.nome]),
+          );
           console.log('STATUS      PLANO           VENCE EM     WORKSPACE');
           for (const a of todas) {
             console.log(

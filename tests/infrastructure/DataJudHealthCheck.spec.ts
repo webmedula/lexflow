@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { DataJudAdapter } from '../../src/infrastructure/adapters/datajud/DataJudAdapter.js';
-import { HttpClient, HttpTimeoutError } from '../../src/infrastructure/http/HttpClient.js';
+import {
+  HttpClient,
+  HttpRedeError,
+  HttpTimeoutError,
+} from '../../src/infrastructure/http/HttpClient.js';
 import type { RespostaHttp } from '../../src/infrastructure/http/HttpClient.js';
 
 class HttpFalso extends HttpClient {
@@ -76,22 +80,42 @@ describe('DataJudAdapter.diagnosticar', () => {
     expect(d.motivo).toMatch(/alcançável e autenticada/);
   });
 
-  it('timeout é distinguido de falha de rede', async () => {
+  it('timeout na verificação é LENTA, não fora do ar: a fonte continua saudável', async () => {
+    // O /ready reprovava o DataJud enquanto as consultas reais (60s) do mesmo
+    // minuto funcionavam. "Não consegui confirmar" não é "está fora".
     const comTimeout = new DataJudAdapter({
       apiKey: 'k',
       httpClient: new HttpFalso(() => {
-        throw new HttpTimeoutError('http://x', 8000);
+        throw new HttpTimeoutError('http://x', 30_000);
       }),
       rateLimiter: { adquirir: async () => {}, tentarAdquirir: () => true },
     });
     const d = await comTimeout.diagnosticar();
+    expect(d).toMatchObject({ saudavel: true, lenta: true });
+    expect(d.motivo).toMatch(/^lenta: a verificação não respondeu em 30s/);
+    expect(d.motivo).toMatch(/60s/);
+    await expect(comTimeout.healthCheck()).resolves.toBe(true);
+  });
+
+  it('falha de rede (conexão recusada, DNS) continua reprovando a fonte', async () => {
+    const semRede = new DataJudAdapter({
+      apiKey: 'k',
+      httpClient: new HttpFalso(() => {
+        throw new HttpRedeError('http://x', new Error('ECONNREFUSED'));
+      }),
+      rateLimiter: { adquirir: async () => {}, tentarAdquirir: () => true },
+    });
+    const d = await semRede.diagnosticar();
     expect(d.saudavel).toBe(false);
-    expect(d.motivo).toMatch(/timeout/);
+    expect(d.lenta).toBeUndefined();
+    expect(d.motivo).toMatch(/falha de rede/);
   });
 
   it('healthCheck continua booleano e coerente com o diagnóstico', async () => {
     await expect(adapterQueRecebe(() => resposta(200)).healthCheck()).resolves.toBe(true);
-    await expect(adapterQueRecebe(() => resposta(401)).healthCheck()).resolves.toBe(false);
+    await expect(adapterQueRecebe(() => resposta(401)).healthCheck()).resolves.toBe(
+      false,
+    );
     await expect(adapterQueRecebe(() => resposta(400)).healthCheck()).resolves.toBe(true);
   });
 
@@ -114,11 +138,11 @@ describe('DataJudAdapter.diagnosticar', () => {
     expect(JSON.stringify(http.chamadas[0]?.corpo)).not.toContain('match_all');
   });
 
-  it('usa tentativa única e prazo próprio, menor que o das consultas', async () => {
+  it('usa tentativa única e prazo próprio (30s), menor que o das consultas', async () => {
     // Tentativa única porque health check que insiste não é health check.
-    // 15s e não 5s porque o índice frio do CNJ leva mais de 20s: reprovar a
-    // fonte por lentidão seria mentir sobre o estado dela. Ainda assim menor
-    // que os 60s das consultas — /ready precisa responder.
+    // 30s porque o índice frio do CNJ leva mais de 20s (com 15s, o /ready
+    // reprovava a fonte que estava respondendo). Ainda assim metade dos 60s
+    // das consultas — /ready precisa responder.
     const http = new HttpFalso(() => resposta(200));
     const adapter = new DataJudAdapter({
       apiKey: 'k',
@@ -128,7 +152,19 @@ describe('DataJudAdapter.diagnosticar', () => {
 
     await adapter.diagnosticar();
 
-    expect(http.chamadas[0]?.opcoes).toEqual({ timeoutMs: 15_000, tentativas: 1 });
+    expect(http.chamadas[0]?.opcoes).toEqual({ timeoutMs: 30_000, tentativas: 1 });
+  });
+
+  it('o prazo da verificação é configurável (DATAJUD_TIMEOUT_VERIFICACAO_MS)', async () => {
+    const http = new HttpFalso(() => resposta(200));
+    const adapter = new DataJudAdapter({
+      apiKey: 'k',
+      httpClient: http,
+      timeoutVerificacaoMs: 45_000,
+      rateLimiter: { adquirir: async () => {}, tentarAdquirir: () => true },
+    });
+    await adapter.diagnosticar();
+    expect(http.chamadas[0]?.opcoes).toEqual({ timeoutMs: 45_000, tentativas: 1 });
   });
 
   it('nunca lança, mesmo com a rede quebrada', async () => {

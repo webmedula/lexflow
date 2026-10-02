@@ -30,12 +30,10 @@ const schema = z.object({
   PROCESSOVIVO_PROVIDER_CHAIN: z.string().default('datajud,djen'),
 
   DATAJUD_API_KEY: z.string().default(''),
-  DATAJUD_BASE_URL: z
-    .string()
-    .url()
-    .default('https://api-publica.datajud.cnj.jus.br'),
+  DATAJUD_BASE_URL: z.string().url().default('https://api-publica.datajud.cnj.jus.br'),
   // 60s: consulta fria no CNJ chega a 20s (medido). Ver DataJudAdapter.
   DATAJUD_TIMEOUT_MS: inteiroPositivo(60_000),
+  DATAJUD_TIMEOUT_VERIFICACAO_MS: inteiroPositivo(30_000),
   DATAJUD_RATE_LIMIT_PER_MINUTE: inteiroPositivo(60),
 
   DJEN_BASE_URL: z.string().url().default('https://comunicaapi.pje.jus.br'),
@@ -82,9 +80,7 @@ const schema = z.object({
   CACHE_MAX_ENTRIES: inteiroPositivo(1000),
   CACHE_ENABLED: booleano.default('true'),
 
-  LOG_LEVEL: z
-    .enum(['debug', 'info', 'warn', 'error', 'silent'])
-    .default('info'),
+  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error', 'silent']).default('info'),
 
   // --- Peças do processo (MNI) ----------------------------------------------
   // O MNI é o único caminho para as PEÇAS (petição, contestação, laudo) — o
@@ -211,6 +207,7 @@ export interface Config {
     readonly apiKey: string;
     readonly baseUrl: string;
     readonly timeoutMs: number;
+    readonly timeoutVerificacaoMs: number;
     readonly limitePorMinuto: number;
   };
   readonly mockCrawler: {
@@ -387,6 +384,7 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
       apiKey: env.DATAJUD_API_KEY,
       baseUrl: env.DATAJUD_BASE_URL,
       timeoutMs: env.DATAJUD_TIMEOUT_MS,
+      timeoutVerificacaoMs: env.DATAJUD_TIMEOUT_VERIFICACAO_MS,
       limitePorMinuto: env.DATAJUD_RATE_LIMIT_PER_MINUTE,
     },
     mockCrawler: {

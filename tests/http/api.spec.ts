@@ -47,7 +47,10 @@ describe('API — autenticação', () => {
   });
 
   it('recusa requisição sem chave', async () => {
-    const r = await servidor.inject({ method: 'GET', url: `/v1/processos/${NUMERO_TJSP_A}` });
+    const r = await servidor.inject({
+      method: 'GET',
+      url: `/v1/processos/${NUMERO_TJSP_A}`,
+    });
     expect(r.statusCode).toBe(401);
     expect(r.json().erro).toBe('NAO_AUTENTICADO');
   });
@@ -98,7 +101,10 @@ describe('API — autenticação', () => {
   });
 
   it('permite desativar a autenticação explicitamente', async () => {
-    const aberto = montar({ PROCESSOVIVO_API_KEYS: '', PROCESSOVIVO_AUTH_DISABLED: 'true' });
+    const aberto = montar({
+      PROCESSOVIVO_API_KEYS: '',
+      PROCESSOVIVO_AUTH_DISABLED: 'true',
+    });
     const r = await aberto.inject({
       method: 'GET',
       url: `/v1/processos/${NUMERO_TJSP_A}`,
@@ -227,7 +233,9 @@ describe('API — carteira por OAB', () => {
       headers: auth,
     });
 
-    const datas = r.json().processos.map((p: { dataDistribuicao: string }) => p.dataDistribuicao);
+    const datas = r
+      .json()
+      .processos.map((p: { dataDistribuicao: string }) => p.dataDistribuicao);
     expect(new Date(datas[0]).getTime()).toBeGreaterThan(new Date(datas[1]).getTime());
   });
 
@@ -280,23 +288,35 @@ describe('API — saúde e rate limit', () => {
     const r = await servidor.inject({ method: 'GET', url: '/ready' });
 
     expect(r.statusCode).toBe(200);
-    expect(r.json().fontes).toEqual([
-      { provider: 'mock-crawler-tjsp', saudavel: true },
-    ]);
+    expect(r.json().fontes).toEqual([{ provider: 'mock-crawler-tjsp', saudavel: true }]);
     await servidor.close();
   });
 
   it('/ready devolve 503 quando nenhuma fonte responde', async () => {
     // Cadeia montada à mão com uma fonte declaradamente fora do ar.
     const fonteMorta = new ProviderFalso({ nome: 'fonte-morta', saudavel: false });
-    const servidor = construirServidor(
-      aplicacaoDeTeste([fonteMorta]),
-      configDeTeste(),
-    );
+    const servidor = construirServidor(aplicacaoDeTeste([fonteMorta]), configDeTeste());
 
     const r = await servidor.inject({ method: 'GET', url: '/ready' });
     expect(r.statusCode).toBe(503);
     expect(r.json().fontes).toEqual([{ provider: 'fonte-morta', saudavel: false }]);
+    await servidor.close();
+  });
+
+  it('/ready com a única fonte LENTA continua pronto (200) e diz que ela está lenta', async () => {
+    // Timeout na verificação não é indisponibilidade: tirar a instância da
+    // rotação por isso derrubaria um serviço cujas consultas respondem.
+    const lenta = new ProviderFalso({ nome: 'fonte-lenta' });
+    Object.assign(lenta, {
+      diagnosticar: async () => ({ saudavel: true, lenta: true, motivo: 'lenta: x' }),
+    });
+    const servidor = construirServidor(aplicacaoDeTeste([lenta]), configDeTeste());
+
+    const r = await servidor.inject({ method: 'GET', url: '/ready' });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().fontes).toEqual([
+      { provider: 'fonte-lenta', saudavel: true, lenta: true, motivo: 'lenta: x' },
+    ]);
     await servidor.close();
   });
 

@@ -9,6 +9,27 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.31.2] — 2026-10-02
+
+Diagnóstico do DataJud: o `GET /ready` reprovava a fonte ("timeout ao contatar
+a API do CNJ") enquanto as consultas reais funcionavam no mesmo minuto.
+
+### Alterado
+
+- **Timeout na verificação de saúde do DataJud vira "lenta", não "fora do
+  ar".** O diagnóstico devolve `saudavel: true, lenta: true` e um motivo que
+  explica o índice frio do CNJ (20,5s medidos) e o teto maior das consultas.
+  Falha de rede (conexão recusada, DNS), chave recusada, 429 e 5xx continuam
+  reprovando. O `/ready` mostra `lenta: true` na fonte e segue 200; `cli saude`
+  imprime `LENTA`.
+- **Teto da verificação de 15s para 30s**, configurável em
+  `DATAJUD_TIMEOUT_VERIFICACAO_MS` (novo, em `.env.example`). As consultas
+  continuam com `DATAJUD_TIMEOUT_MS` (60s).
+
+O resultado da verificação só informa (`/ready`, `cli saude`): a escolha da
+fonte numa consulta não depende dele (`verificarSaude` está desligado no
+composition root).
+
 ## [0.31.1] — 2026-10-02
 
 Ajustes do leitor de peças pedidos depois do teste do dono com a 0.31.0.
