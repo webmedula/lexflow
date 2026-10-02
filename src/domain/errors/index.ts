@@ -81,7 +81,9 @@ export class OperacaoNaoSuportadaError extends DomainError {
  * É o erro que dispara o fallback para o próximo provider da cadeia.
  */
 export class ProviderIndisponivelError extends DomainError {
-  readonly codigo = 'PROVIDER_INDISPONIVEL';
+  // `string` e não o literal: `MniBloqueadoError` especializa este erro com
+  // código próprio, e o literal impediria a subclasse de redefini-lo.
+  readonly codigo: string = 'PROVIDER_INDISPONIVEL';
 
   constructor(
     readonly provider: string,
@@ -402,4 +404,138 @@ export class ChaveApiNaoEncontradaError extends DomainError {
   constructor(readonly identificador: string) {
     super(`Nenhuma chave de API com o identificador "${identificador}".`);
   }
+}
+
+/**
+ * O MNI está em pausa porque o tribunal devolveu HTTP 403.
+ *
+ * É um `ProviderIndisponivelError` — quem já tratava indisponibilidade continua
+ * tratando, e a rota continua respondendo 503 — com uma informação a mais: QUANDO
+ * vale a pena voltar. O 403 do MNI é bloqueio de IP do servidor, e o IP é um só
+ * para todos os assinantes. Insistir durante a pausa não destrava nada e
+ * prolonga o bloqueio de todo mundo; por isso o disjuntor fica no adapter, e o
+ * erro sai sem nenhuma requisição enquanto ele estiver aberto.
+ */
+export class MniBloqueadoError extends ProviderIndisponivelError {
+  override readonly codigo: string = 'MNI_BLOQUEADO';
+
+  constructor(
+    provider: string,
+    readonly retomarEm: Date,
+  ) {
+    super(
+      provider,
+      'acesso bloqueado pelo tribunal (HTTP 403) — costuma ser bloqueio temporário ' +
+        `do IP do servidor; as consultas ficam pausadas até ${retomarEm.toISOString()}`,
+    );
+  }
+}
+
+/**
+ * A montagem do PDF combinado não produziu um arquivo em que se possa confiar.
+ *
+ * Em geral: a contagem de páginas do arquivo gerado não bate com a soma das
+ * partes. O índice aponta páginas para o advogado (e, depois, para as citações
+ * da análise); um índice desalinhado do arquivo manda a pessoa ler a peça
+ * errada achando que leu a certa. Melhor não entregar.
+ */
+export class PdfInvalidoError extends DomainError {
+  readonly codigo = 'PDF_INVALIDO';
+
+  constructor(motivo: string, options?: { cause?: unknown }) {
+    super(`Não foi possível montar o PDF combinado: ${motivo}`, options);
+  }
+}
+
+/** A guarda temporária do leitor passou da cota — do PDF ou do workspace. */
+export class LimiteDeArmazenamentoExcedidoError extends DomainError {
+  readonly codigo = 'LIMITE_DE_ARMAZENAMENTO_EXCEDIDO';
+
+  constructor(
+    readonly alcance: 'pdf' | 'workspace',
+    readonly limiteBytes: number,
+  ) {
+    super(
+      alcance === 'pdf'
+        ? `O PDF combinado passaria de ${mb(limiteBytes)} MB, o limite por arquivo. ` +
+            'Selecione menos peças e combine em partes.'
+        : `Os PDFs combinados guardados para você já ocupam o limite de ${mb(limiteBytes)} MB. ` +
+            'Eles são apagados sozinhos depois de 24 horas; tente de novo mais tarde.',
+    );
+  }
+}
+
+/**
+ * O pedido de combinação não existe PARA ESTE workspace.
+ *
+ * A mesma resposta para "não existe" e "existe e é de outro": diferenciar
+ * as duas permitiria a quem tem um id alheio confirmar que ele é válido.
+ */
+export class JobDoLeitorNaoEncontradoError extends DomainError {
+  readonly codigo = 'JOB_DO_LEITOR_NAO_ENCONTRADO';
+
+  constructor(readonly jobId: string) {
+    super('Combinação de peças não encontrada (ou já apagada pelo prazo de guarda).');
+  }
+}
+
+/**
+ * O PDF combinado existiu e saiu do disco (prazo de guarda, substituição ou
+ * limpeza por cota). Recortar dele não é mais possível — e o sistema DIZ isso
+ * em vez de baixar tudo de novo do tribunal sem ninguém pedir.
+ */
+export class PdfDoLeitorExpiradoError extends DomainError {
+  readonly codigo = 'PDF_DO_LEITOR_EXPIRADO';
+
+  constructor() {
+    super(
+      'O PDF combinado de onde as peças seriam recortadas já foi apagado ' +
+        '(prazo de guarda ou espaço da conta). Monte um novo pelo leitor.',
+    );
+  }
+}
+
+/** Pediu um recorte com peças que não estão no PDF combinado. */
+export class PecasForaDoPdfError extends DomainError {
+  readonly codigo = 'PECAS_FORA_DO_PDF';
+
+  constructor(readonly quantas: number) {
+    super(
+      quantas === 1
+        ? 'Uma das peças pedidas não está neste PDF combinado.'
+        : `${quantas} das peças pedidas não estão neste PDF combinado.`,
+    );
+  }
+}
+
+/** Pediu o PDF ou o índice de uma combinação que ainda não terminou. */
+export class LeitorAindaNaoProntoError extends DomainError {
+  readonly codigo = 'LEITOR_AINDA_NAO_PRONTO';
+
+  constructor(readonly estado: string) {
+    super(`O PDF combinado ainda não está pronto (situação: ${estado}).`);
+  }
+}
+
+/**
+ * Processo em segredo de justiça não tem o PDF combinado guardado.
+ *
+ * Decisão do dono até segunda ordem: o leitor guarda o arquivo em disco por
+ * algumas horas, e processo sob sigilo é exatamente o conteúdo que não deve
+ * ficar custodiado aqui nem por esse tempo. As peças avulsas continuam
+ * disponíveis — elas vão do tribunal direto para a máquina do advogado.
+ */
+export class SegredoDeJusticaNaoGuardadoError extends DomainError {
+  readonly codigo = 'SEGREDO_DE_JUSTICA_NAO_GUARDADO';
+
+  constructor(readonly numeroProcesso: string) {
+    super(
+      'Este processo está em segredo de justiça, e o PDF combinado não é guardado ' +
+        'para processos sob sigilo. Baixe as peças individualmente.',
+    );
+  }
+}
+
+function mb(bytes: number): number {
+  return Math.round(bytes / 1_048_576);
 }

@@ -238,6 +238,68 @@ export function extrairConteudoDoDocumento(
   return undefined;
 }
 
+/**
+ * O que cada id pedido em lote virou na resposta.
+ *
+ * Três destinos, e eles não podem colapsar: `semTeor` (o documento veio, o
+ * arquivo não — falta de procuração, em geral) e `ausentes` (o documento nem
+ * apareceu) pedem reações diferentes. A peça ausente merece uma segunda
+ * chance sozinha; a sem teor, não — pedir de novo não muda o perfil de acesso.
+ */
+export function extrairConteudosDoLote(
+  conteudo: Registro,
+  ids: readonly string[],
+  anexos: ReadonlyMap<string, ParteMultipart>,
+): {
+  readonly obtidos: ReadonlyArray<ConteudoBruto & { readonly id: string }>;
+  readonly semTeor: readonly string[];
+  readonly ausentes: readonly string[];
+} {
+  const processo = registro(conteudo['processo']);
+  const porId = new Map<string, unknown>();
+  for (const bruto of achatarDocumentos(lista(processo?.['documento']))) {
+    const id = atributo(bruto, 'idDocumento');
+    // Primeiro que aparecer vence: o mesmo id repetido seria anomalia da
+    // fonte, e trocar o arquivo pelo segundo esconderia isso.
+    if (id && !porId.has(id)) porId.set(id, bruto);
+  }
+
+  const obtidos: Array<ConteudoBruto & { readonly id: string }> = [];
+  const semTeor: string[] = [];
+  const ausentes: string[] = [];
+  for (const id of ids) {
+    const bruto = porId.get(id);
+    if (bruto === undefined) {
+      ausentes.push(id);
+      continue;
+    }
+    const bytes = bytesOuVazio(bruto, anexos);
+    if (!bytes) {
+      semTeor.push(id);
+      continue;
+    }
+    const nomeArquivo = parametroExtra(bruto, 'NomeArquivo');
+    obtidos.push({
+      id,
+      bytes,
+      mimetype: atributo(bruto, 'mimetype') ?? 'application/octet-stream',
+      ...(nomeArquivo ? { nomeArquivo } : {}),
+    });
+  }
+  return { obtidos, semTeor, ausentes };
+}
+
+/**
+ * Nível de sigilo do PROCESSO, do `dadosBasicos`. `undefined` sem cabeçalho.
+ *
+ * Só existe na resposta que pede o cabeçalho (`incluirCabecalho: true`), que é
+ * a da listagem — e é na listagem que o leitor decide se pode guardar.
+ */
+export function extrairNivelSigiloDoProcesso(conteudo: Registro): number | undefined {
+  const processo = registro(conteudo['processo']);
+  return inteiro(atributo(processo?.['dadosBasicos'], 'nivelSigilo'));
+}
+
 interface ConteudoBruto {
   readonly bytes: Uint8Array;
   readonly mimetype: string;
@@ -291,6 +353,33 @@ function montarPeca(bruto: unknown, anexos: ReadonlyMap<string, ParteMultipart>)
     ...(movimento !== undefined ? { movimento } : {}),
     ...(signatarios.length > 0 ? { signatarios } : {}),
   });
+}
+
+/**
+ * Como `bytesDoConteudo`, mas distingue arquivo VAZIO de arquivo ausente.
+ *
+ * No download avulso as duas coisas viram "não liberado", porque não há o que
+ * entregar. No lote, o leitor precisa saber a diferença: o tribunal que manda
+ * zero bytes respondeu (`vazia`, página de aviso dizendo isso), e o que não
+ * manda conteúdo nenhum negou (`sem_teor`).
+ */
+function bytesOuVazio(
+  bruto: unknown,
+  anexos: ReadonlyMap<string, ParteMultipart>,
+): Uint8Array | undefined {
+  const conteudo = registro(bruto)?.['conteudo'];
+  if (conteudo === undefined || conteudo === null) return undefined;
+  const inclusao = registro(registro(conteudo)?.['Include']);
+  if (inclusao) {
+    const href = texto(inclusao['@_href']);
+    return href ? resolverReferencia(href, anexos) : undefined;
+  }
+  // `<conteudo/>` sem texto fica como NÃO entregue, igual ao download avulso:
+  // não se sabe (não foi capturado) se é assim que o tribunal nega o arquivo,
+  // e errar para "vazia" diria ao advogado que a peça não tem nada quando o
+  // que houve foi negativa. Vazia é só o anexo MTOM que chegou com 0 bytes.
+  const base64 = texto(conteudo);
+  return base64 ? new Uint8Array(Buffer.from(base64, 'base64')) : undefined;
 }
 
 /**

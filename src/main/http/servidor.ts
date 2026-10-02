@@ -10,11 +10,19 @@ import { validarConfiguracaoAdmin } from './adminAuth.js';
 import { mapearErro } from './erros.js';
 import autenticacao from './plugins/autenticacao.js';
 import { ROTA_HEALTH, ROTA_READY, rotasDeSaude } from './rotas/saude.js';
-import { PREFIXO_FONTES, ROTA_CONSOLE, ROTA_FONTES, rotasDeInterface } from './rotas/interface.js';
+import {
+  PREFIXO_FONTES,
+  PREFIXO_PDFJS,
+  ROTA_CONSOLE,
+  ROTA_FONTES,
+  ROTA_PDFJS,
+  rotasDeInterface,
+} from './rotas/interface.js';
 import { rotasDeProcesso } from './rotas/processos.js';
 import { rotasDeAcompanhamento } from './rotas/acompanhamentos.js';
 import { rotasDeVigilancia } from './rotas/vigilancias.js';
 import { rotasDePecas } from './rotas/pecas.js';
+import { rotasDoLeitor } from './rotas/leitor.js';
 import { rotasDoPainel } from './rotas/painel.js';
 import { rotasDeAssinaturas } from './rotas/assinaturas.js';
 import { ROTAS_ADMIN, rotasDeAdmin } from './rotas/admin.js';
@@ -77,7 +85,10 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
       requisicao.url === ROTA_HEALTH ||
       requisicao.url === ROTA_READY ||
       requisicao.url === ROTA_CONSOLE ||
-      requisicao.url.startsWith(PREFIXO_FONTES),
+      requisicao.url.startsWith(PREFIXO_FONTES) ||
+      // O PDF.js pede dezenas de arquivos ao abrir (fontes padrão, decodificador):
+      // são estáticos e sem dado, e não podem gastar a cota das consultas.
+      requisicao.url.startsWith(PREFIXO_PDFJS),
   });
 
   void servidor.register(autenticacao, {
@@ -100,6 +111,9 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
       ROTA_READY,
       ROTA_CONSOLE,
       ROTA_FONTES,
+      // O PDF.js entra por import() e new Worker(): o navegador não manda
+      // x-api-key nessas requisições. São arquivos da biblioteca, sem dado.
+      ROTA_PDFJS,
       ROTA_CONTAS,
       ROTA_SESSOES,
       // Recuperar e redefinir senha são de quem NÃO consegue entrar. Exigir
@@ -123,6 +137,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(rotasDeProcesso(app));
   void servidor.register(rotasDeAcompanhamento(app.acompanhamento));
   void servidor.register(rotasDePecas(app.pecas, app.assinaturas));
+  void servidor.register(rotasDoLeitor(app.leitor, app.assinaturas));
   void servidor.register(rotasDoPainel(app.acompanhamento, app.pecas));
   void servidor.register(rotasDeAssinaturas(app.assinaturas, app.planos));
   void servidor.register(rotasDeVigilancia(app.vigilancia, app.preferenciasNotificacao));
@@ -245,6 +260,8 @@ export async function iniciar(app: Aplicacao, config: Config): Promise<FastifyIn
   // ritmo da rápida — e é na rápida que estão as publicações que abrem prazo.
   app.agendadorVigilancia?.iniciar();
   app.agendadorBackup?.iniciar();
+  app.agendadorLeitor?.iniciar();
+  app.agendadorLimpezaLeitor?.iniciar();
 
   app.logger.info('Processo Vivo no ar', {
     versao: VERSAO,

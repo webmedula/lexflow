@@ -112,6 +112,34 @@ const schema = z.object({
    * aos processos de terceiros. Gere com `npm run chave -- --cofre`.
    */
   PROCESSOVIVO_CREDENCIAL_CHAVE: z.string().default(''),
+  // Depois de um HTTP 403 o MNI inteiro fica parado por esta janela — peça
+  // avulsa, régua e leitor, de todos os assinantes. O bloqueio é do IP.
+  MNI_PAUSA_APOS_403_MIN: inteiroPositivo(30),
+
+  // --- Leitor de peças (v0.30.0) ----------------------------------------------
+  // Pasta da guarda temporária dos PDFs combinados. Vazio = `leitor/` ao lado
+  // do banco (no contêiner, /dados/leitor — no volume, fora do backup).
+  LEITOR_PASTA: z.string().default(''),
+  LEITOR_QPDF: z.string().default('qpdf'),
+  // Lote adaptativo, medido na sonda de 01/10/2026: 20 peças numa chamada sem
+  // perda. Começa em 5, e não em 10: o primeiro lote é o único pedido às
+  // cegas (a listagem não diz o tamanho de nada), e 10 peças do tamanho da
+  // maior já vista (3,9 MB) dariam um pico de ~150 MB. Com 5, ~90 MB. Só
+  // dobra (5 → 10 → 20) depois de uma resposta abaixo de
+  // LEITOR_LOTE_CRESCER_ABAIXO_MB — ou seja, depois de ver o tamanho real.
+  LEITOR_LOTE_INICIAL: inteiroPositivo(5),
+  LEITOR_LOTE_MAXIMO: inteiroPositivo(20),
+  // Resposta acima disto corta o lote seguinte pela metade. A conta está em
+  // docs/leitor-medicoes-v0.30.0.md: pico ≈ 2 × resposta + 8 MB.
+  LEITOR_LOTE_MAX_RESPOSTA_MB: inteiroPositivo(12),
+  LEITOR_LOTE_CRESCER_ABAIXO_MB: inteiroPositivo(3),
+  LEITOR_PAUSA_ENTRE_CHAMADAS_MS: z.coerce.number().int().min(0).default(3000),
+  LEITOR_TTL_HORAS: inteiroPositivo(24),
+  LEITOR_COTA_POR_PDF_MB: inteiroPositivo(300),
+  LEITOR_COTA_POR_WORKSPACE_MB: inteiroPositivo(1024),
+  LEITOR_AVISO_DISCO_MB: inteiroPositivo(10_240),
+  // Acima de quantas peças a tela pede confirmação antes de montar o PDF.
+  LEITOR_CONFIRMAR_ACIMA_DE: inteiroPositivo(150),
 
   // --- Banco e sincronização ------------------------------------------------
   // Caminho do arquivo SQLite. No contêiner tem que apontar para um VOLUME,
@@ -200,6 +228,22 @@ export interface Config {
     readonly timeoutMs: number;
     readonly limitePorMinuto: number;
     readonly chaveDoCofre: string;
+    readonly pausaApos403Ms: number;
+  };
+  readonly leitor: {
+    /** Vazio = `leitor/` ao lado do banco. */
+    readonly pasta: string;
+    readonly qpdf: string;
+    readonly loteInicial: number;
+    readonly loteMaximo: number;
+    readonly limiteRespostaBytes: number;
+    readonly limiarCrescimentoBytes: number;
+    readonly pausaEntreChamadasMs: number;
+    readonly ttlMs: number;
+    readonly cotaPorPdfBytes: number;
+    readonly cotaPorWorkspaceBytes: number;
+    readonly avisoDiscoBytes: number;
+    readonly confirmarAcimaDe: number;
   };
   readonly nivelLog: NivelLog;
   readonly banco: { readonly caminho: string };
@@ -317,6 +361,8 @@ function aceitarNomesAntigos(fonte: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return copia;
 }
 
+const MB = 1_048_576;
+
 export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
   const resultado = schema.safeParse(aceitarNomesAntigos(fonte));
   if (!resultado.success) {
@@ -360,6 +406,21 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
       timeoutMs: env.MNI_TIMEOUT_MS,
       limitePorMinuto: env.MNI_RATE_LIMIT_PER_MINUTE,
       chaveDoCofre: env.PROCESSOVIVO_CREDENCIAL_CHAVE.trim(),
+      pausaApos403Ms: env.MNI_PAUSA_APOS_403_MIN * 60_000,
+    },
+    leitor: {
+      pasta: env.LEITOR_PASTA.trim(),
+      qpdf: env.LEITOR_QPDF.trim() || 'qpdf',
+      loteInicial: Math.min(env.LEITOR_LOTE_INICIAL, env.LEITOR_LOTE_MAXIMO),
+      loteMaximo: env.LEITOR_LOTE_MAXIMO,
+      limiteRespostaBytes: env.LEITOR_LOTE_MAX_RESPOSTA_MB * MB,
+      limiarCrescimentoBytes: env.LEITOR_LOTE_CRESCER_ABAIXO_MB * MB,
+      pausaEntreChamadasMs: env.LEITOR_PAUSA_ENTRE_CHAMADAS_MS,
+      ttlMs: env.LEITOR_TTL_HORAS * 3_600_000,
+      cotaPorPdfBytes: env.LEITOR_COTA_POR_PDF_MB * MB,
+      cotaPorWorkspaceBytes: env.LEITOR_COTA_POR_WORKSPACE_MB * MB,
+      avisoDiscoBytes: env.LEITOR_AVISO_DISCO_MB * MB,
+      confirmarAcimaDe: env.LEITOR_CONFIRMAR_ACIMA_DE,
     },
     nivelLog: env.LOG_LEVEL,
     banco: { caminho: env.PROCESSOVIVO_DB_PATH },

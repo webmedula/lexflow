@@ -88,7 +88,7 @@ src/
 │   └── services/                # ProcessoSearchService, ServicoAcompanhamento,
 │                                #   ServicoVigilanciaOab, ServicoNotificacao,
 │                                #   ServicoPecas, ServicoContas,
-│                                #   ServicoAssinaturas
+│                                #   ServicoAssinaturas, ServicoLeitor
 ├── infrastructure/
 │   ├── adapters/
 │   │   ├── datajud/             # adapter + mapper + schemas + aliases
@@ -104,6 +104,8 @@ src/
 │   ├── seguranca/               # cofre AES-256-GCM das credenciais de tribunal,
 │   │                            #   senha (scrypt) e sessão (token + cookie)
 │   ├── agenda/                  # Agendador da varredura
+│   ├── arquivos/                # ArmazemEmDisco (guarda temporária do leitor)
+│   ├── pdf/                     # QpdfMontador (qpdf junta; pdf-lib gera avisos)
 │   └── ratelimit/               # TokenBucketRateLimiter
 └── main/
     ├── factories/               # composition root
@@ -114,7 +116,7 @@ src/
         ├── erros.ts             # DomainError → status HTTP
         ├── plugins/             # autenticação: sessão (cookie) OU chave de API
         ├── ui/                  # console web (HTML como string, sem build)
-        └── rotas/               # processos, contas, saúde, interface
+        └── rotas/               # processos, contas, saúde, interface, leitor
 tests/                           # espelha src/, + http/, integration/, helpers/
 ```
 
@@ -185,6 +187,14 @@ interface ProcessoProvider {
 | `RecursoNaoIncluidoNoPlanoError` | está em dia, o plano não cobre | 403; trocar de plano — outra ação, outro código |
 | `PlanoDesconhecidoError` | código de plano que não existe | 400; letra trocada no comando, não bug |
 | `SemHabilitacaoNosAutosError` | o tribunal devolveu só o cabeçalho, sem conteúdo | 403; conferir de quem é a credencial — NÃO é processo vazio |
+| `MniBloqueadoError` | o tribunal respondeu 403: disjuntor aberto, MNI inteiro em pausa | 503 com a hora de retomada; é um `ProviderIndisponivelError` — quem tratava indisponibilidade continua tratando |
+| `JobDoLeitorNaoEncontradoError` | job do leitor não existe PARA ESTE workspace | 404; mesma resposta para "não existe" e "é de outro" |
+| `LeitorAindaNaoProntoError` | pediu PDF ou índice de job que não terminou | 409; a tela consulta o progresso |
+| `LimiteDeArmazenamentoExcedidoError` | cota do PDF ou do workspace na guarda temporária | 413; dividir a seleção ou esperar o prazo |
+| `SegredoDeJusticaNaoGuardadoError` | processo sob sigilo não tem PDF combinado guardado | 403; as peças avulsas continuam |
+| `PdfInvalidoError` | a contagem de páginas do PDF gerado não bate com a soma das peças | o job falha; índice desalinhado é pior que nenhum |
+| `PdfDoLeitorExpiradoError` | pediu recorte de um PDF combinado que já saiu do disco | 410; a tela diz que expirou — NÃO baixa de novo do tribunal sem a pessoa pedir |
+| `PecasForaDoPdfError` | pediu recorte com peça que não está naquele PDF | 400 |
 
 **A distinção que sustenta o produto:** "esse processo não existe" ≠ "não
 consegui ver esse processo". Colapsar as duas coisas faz o sistema dizer ao
@@ -290,6 +300,18 @@ npm run build            # compila para dist/
   eu havia escrito o fixture, o parser e a asserção — um circuito fechado que não
   tocava a realidade. Ao capturar payload novo, salve como fixture e não edite os
   valores.
+- **Exceção registrada (v0.30.0): resposta do MNI COM DOCUMENTOS não entra como
+  captura.** O repositório é público, e a resposta real carrega petição de
+  processo real, com nome de parte e de advogado. A ESTRUTURA verificada no TJGO
+  (envelope, multipart/XOP, atributos de `<documento>`, `<outroParametro>`) é
+  reproduzida por `tests/helpers/mniSintetico.ts`, com bytes sintéticos e nada de
+  nome — e o comentário dele diz de onde veio cada forma. PDF de teste se gera
+  com biblioteca (`tests/helpers/leitor.ts`). A regra "não editar fixture de
+  captura" continua valendo para tudo o que é capturado; isto aqui não é
+  captura, e não finge ser.
+- **Os testes do leitor rodam o `qpdf` e o `pdftotext` de verdade** (CI:
+  `apt-get install qpdf poppler-utils`; local: instale os pacotes). É a única forma de provar que o índice bate com o
+  arquivo montado.
 - Fixtures usam números CNJ com **dígito verificador válido**. Um DV inválido na
   massa faz a suíte passar sem nunca exercitar `NumeroCNJ`, e o bug só aparece
   contra o tribunal de verdade. Helper para gerar: veja o fim de
@@ -351,7 +373,12 @@ credencial dentro da cadeia serviria ao assinante seguinte a resposta obtida com
 a credencial do anterior.
 
 Ao mexer no MNI, o teste que vale é `tests/infrastructure/mni-mtom.spec.ts`, que
-roda contra a captura real do TJGO.
+roda contra a captura real do TJGO. Para o caminho em lote do leitor,
+`tests/infrastructure/mni-lote.spec.ts` (estrutura real, bytes sintéticos).
+
+Fonte que entrega VÁRIAS peças numa chamada implementa também
+`obterConteudosEmLote` — é o que o leitor (e, depois, o ZIP) usam. Peça que falta
+numa resposta com sucesso não é erro: vai em `ausentes` ou `semTeor`.
 
 ### Trocar o cache por Redis
 
@@ -790,12 +817,110 @@ Não são detalhes — moldam o código.
   Processo arquivado e depois desarquivado tem os dois atos nos autos; procurar
   "existe arquivamento" marcaria como encerrada a pasta que voltou a correr — e
   o advogado deixaria de olhar justamente essa.
-- **O arquivo da peça NUNCA fica no nosso disco.** `pecas_baixadas` guarda
-  metadado — número, id, rótulo, tamanho, quando —, e o PDF vai do tribunal
-  direto para a máquina do advogado. São autos de processo, muitos em segredo de
-  justiça: custodiá-los criaria obrigação de guarda que o produto não precisa
-  assumir para funcionar, e um vazamento do nosso disco viraria vazamento de
-  processo alheio. Há teste que fixa as chaves devolvidas pela rota.
+- **A peça AVULSA não fica no nosso disco; o PDF COMBINADO fica, por pouco
+  tempo** (v0.30.0, decisão do dono de 29/09/2026 — até a v0.29 a regra era
+  "nenhum arquivo de peça no disco"). O download avulso continua indo do
+  tribunal direto para a máquina do advogado, e `pecas_baixadas` guarda só
+  metadado (há teste que fixa as chaves). O PDF combinado do leitor é guardado
+  porque remontá-lo a cada abertura custaria minutos de consulta contra a conta
+  do advogado — e a guarda tem contrapartidas que não se afrouxam: **por
+  workspace** (toda leitura confere o dono no banco, e o caminho em disco sai do
+  hash do workspace — há teste de que o B nunca lê o arquivo do A); **prazo**
+  (`LEITOR_TTL_HORAS`, 24 h, limpo pelo `Agendador`); **cota** por PDF e por
+  workspace; **nome aleatório, fora do diretório servido e fora do backup**
+  (o backup copia o banco, não `leitor/`); **NÃO apagado no logout** (sair num
+  aparelho apagaria o PDF que a pessoa lê em outro — decisão do dono,
+  01/10/2026); **apagado na exclusão de conta**
+  (`ServicoLeitor.apagarDoWorkspace`); e **processo em segredo de justiça não é
+  guardado** — nem peça com `nivelSigilo > 0`. Os arquivos de trabalho (as peças
+  baixadas para montar) são apagados assim que o PDF fica pronto.
+- **Seleção nova não apaga o PDF anterior; a cota é que decide** (v0.31.1). Peça
+  que já está num PDF guardado deste processo, no prazo, NÃO volta ao tribunal:
+  as páginas são copiadas de lá (`reaproveitada.deJob`), e só a peça realmente
+  nova vira consulta — o mesmo caminho do "Atualizar". O PDF novo é outro
+  arquivo; o antigo fica até o próprio prazo. Só a ATUALIZAÇÃO substitui (e
+  apaga) o PDF de que partiu. A REGRA DE SUBSTITUIÇÃO quando a cota da conta
+  enche (`abrirEspaco`): saem os PDFs mais antigos pela hora em que ficaram
+  prontos, os de OUTROS processos primeiro e os deste por último (são deles
+  que a seleção nova copia páginas); nunca sai o PDF de que um job em andamento
+  ainda vai copiar páginas — e a limpeza do prazo também espera esse job. Se
+  nada puder sair, o pedido é recusado (413) antes de qualquer consulta. Origem
+  que sumiu entre a listagem e a montagem vira página de aviso
+  (`origem_expirada`), nunca erro.
+- **"Baixar só algumas" recorta, não consulta** (v0.31.1). O PDF das peças
+  marcadas sai do combinado guardado (`qpdf --pages`, argumentos em vetor,
+  linearizado), na ordem dos autos, com índice próprio contado do arquivo
+  gerado; mora na pasta do job (mesmo dono, mesmo prazo, mesma cota; no máximo
+  3 por PDF). Combinado já apagado → `PdfDoLeitorExpiradoError` (410): a tela
+  diz que expirou e manda montar de novo pela "Nova seleção" — remontar em
+  silêncio seria consultar o tribunal com a senha do advogado sem ele pedir.
+- **O painel nunca passa da largura da janela** (v0.31.1). A largura do divisor
+  é guardada no navegador, e numa janela menor ela é cortada (`min(...,
+  100vw)` no CSS e `ajustarLargura` no script, que não apaga a preferência).
+  Controle dentro do painel tem `min-width: 0`: um `<select>` mede a opção mais
+  longa, e o "Ir para a peça" com rótulos reais do TJGO tinha ~730 px — era ele
+  que empurrava "Baixar PDF" para fora da tela.
+- **Um MNI, um balde, um disjuntor.** Peça avulsa, régua e leitor usam a MESMA
+  instância de `MniAdapter`: dois baldes de 30/min somariam acima do teto
+  relatado do tribunal, e o bloqueio é do IP, de todos os assinantes. O leitor
+  não tem rate limiter; tem só a PAUSA entre as próprias chamadas (3 s). Há teste
+  que falha se aparecer um segundo `new MniAdapter` no composition root ou um
+  rate limiter no leitor. E o 403 abre um **disjuntor no adapter**
+  (`MNI_PAUSA_APOS_403_MIN`): enquanto ele estiver aberto, nenhuma consulta MNI
+  sai — nem ficha do balde se gasta —, e os jobs ficam `pausado_por_bloqueio`,
+  retomando sozinhos. Em memória: redeploy fecha o disjuntor, e o contêiner novo
+  reabre na primeira consulta.
+- **O leitor nunca insiste.** Credencial recusada, 403, `sucesso: false`,
+  timeout, 5xx: o job para e entrega o que tem como `parcial`, com cada peça
+  faltante no índice e o motivo. A única repetição é a peça AUSENTE numa resposta
+  de lote que deu certo — pedida UMA vez, sozinha, no fim; não é insistência
+  contra recusa, é conferir uma omissão. Credencial já marcada como recusada nem
+  vira job.
+- **Lote se adapta por BYTES.** A listagem não diz o tamanho de nada (2 KB a
+  3,9 MB, medido); só a resposta anterior informa. Passou de
+  `LEITOR_LOTE_MAX_RESPOSTA_MB` → o próximo lote cai pela metade e nunca mais
+  cresce naquele job. O PRIMEIRO lote é de 5 peças (`LEITOR_LOTE_INICIAL`): é o
+  único pedido às cegas, e 10 peças de 3,9 MB dariam ~150 MB de pico; só dobra
+  (10, 20) depois de uma resposta leve. E **um job do leitor por vez no
+  processo inteiro** — trava de módulo em `ServicoLeitor.processarFila`, para
+  dois jobs de credenciais diferentes não somarem os picos; há teste que falha
+  se dois lotes correrem juntos. A conta da memória (pico ≈ 3 × resposta + 30 MB) está em
+  `docs/leitor-medicoes-v0.30.0.md`, e depende de o leitor de MTOM devolver
+  VISTAS da resposta em vez de cópias — há teste que fixa isso.
+- **Página do índice é contada, nunca estimada.** O qpdf conta cada parte antes
+  de juntar e o arquivo gerado depois; se não bater, o job falha. O índice é a
+  base da navegação do painel e das citações da análise — índice desalinhado
+  manda o advogado ler a peça errada achando que leu a certa. Peça não obtida
+  ocupa UMA página de aviso, com o motivo: nunca some do índice.
+- **HTML do tribunal vira TEXTO no servidor e não chega cru a lugar nenhum**
+  (estratégia A, decisão do dono de 01/10/2026, depois da sonda: fragmentos só
+  com `p`, `span`, `strong`, `br`, `hr`, `u` e imagens `data:`, sem tabela).
+  `htmlDoTribunal.ts` é um tokenizador tolerante, sem DOM: ignora todo
+  atributo, descarta script/iframe/form com o conteúdo, decodifica entidades e
+  lê UTF-8 com recuo para windows-1252 (à mão — o `TextDecoder` do Node lê esse
+  rótulo como ISO-8859-1). O `QpdfMontador` desenha o texto com pdf-lib. O que
+  não entra — imagem, tabela achatada em "célula | célula", caractere trocado
+  por "?" — vai para o `motivo` da linha `html_convertida` do índice, e a
+  página diz que é conversão. Há teste (com `pdftotext`) que procura marcação,
+  script, atributo e base64 no PDF, no job, no índice e no log.
+- **PDF.js é a ÚNICA dependência de front do console** (v0.31.0), e vem do
+  próprio servidor: `/ui/pdfjs/:arquivo`, lista fechada montada no arranque a
+  partir do `pdfjs-dist` (dependência de PRODUÇÃO). Entra por `import()` no
+  script do painel, então a regra "a página não tem `<script src>`" continua de
+  pé. Usa o build **legacy**: o padrão do pdfjs-dist 6 chama
+  `Map.prototype.getOrInsertComputed` e, em navegador sem esse recurso, a
+  página fica em branco sem erro nenhum — há teste que confere o polyfill.
+- **O painel do leitor vive em arquivo próprio e só age aberto.** `ui/scriptLeitor.ts`
+  fala com o console por `window.__pv` (o que ele usa do console) e
+  `window.__pvLeitor` (os ganchos que o console chama). Fechado, a tela do
+  processo é a de antes, com um botão a mais; caixas de marcar, links "p. N" e
+  destaque nascem só com o painel aberto, e o CSS dele só age sob
+  `body.com-leitor` ou `#leitor` (há teste que confere cada regra). O painel
+  nunca insere conteúdo de peça no DOM — o HTML do tribunal já virou texto
+  dentro do PDF.
+- **qpdf com argumentos em VETOR.** `execFile`, nunca string de shell: uma
+  montagem são centenas de caminhos, e uma aspa no lugar errado viraria execução
+  de comando. Há teste com `$(...)` e aspas no nome do arquivo.
 - **Bloco de tela só nasce com conteúdo.** A terceira coluna do painel é montada
   apenas quando há o que pôr nela; sem isso a página fica de uma coluna. Vão em
   branco reservado não é lido como "ainda não há dados" — é lido como defeito.
@@ -845,7 +970,40 @@ acompanhar em lote e tela do processo orientada a providência,
 **área administrativa** com gestão de assinaturas e de chaves de API por HTTP
 Basic Auth (v0.27.0), **catálogo de planos editável com preço e regras de
 teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
-Dockerfile multi-stage, CI, 740 testes.
+**leitor de peças, Etapa 1: PDF combinado com índice** (v0.30.0),
+**Etapa 2: ler ao lado, com PDF.js servido pelo próprio servidor** (v0.31.0),
+**remarcar com reaproveitamento e "baixar só algumas"** (v0.31.1),
+Dockerfile multi-stage, CI, 869 testes.
+
+**Leitor de peças, ajustes (v0.31.1):** o painel abre com "Nova seleção" ao lado
+de "Reabrir o PDF já pronto" (com data e hora); a seleção nova começa vazia,
+com "Limpar seleção" sempre à mão e "Repetir a seleção anterior" como botão;
+peça já guardada não volta ao tribunal (a estimativa conta só as novas); "Baixar
+selecionadas (N)" recorta do PDF guardado (`POST
+/v1/processos/:numero/leitor/:jobId/extratos`, arquivo em
+`.../extratos/:extratoId/pdf`); e o painel nunca passa da janela.
+
+**Leitor de peças, Etapa 2 (v0.31.0):** botão "Ler peças ao lado" no cartão
+das peças abre um painel à direita (divisor arrastável; tela cheia no celular).
+Nele: marcar peças na própria linha do tempo, selecionar todas, atalhos por
+rótulo, estimativa em faixa vinda do servidor e confirmação acima de 150; o
+progresso com estados honestos; e o PDF lido por trechos, com "p. N" ao lado de
+cada peça da régua, destaque da peça ao rolar, busca, zoom e download.
+
+**Leitor de peças, Etapa 1 (v0.30.0):** `POST /v1/processos/:numero/leitor` com
+os ids das peças cria um job (fila mínima em SQLite, `jobs_leitor`, um job por
+vez, retomável depois de redeploy); o executor baixa em lote adaptativo pelo
+MESMO `MniAdapter` das peças, monta com qpdf na ordem dos autos (PDF como veio,
+imagem vira página, HTML vira páginas de texto, o que falhou vira página de
+aviso) e entrega o PDF
+linearizado com `Range` e o índice de páginas. "Atualizar" consulta
+`consultarAlteracao` e baixa só o que falta, reaproveitando as páginas do PDF
+anterior. Medições, a sonda de HTML e a conversão em
+`docs/leitor-medicoes-v0.30.0.md`. **Pendente:** a medição da camada de texto
+(OCR) e a Etapa 3 (análise), que depende de decisão do dono. O leitor fica atrás do plano
+`pecas`; um recurso próprio `leitor` no catálogo fica para depois (decisão do
+dono, 01/10/2026). Não há exclusão de conta no
+produto ainda: `apagarDoWorkspace` existe e está testado para quando houver.
 
 **Visual (v0.29.0):** logo do dono do produto (limpo do arquivo do CorelDRAW,
 letras convertidas em desenho) na lateral azul-marinho e na tela de entrada;
@@ -922,6 +1080,6 @@ termos e derruba o número, levando junto o aviso de prazo de todos os
 assinantes), **cálculo de prazo** (dias úteis do art. 219 do CPC, recesso,
 suspensões — alto valor e alto risco: só entra como calculadora com as contas à
 vista, nunca como afirmação), página do processo para o cliente do advogado,
-fila de jobs. O cache é em memória — uma instância, e evapora no redeploy.
+fila de jobs genérica (a do leitor é mínima e só dele). O cache é em memória — uma instância, e evapora no redeploy.
 
 Ao implementar qualquer um deles, **atualize este arquivo na mesma PR.**

@@ -18,6 +18,13 @@ jobs:
 
       - run: npm ci
 
+      # O leitor de peças monta PDF com qpdf, e os testes dele rodam o qpdf de
+      # verdade — é a única forma de provar que o índice bate com o arquivo.
+      # O pdftotext (poppler) lê de volta o texto do HTML convertido: é como o
+      # teste confere acento, entidade e que nenhuma marcação vazou.
+      - name: Ferramentas de PDF
+        run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils
+
       - name: Typecheck
         run: npm run typecheck
 

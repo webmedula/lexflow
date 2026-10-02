@@ -1,6 +1,8 @@
 import { ESTILOS } from './estilos.js';
 import { FAVICON_DATA_URI, LOGO_FUNDO_ESCURO } from './marca.js';
+import { ESTILOS_LEITOR } from './estilosLeitor.js';
 import { SCRIPT } from './script.js';
+import { SCRIPT_LEITOR } from './scriptLeitor.js';
 
 /**
  * Ícones da navegação: traço, sem preenchimento, na cor do texto
@@ -63,7 +65,7 @@ export function paginaConsole(versao: string): string {
 <link rel="icon" type="image/svg+xml" href="${FAVICON_DATA_URI}">
 <meta name="theme-color" content="#0b192c">
 <script>${SCRIPT_TEMA}</script>
-<style>${ESTILOS}</style>
+<style>${ESTILOS}${ESTILOS_LEITOR}</style>
 </head>
 <body>
 
@@ -99,6 +101,7 @@ export function paginaConsole(versao: string): string {
 </div>
 
 <script>${SCRIPT}</script>
+<script>${SCRIPT_LEITOR}</script>
 </body>
 </html>`;
 }

@@ -1,10 +1,13 @@
 /**
  * Uma peça que o assinante puxou do tribunal.
  *
- * Guarda METADADO, nunca o arquivo. O PDF vai direto do tribunal para a máquina
- * do advogado e não fica no nosso disco: são autos de processo, muitos em
- * segredo de justiça, e custodiá-los criaria uma obrigação de guarda que o
- * produto não precisa assumir para funcionar.
+ * Guarda METADADO, nunca o arquivo. A peça baixada AVULSA vai direto do
+ * tribunal para a máquina do advogado e não fica no nosso disco: são autos de
+ * processo, muitos em segredo de justiça.
+ *
+ * A única exceção, desde a v0.30.0 e por decisão do dono, é o PDF COMBINADO do
+ * leitor — guardado por prazo curto, por workspace, com cota (ver
+ * `ArmazemDoLeitor`). Ela não passa por aqui.
  */
 export interface PecaBaixada {
   readonly workspace: string;

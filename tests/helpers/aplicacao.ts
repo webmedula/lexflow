@@ -2,6 +2,13 @@ import { ProcessoSearchService } from '../../src/application/services/ProcessoSe
 import { ServicoAcompanhamento } from '../../src/application/services/ServicoAcompanhamento.js';
 import { ServicoNotificacao } from '../../src/application/services/ServicoNotificacao.js';
 import { ServicoPecas } from '../../src/application/services/ServicoPecas.js';
+import { ServicoLeitor } from '../../src/application/services/ServicoLeitor.js';
+import type { ConfiguracaoLeitor } from '../../src/application/services/ServicoLeitor.js';
+import { randomBytes } from 'node:crypto';
+import type { Clock } from '../../src/domain/ports/Clock.js';
+import { ArmazemEmDisco } from '../../src/infrastructure/arquivos/ArmazemEmDisco.js';
+import { QpdfMontador } from '../../src/infrastructure/pdf/QpdfMontador.js';
+import { FilaDeJobsSqlite } from '../../src/infrastructure/persistencia/sqlite/FilaDeJobsSqlite.js';
 import { ServicoVigilanciaOab } from '../../src/application/services/ServicoVigilanciaOab.js';
 import type { BuscaPorOabComPeriodo } from '../../src/application/services/ServicoVigilanciaOab.js';
 import { BuscarProcessoPorNumero } from '../../src/domain/usecases/BuscarProcessoPorNumero.js';
@@ -58,6 +65,21 @@ export const hashDeTeste: HashDeSenha = {
   hashDeComparacao: 'teste:__ninguem__',
 };
 
+/** Os valores de produção, sem pausa real: o teste injeta `esperar`. */
+export const CONFIG_LEITOR_DE_TESTE: ConfiguracaoLeitor = {
+  inicial: 5,
+  maximo: 20,
+  limiteRespostaBytes: 12 * 1_048_576,
+  limiarCrescimentoBytes: 3 * 1_048_576,
+  pausaEntreChamadasMs: 3000,
+  ttlMs: 24 * 3_600_000,
+  cotaPorPdfBytes: 300 * 1_048_576,
+  cotaPorWorkspaceBytes: 1024 * 1_048_576,
+  avisoDiscoBytes: 10 * 1024 * 1_048_576,
+  segundosPorChamada: 1.8,
+  confirmarAcimaDe: 150,
+};
+
 /** Notificador que guarda o que "enviou", para o teste conferir o conteúdo. */
 export class NotificadorEspiao implements Notificador {
   readonly nome = 'espiao';
@@ -103,6 +125,13 @@ export interface OpcoesAplicacaoDeTeste {
     readonly urlBase: string;
     /** Passe um valor negativo para simular link já vencido. */
     readonly duracaoMs?: number;
+  };
+  /** Liga o leitor de peças (exige `provedorDePecas`). Pasta: use uma temporária. */
+  readonly leitor?: {
+    readonly pasta: string;
+    readonly config?: Partial<ConfiguracaoLeitor>;
+    readonly clock?: Clock;
+    readonly gerarId?: () => string;
   };
   /** Liga a área administrativa. Ausente por padrão — mesma regra de `comAssinaturas`. */
   readonly admin?: { readonly usuario: string; readonly senha: string };
@@ -153,12 +182,12 @@ export function aplicacaoDeTeste(
   // Chave de cofre gerada por teste: nenhum segredo fixo entra no repositório,
   // e cada teste tem a sua, o que também prova que o cofre não depende de
   // estado global.
+  const credenciais = new RepositorioCredenciaisSqlite(
+    db,
+    Cofre.comChaveBase64(Cofre.gerarChaveBase64()),
+  );
   const pecas = opcoes.provedorDePecas
     ? (() => {
-        const credenciais = new RepositorioCredenciaisSqlite(
-          db,
-          Cofre.comChaveBase64(Cofre.gerarChaveBase64()),
-        );
         const provedor = opcoes.provedorDePecas as ProvedorDePecas;
         return new ServicoPecas({
           listar: new ListarPecasDoProcesso(provedor, credenciais),
@@ -172,6 +201,26 @@ export function aplicacaoDeTeste(
         });
       })()
     : undefined;
+
+  // O leitor usa o MESMO provedor e o MESMO repositório de credenciais das
+  // peças — como no composition root. Os jobs não andam sozinhos: o teste
+  // chama `processarFila()` quando quer, sem timer.
+  const leitor =
+    opcoes.provedorDePecas && opcoes.leitor
+      ? new ServicoLeitor({
+          provedor: opcoes.provedorDePecas,
+          credenciais,
+          fila: new FilaDeJobsSqlite(db),
+          armazem: new ArmazemEmDisco(opcoes.leitor.pasta),
+          montador: new QpdfMontador(),
+          logger: loggerSilencioso,
+          identificarCredencial: (ws, c) => `id-${ws.length}-${c.tribunal}`.slice(0, 16),
+          gerarId: opcoes.leitor.gerarId ?? (() => randomBytes(16).toString('hex')),
+          esperar: async () => {},
+          config: { ...CONFIG_LEITOR_DE_TESTE, ...(opcoes.leitor.config ?? {}) },
+          ...(opcoes.leitor.clock ? { clock: opcoes.leitor.clock } : {}),
+        })
+      : undefined;
 
   // Intervalo 0: nenhum agendador dispara sozinho durante os testes.
   const parado = (): Agendador =>
@@ -196,6 +245,9 @@ export function aplicacaoDeTeste(
     vigilancia,
     notificacao,
     pecas,
+    leitor,
+    agendadorLeitor: undefined,
+    agendadorLimpezaLeitor: undefined,
     assinaturas: new ServicoAssinaturas({
       repositorio: repositorioAssinaturas,
       planos: repositorioPlanos,

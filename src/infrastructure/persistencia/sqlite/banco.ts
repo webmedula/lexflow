@@ -135,10 +135,10 @@ const ESQUEMA = [
      mimetype   TEXT,
      bytes      INTEGER NOT NULL,
      baixada_em TEXT NOT NULL
-     -- METADADO, nunca o arquivo. O PDF vai do tribunal direto para a máquina
-     -- do advogado: são autos de processo, muitos em segredo de justiça, e
-     -- guardá-los aqui criaria uma obrigação de custódia que o produto não
-     -- precisa assumir para funcionar.
+     -- METADADO, nunca o arquivo. A peça avulsa vai do tribunal direto para a
+     -- máquina do advogado: são autos de processo, muitos em segredo de
+     -- justiça. (O PDF combinado do leitor, desde a v0.30.0, é a exceção
+     -- decidida pelo dono — guarda temporária em disco, ver jobs_leitor.)
      --
      -- Sem chave única de propósito: baixar a mesma peça duas vezes são dois
      -- registros. "Puxei de novo na semana passada" é informação, e um UNIQUE
@@ -281,6 +281,30 @@ const ESQUEMA = [
      plano_do_teste    TEXT NOT NULL,
      dias_de_carencia  INTEGER NOT NULL
    )`,
+
+  // Jobs do leitor de peças (v0.30.0): um pedido de PDF combinado por linha.
+  //
+  // Colunas só para o que se FILTRA (dono, estado, quando retomar, quando
+  // expira); o resto — peças, índice, contadores — vai em `dados`, JSON. O job
+  // é gravado inteiro a cada lote, e é isso que o faz sobreviver a redeploy
+  // sem baixar de novo o que já veio.
+  //
+  // A chave é (workspace, id), não só o id: nenhuma consulta do assinante
+  // consegue chegar a um job sem dizer de quem ele é.
+  `CREATE TABLE IF NOT EXISTS jobs_leitor (
+     workspace     TEXT NOT NULL,
+     id            TEXT NOT NULL,
+     numero        TEXT NOT NULL,
+     estado        TEXT NOT NULL,
+     criado_em     TEXT NOT NULL,
+     atualizado_em TEXT NOT NULL,
+     retomar_em    TEXT,
+     expira_em     TEXT,
+     dados         TEXT NOT NULL,
+     PRIMARY KEY (workspace, id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_jobs_leitor_fila ON jobs_leitor (estado, criado_em)`,
+  `CREATE INDEX IF NOT EXISTS idx_jobs_leitor_expira ON jobs_leitor (expira_em)`,
 
   `CREATE INDEX IF NOT EXISTS idx_sessoes_usuario ON sessoes(usuario_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sessoes_expira ON sessoes(expira_em)`,

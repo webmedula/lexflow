@@ -51,6 +51,15 @@ ENV NODE_ENV=production \
 # que faz um redeploy derrubar requisições em voo.
 RUN apk add --no-cache tini
 
+# Leitor de peças (v0.30.0). `qpdf` junta os PDFs do processo num só lendo por
+# partes, em outro processo: medido com 280 PDFs/160 MB, pico de 37 MB, contra
+# +357 MB fazendo o mesmo com pdf-lib dentro do Node. Sem ele o leitor não sobe
+# (a rota responde 501 dizendo o que falta).
+# `poppler-utils` (pdftotext/pdfinfo) entra JÁ na 0.30.0 por decisão do dono:
+# é o que mede a camada de texto dos PDFs, que decide se a análise vai precisar
+# de OCR. O leitor ainda não o usa.
+RUN apk add --no-cache qpdf poppler-utils
+
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
@@ -60,7 +69,11 @@ COPY scripts ./scripts
 # senão o processo sobe sem permissão de escrever e quebra na primeira gravação.
 # No Easypanel, monte um VOLUME em /dados: sem isso, os acompanhamentos e o
 # histórico de novidades somem a cada redeploy.
-RUN mkdir -p /dados && chown -R node:node /dados
+#
+# A guarda temporária do leitor fica em /dados/leitor (ao lado do banco, no
+# volume, FORA do backup — o backup copia o banco, não a pasta). Criada aqui
+# pelo mesmo motivo de /dados: dono `node` antes de trocar de usuário.
+RUN mkdir -p /dados/leitor && chown -R node:node /dados
 VOLUME ["/dados"]
 
 # A imagem base já traz o usuário `node` (UID 1000). Rodar como root dentro do

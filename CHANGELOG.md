@@ -9,6 +9,196 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.31.1] — 2026-10-02
+
+Ajustes do leitor de peças pedidos depois do teste do dono com a 0.31.0.
+
+### Alterado
+
+- **Remarcar.** "Ler peças ao lado" abre com **"Nova seleção"** e, quando há
+  um PDF guardado no prazo, **"Reabrir o PDF já pronto"** com a data e a hora
+  em que foi montado. A seleção nova começa com **todas as caixas desmarcadas**
+  (antes vinha com a seleção anterior, e remarcar virava desmarcar uma a uma);
+  **"Limpar seleção"** fica sempre à mão, e **"Repetir a seleção anterior"** é
+  um botão separado. O botão do topo do painel passou de "Marcar peças" a
+  "Nova seleção".
+- **Peça já guardada não volta ao tribunal.** Numa seleção nova, a peça que
+  está em algum PDF deste processo ainda no prazo tem as páginas copiadas de
+  lá; só a realmente nova é pedida — o mesmo caminho do "Atualizar". A tela diz
+  quantas das marcadas são reaproveitadas, e a estimativa de tempo conta só as
+  outras. `GET /v1/processos/:numero/leitor` passou a devolver também `pronto`
+  (o PDF guardado mais recente) e `reaproveitaveis` (ids).
+- **A seleção nova gera PDF NOVO e o anterior fica** até o próprio prazo (24 h).
+  Só a atualização substitui o PDF de que partiu. **Regra de substituição pela
+  cota:** com a conta no limite, saem primeiro os PDFs mais antigos de OUTROS
+  processos, depois os deste; nunca um PDF de que uma combinação em andamento
+  ainda vai copiar páginas (a limpeza do prazo também espera). Se nada puder
+  sair, 413 antes de qualquer consulta. Antes, cota cheia era sempre recusa.
+
+### Adicionado
+
+- **"Baixar selecionadas (N)"**, no painel do PDF pronto ("Baixar só algumas
+  peças deste PDF"): gera um PDF só com as páginas das peças marcadas,
+  **recortadas do PDF guardado** — nenhuma consulta ao tribunal. Ordem dos
+  autos, índice próprio contado do arquivo gerado, linearizado, nome
+  `processo-<numero>-pecas-selecionadas.pdf`. Mesmo isolamento por workspace,
+  mesma cota e mesmo prazo do PDF de origem (até 3 recortes por PDF). Rotas:
+  `POST /v1/processos/:numero/leitor/:jobId/extratos` e
+  `GET .../extratos/:extratoId/pdf` (com `Range`).
+- `PdfDoLeitorExpiradoError` (**410**): o PDF de origem já saiu do disco. A tela
+  diz isso e manda montar de novo pela "Nova seleção" — nunca baixa de novo em
+  silêncio. `PecasForaDoPdfError` (400) para peça que não está naquele PDF.
+- Motivo `origem_expirada` no índice: a peça seria reaproveitada de um PDF que
+  foi apagado entre a listagem e a montagem — vira página de aviso, não erro.
+
+### Corrigido
+
+- **"Fechar" e "Baixar PDF" cortados na borda direita.** Medido no Chromium: o
+  `<select>` "Ir para a peça" tem a largura da opção mais longa (728 px com
+  rótulo longo do TJGO) e passava da borda do painel em qualquer janela, de
+  1500 a 600 px de largura; e a largura arrastada no divisor, guardada no
+  navegador, podia ser maior que a janela atual. Agora o painel usa
+  `min(largura, 100vw)`, a largura guardada é ajustada à janela (sem perder a
+  preferência), e nada dentro do painel empurra a borda (`min-width: 0`).
+- Fechar e reabrir o painel sem a tela redesenhar deixava a seleção sem peças
+  ("0 peças marcadas" ao clicar nas caixas).
+- Um PDF novo que ficava pronto com outro PDF aberto no painel não era
+  carregado: o painel continuava mostrando o anterior.
+
+## [0.31.0] — 2026-10-01
+
+Leitor de peças, **Etapa 2 — ler ao lado** (especificação
+`leitor-e-analise-especificacao-v1.2.1`, seção 5). O PDF combinado da 0.30.0
+abre num painel à direita da linha do tempo.
+
+### Adicionado
+
+- **Botão "Ler peças ao lado"** no cartão das peças do processo. Sem clicar
+  nele, a tela do processo é exatamente a de antes (decisão do dono: o painel
+  abre por botão).
+- **Marcar peças na linha do tempo**: uma caixa ao lado de cada peça, "Selecionar
+  todas (N)" com o número do processo inteiro (não só o da tela filtrada),
+  atalhos por rótulo do tribunal (Petição, Certidão, Decisão…), contador e
+  **estimativa de tempo em faixa** calculada no servidor com os números medidos
+  (lote crescendo 5, 10, 20 até lote sem crescer), dita como ordem de
+  grandeza. Acima de `LEITOR_CONFIRMAR_ACIMA_DE` peças (150), confirmação.
+  Peça sob sigilo aparece desmarcável e com o motivo.
+- **Painel à direita** com divisor arrastável (largura guardada no navegador);
+  no celular, tela cheia com "← linha do tempo" e botão flutuante para voltar.
+  Em arquivo próprio (`ui/scriptLeitor.ts`, `ui/estilosLeitor.ts`), fora do
+  `script.ts`.
+- **PDF.js servido pelo próprio servidor** (`/ui/pdfjs/:arquivo`, lista fechada,
+  pública por ser biblioteca sem dado), carregado por `import()` — a página
+  continua sem `<script src>`. Usa o build **legacy** do `pdfjs-dist`: o padrão
+  usa `Map.getOrInsertComputed`, recurso de 2025, e a página ficava em branco
+  sem erro em navegador não atualizado.
+- **Leitura por trechos** (`Range`, sem baixar o resto em segundo plano) e
+  **renderização preguiçosa**: só as páginas perto da tela são desenhadas, no
+  máximo 24 ficam na memória. Largura ajustada por página (o PDF mistura A4 e
+  outros tamanhos), com a rolagem compensada quando uma página acima muda de
+  altura.
+- **Navegação pela linha do tempo**: ao lado de cada peça que está no PDF, um
+  atalho "p. N" pula para ela; rolar o PDF destaca a peça na linha do tempo e
+  mostra rótulo, posição e páginas. Lista "Ir para a peça…", busca de texto
+  (sem acento e sem caixa; diz que página digitalizada não é pesquisável),
+  zoom e "Baixar PDF".
+- **Estados honestos**: na fila; baixando com progresso; montando; sem progresso
+  há mais de 3 minutos ("sem progresso desde HH:MM"); pausado pelo tribunal
+  com o horário previsto de retomada; parcial com a lista do que faltou e por
+  quê; pronto com data e hora — sempre com "não é consulta ao vivo" e até
+  quando fica guardado. Três falhas seguidas ao consultar o progresso param a
+  consulta e oferecem um botão, em vez de girar para sempre.
+- `GET /v1/leitor/estimativa?pecas=N` e `GET /v1/processos/:numero/leitor`
+  (o último PDF deste processo, do próprio workspace).
+
+### Testes
+
+- ESLint roda dentro do script do painel, como no do console.
+- O painel foi conferido num Chromium de verdade contra um servidor local com
+  MNI falso e PDFs sintéticos: marcar, montar, abrir, pular para a página,
+  destaque na régua, busca, divisor, celular e fechar (que devolve a tela ao
+  estado original). Esse roteiro não está na suíte (exigiria navegador no CI).
+
+## [0.30.0] — 2026-10-01
+
+Leitor de peças, **Etapa 1 — combinar** (especificação
+`leitor-e-analise-especificacao-v1.2.1`, seções 4, 7 e 8). O advogado marca
+peças e o sistema entrega **um PDF único**, na ordem dos autos, com índice de
+páginas. A tela (Etapa 2: painel ao lado, PDF.js) ainda não existe — esta
+entrega é a API e o motor.
+
+### Adicionado
+
+- **Rotas do leitor**: `POST /v1/processos/:numero/leitor` (cria o job, 202,
+  com estimativa de tempo pela medição), `GET .../leitor/:jobId` (progresso:
+  baixadas, total, recusadas com o motivo, estado), `GET .../pdf` (com
+  `Range`/`Accept-Ranges: bytes`, PDF linearizado), `GET .../indice` e
+  `POST .../atualizar`. Toda resposta traz a procedência (MNI, quando foi
+  baixado, identificador não reversível da credencial, `aoVivo: false`).
+- **Download em lote adaptativo**: `obterConteudosEmLote` na porta
+  `ProvedorDePecas`, várias peças numa consulta MNI (medido até 20). O
+  primeiro lote é de 5 peças — o único pedido sem saber o tamanho das
+  respostas —, e só dobra (10, 20) depois de uma resposta leve; resposta acima
+  de `LEITOR_LOTE_MAX_RESPOSTA_MB` corta o próximo pela metade, e ele nunca
+  volta a crescer. Peça ausente numa resposta
+  com sucesso é pedida uma vez sozinha no fim; se continuar ausente, fica no
+  índice como não obtida.
+- **Disjuntor global de 403** no `MniAdapter`: um 403 pausa TODAS as consultas
+  MNI por `MNI_PAUSA_APOS_403_MIN` (padrão 30), sem gastar nem ficha do balde.
+  Jobs ficam `pausado_por_bloqueio` e retomam sozinhos; a rota avulsa responde
+  503 com a hora de retomada.
+- **Fila mínima em SQLite** (`jobs_leitor`): um job do leitor por vez no
+  processo INTEIRO (trava de módulo, não só por credencial — dois jobs em
+  paralelo somariam o pico de memória), sobrevive a redeploy sem baixar de
+  novo o que já veio. O PDF não é apagado no logout, só pelo prazo ou na
+  exclusão de conta.
+- **Peças HTML viram páginas de texto** (estratégia A, decidida pelo dono
+  depois da sonda de HTML). Tokenizador tolerante no servidor, sem DOM: `p` e
+  `br` quebram linha, `hr` vira separador, negrito e sublinhado sobrevivem,
+  entidades são decodificadas, UTF-8 com recuo para windows-1252, atributos
+  ignorados, script/iframe descartados. Imagens não entram e a página diz
+  quantas eram; caractere sem equivalente na fonte vira "?"; tabela vira
+  "célula | célula". Tudo isso vai para o `motivo` da linha `html_convertida`
+  do índice. 84 HTMLs de ~19 KB convertem em ~1,3 s.
+- **Montagem com qpdf** (argumentos em vetor, linearizado): PDF entra como
+  veio, imagem vira página, e o que não deu — vazio, corrompido, protegido,
+  recusado, sigiloso, formato estranho — vira **página de aviso** com o
+  motivo. As páginas do índice são contadas do arquivo gerado e conferidas.
+- **Guarda temporária em disco** (`/dados/leitor`), por workspace, com prazo
+  (24 h), cota (300 MB por PDF, 1 GB por workspace), nome aleatório, fora do
+  backup, limpeza horária e registro do uso de disco no log.
+- `qpdf` e `poppler-utils` na imagem.
+- `scripts/sonda-html.mjs` (mede só a FORMA de 2–3 HTMLs reais, 2 requisições;
+  `--seco` e `--help`; o histograma só imprime nomes de tag conhecidos) e
+  `scripts/medir-conversao-html.mjs`.
+- `pdftotext` (poppler) no CI, para os testes lerem o texto do HTML convertido. e `scripts/medir-memoria-lote.mjs`.
+- `docs/leitor-medicoes-v0.30.0.md`: as medições (qpdf 37 MB contra +357 MB do
+  pdf-lib para 160 MB de PDFs; memória do lote) e a proposta para HTML.
+
+### Mudado
+
+- **O PDF combinado fica em disco** — decisão do dono (29/09/2026) que reverte
+  "nenhum arquivo de peça no nosso disco". A peça avulsa continua sem guarda.
+  CLAUDE.md §8 reescrito; o teste que fixa as chaves do registro de downloads
+  passa a dizer que vale para a peça avulsa.
+- O leitor de MTOM devolve **vistas** sobre a resposta em vez de copiar cada
+  anexo: ler um lote de 48 MB passou de +75 MB para +8 MB de memória.
+- O 403 do MNI agora é `MniBloqueadoError` (continua sendo
+  `ProviderIndisponivelError`, continua 503).
+
+### Testes
+
+- Os testes do leitor usam números de processo SINTÉTICOS (`9999901-96.2026.8.09.9999`),
+  nenhum nome de pessoa e PDFs gerados por biblioteca. A primeira versão desta
+  entrega reaproveitava um número real do TJGO de um teste antigo; foi trocado.
+
+### Ainda não
+
+- Processo em **segredo de justiça** não tem PDF guardado (padrão da
+  especificação até decisão do dono).
+- Não há exclusão de conta no produto; a limpeza do leitor para ela existe
+  (`apagarDoWorkspace`) e está testada.
+
 ## [0.29.1] — 2026-09-29
 
 Dois ajustes relatados pelo dono do produto logo depois de instalar a v0.29.0.

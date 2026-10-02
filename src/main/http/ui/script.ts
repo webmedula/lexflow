@@ -227,7 +227,10 @@ function atualizarBolha(){
   }).catch(function(){});
 }
 
-function ir(aba){estado.aba=aba;estado.detalhe=null;pintarNav();render()}
+function ir(aba){
+  // Sair do processo fecha o leitor: o painel é do processo, não da aba.
+  if(window.__pvLeitor)window.__pvLeitor.fechar();
+  estado.aba=aba;estado.detalhe=null;pintarNav();render()}
 window.__processovivo_ir=ir;
 
 /* ---------------- aba: novidades ---------------- */
@@ -1114,6 +1117,7 @@ function atualizarRotuloLote(lista){
 
 /* ---------------- detalhe ---------------- */
 function abrir(numero){
+  if(window.__pvLeitor)window.__pvLeitor.trocouProcesso(numero);
   estado.detalhe=numero;pintarNav();
   var alvo=$('conteudo');
   alvo.innerHTML='<div class="cartao"><span class="gira"></span>Carregando…</div>';
@@ -1150,6 +1154,10 @@ function abrir(numero){
   });
 }
 window.__processovivo_abrir=abrir;
+/* O que o leitor de peças (scriptLeitor.ts, arquivo próprio) usa do console.
+   Um objeto pequeno e explícito: o painel não lê o estado da tela por dentro. */
+window.__pv={api:api,esc:esc,explicar:explicar,dth:dth,
+  chave:function(){return estado.chave}};
 
 function ligarBotoesDetalhe(numero,acompanhado){
   var b=$('acompanhar');
@@ -1588,7 +1596,11 @@ function desenharPecas(numero,linha){
   if(resumo){
     var rh='<div class="cartao"><div class="titulo-secao" style="margin-bottom:6px">'+
       '<h3 class="sec" style="margin:0">Peças do processo · '+total+'</h3>'+
-      '<button class="bt bt2" id="pecas-atualizar">Atualizar</button></div>';
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+      /* O leitor abre por botão, e só por ele: sem clicar aqui, a tela do
+         processo é exatamente a de antes. */
+      '<button class="bt bt2" id="leitor-abrir">Ler peças ao lado</button>'+
+      '<button class="bt bt2" id="pecas-atualizar">Atualizar</button></div></div>';
     if(naRegua){
       rh+='<div class="nota">'+naRegua+' de '+total+' estão na linha do tempo, '+
         'no evento que as juntou — o botão de baixar fica na própria linha.'+
@@ -1606,6 +1618,7 @@ function desenharPecas(numero,linha){
 
   if(soltas.length)caixa.innerHTML=listaDePecasHtml(soltas,naRegua?'Peças sem andamento':'Todas as peças');
   ligarDownloadDePecas(numero);
+  if(window.__pvLeitor)window.__pvLeitor.aposDesenhar(numero,linha);
 }
 
 /* A lista agrupada por origem — o que era a tela inteira das peças e hoje é só

@@ -285,6 +285,13 @@ o mesmo para todos os assinantes, um pico derruba o acesso de todo mundo junto �
 por isso `MNI_RATE_LIMIT_PER_MINUTE` vem em 30, metade do teto relatado. Não
 aumente sem necessidade.
 
+**Leitor de peças (v0.30.0).** Depois de um 403 o MNI inteiro fica parado por
+`MNI_PAUSA_APOS_403_MIN` (30): peça avulsa, régua e leitor, de todos os
+assinantes. Os PDFs combinados ficam em `/dados/leitor` (no volume, apagados
+depois de `LEITOR_TTL_HORAS`, 24 h). A imagem já traz `qpdf` e `poppler-utils`;
+sem o `qpdf` o leitor não sobe e o log diz por quê. O uso de disco do leitor vai
+para o log a cada PDF montado e a cada limpeza (`leitor: uso de disco`).
+
 > **Não escreva um texto de exemplo no lugar de um valor que você ainda não tem.**
 > Uma variável com `COLE_AQUI_...` dentro não está vazia: o serviço a aceita como
 > credencial e só falha depois, na primeira chamada — longe da causa. A partir da
@@ -394,6 +401,12 @@ Esta seção é a que separa "está no ar" de "dá para vender". A partir do mom
 em que existe um assinante, o banco do Processo Vivo guarda a carteira de processos
 dele, o histórico de novidades e a credencial dele no tribunal. Perder isso não
 é um incidente técnico: é o cliente sem o próprio trabalho.
+
+> **`/dados/leitor` fica FORA do backup, de propósito.** São PDFs de autos de
+> processo guardados por 24 h, refeitos sob demanda. O backup automático copia
+> só o banco; se você copiar o volume inteiro à mão, exclua `leitor/`
+> (`rsync --exclude leitor/`). Restaurar um backup não traz PDFs de volta, e
+> não precisa: os jobs aparecem como expirados e o advogado pede de novo.
 
 ### O que o sistema já faz sozinho
 
