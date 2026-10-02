@@ -9,6 +9,64 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.32.0] — 2026-10-02
+
+Calendário, Parte 1: o backend. Agenda por workspace, com eventos lidos dos
+andamentos (sugeridos, a confirmar) e eventos criados pelo advogado, e um feed
+ICS assinável. A tela vem na Parte 2. Especificação:
+`docs/calendario-especificacao-v1.0.2.md`.
+
+### Adicionado
+
+- **Detecção de eventos nos andamentos** (`domain/entities/deteccaoDeEventos.ts`),
+  função pura: só data EXPLÍCITA (`dd/mm/aaaa`, `dd/mm/aa`), com hora opcional
+  (`14:30`, `14h30`, `14h`, `14 horas`), colada a um gatilho na mesma frase —
+  audiência (conciliação, instrução, julgamento, una…), perícia/pericial,
+  sessão de julgamento. Prazo só com data final escrita ("até 20/10/2026");
+  **"prazo de N dias" não gera evento** — o sistema não calcula prazo. Data
+  passada, data que não existe, ano a mais de 3 anos, dois tipos de gatilho na
+  mesma frase e data alternativa presa ao mesmo gatilho não geram nada.
+  "Cancelada", "retirada de pauta", "redesignada", "adiada" e "desmarcada" não
+  criam sugestão: marcam para revisão os eventos detectados antes, do mesmo
+  processo e tipo. O trecho guardado como procedência sai sem nome de parte
+  nem de advogado e sem CPF/CNPJ.
+- **Ingestão sem poder derrubar o sync.** Um decorator sobre a porta das pastas
+  (`application/services/ingestaoDoCalendario.ts`) roda a detecção depois de
+  toda gravação de retrato — varredura, "acompanhar" e vigilância por OAB —,
+  relendo os andamentos dos últimos 180 dias. Falha vai para o log; a
+  sincronização segue. Idempotente pelo índice único da chave de detecção, que
+  cobre também os descartados.
+- **Preenchimento retroativo** pelo `Agendador` (de hora em hora, só banco):
+  relê os andamentos já gravados de cada workspace uma vez.
+- **Rotas** `GET/POST /v1/calendario/eventos`, `PATCH /v1/calendario/eventos/:id`
+  (editar; `estado: "confirmado"` confirma), `POST .../:id/descartar`,
+  `POST/GET/DELETE /v1/calendario/feed`. Intervalo máximo de 400 dias; a
+  listagem devolve `totalNoIntervalo` (sem o filtro de estado) junto.
+- **Feed ICS público** em `/calendario/feed/<token>.ics` — fora do `/v1`, porque
+  a URL vive anos no calendário de quem assina. Token de 32 bytes, só o SHA-256
+  no banco, URL completa mostrada uma vez, comparação em tempo constante,
+  limite de 120 requisições/min por IP, `Cache-Control: private, max-age=300`,
+  sem cookie. Token inválido, revogado, assinatura bloqueada ou plano sem o
+  recurso: o MESMO 404. RFC 5545: CRLF, dobra em 75 octetos, escapes, `UID`
+  estável, `SEQUENCE`, `VTIMEZONE` fixo em -03:00, dia inteiro sem deslocar o
+  dia, `CANCELLED` por 30 dias, janela de -30/+365 dias. O feed leva só tipo e
+  número do processo — sem nome de parte, trecho ou observação; processo em
+  segredo de justiça vai sem número.
+- **Recurso `calendario`** em todos os planos: na semente e, por retrocarga
+  ÚNICA no arranque (marca em `estado`), em todo plano já gravado. Plano criado
+  pelo painel o inclui por padrão. O operador pode tirá-lo depois; o arranque
+  seguinte respeita.
+
+### Alterado
+
+- O log de acesso registra o PADRÃO da rota do feed (`/calendario/feed/:arquivo`)
+  em vez do caminho: o caminho é o token.
+
+### Dependência de desenvolvimento
+
+- `ical.js` (o parser de iCalendar do Thunderbird), só nos testes, para validar
+  o feed com um leitor independente.
+
 ## [0.31.2] — 2026-10-02
 
 Diagnóstico do DataJud: o `GET /ready` reprovava a fonte ("timeout ao contatar

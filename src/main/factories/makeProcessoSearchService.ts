@@ -3,7 +3,10 @@ import { ServicoAcompanhamento } from '../../application/services/ServicoAcompan
 import { ServicoNotificacao } from '../../application/services/ServicoNotificacao.js';
 import { ServicoPecas } from '../../application/services/ServicoPecas.js';
 import { ServicoLeitor } from '../../application/services/ServicoLeitor.js';
-import { createHmac, randomBytes } from 'node:crypto';
+import { ServicoCalendario } from '../../application/services/ServicoCalendario.js';
+import { comDeteccaoDoCalendario } from '../../application/services/ingestaoDoCalendario.js';
+import { RepositorioDeEventosSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioDeEventosSqlite.js';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { CredencialTribunal } from '../../domain/ports/ProvedorDePecas.js';
@@ -95,6 +98,13 @@ export interface Aplicacao {
   /** Executor da fila do leitor (a cada minuto) e limpeza por prazo (a cada hora). */
   readonly agendadorLeitor: Agendador | undefined;
   readonly agendadorLimpezaLeitor: Agendador | undefined;
+  /**
+   * Calendário (v0.32.0): agenda, detecção nos andamentos e feed ICS. Sempre
+   * montado — só depende do banco.
+   */
+  readonly calendario: ServicoCalendario;
+  /** Preenchimento retroativo do calendário (de hora em hora, só banco). */
+  readonly agendadorCalendario: Agendador | undefined;
   /** Contas de assinante. Cada uma nasce com o próprio `workspace`. */
   readonly contas: ServicoContas;
   /**
@@ -214,7 +224,41 @@ export function montarAplicacao(config: Config): Aplicacao {
 
   // O banco entra aqui, no único lugar que conhece implementações concretas.
   const db = abrirBanco(config.banco.caminho);
-  const repositorio = new RepositorioAcompanhamentosSqlite(db);
+  const repositorioCru = new RepositorioAcompanhamentosSqlite(db);
+
+  // As assinaturas sobem ANTES do acompanhamento porque o calendário precisa
+  // delas (o feed confere o plano), e o acompanhamento precisa do calendário
+  // (a detecção roda na ingestão). Nenhum dos três depende do provider.
+  //
+  // O notificador vai para as assinaturas com a MESMA regra da recuperação de
+  // senha: só o que entrega de verdade. Aviso de assinatura que só existe no
+  // log é exatamente o bloqueio silencioso que a carência foi criada para
+  // evitar.
+  const notificador = construirNotificador(config, logger);
+  const usuarios = new RepositorioUsuariosSqlite(db);
+  const repositorioAssinaturas = new RepositorioAssinaturasSqlite(db);
+  const repositorioPlanos = new RepositorioPlanosSqlite(db);
+  const repositorioRegras = new RepositorioRegrasDeAssinaturaSqlite(db);
+  const assinaturas = new ServicoAssinaturas({
+    repositorio: repositorioAssinaturas,
+    planos: repositorioPlanos,
+    regras: repositorioRegras,
+    usuarios,
+    logger,
+    ...(entregaDeVerdade(config) ? { notificador } : {}),
+  });
+
+  // O calendário lê o repositório CRU; todo o resto grava pelo decorado, que
+  // é o ponto único onde a detecção encontra a ingestão de andamentos.
+  const calendario = new ServicoCalendario({
+    eventos: new RepositorioDeEventosSqlite(db),
+    acompanhamentos: repositorioCru,
+    tokens: tokensDeSessao,
+    logger,
+    assinaturas,
+    gerarId: () => randomUUID(),
+  });
+  const repositorio = comDeteccaoDoCalendario(repositorioCru, calendario, logger);
 
   // A sincronização usa o `provider` COM cache: se dois workspaces acompanham
   // o mesmo processo, a segunda consulta da varredura sai da memória em vez de
@@ -230,15 +274,9 @@ export function montarAplicacao(config: Config): Aplicacao {
   // Contas. O scrypt e o gerador de token entram como PORTA — é no composition
   // root que a escolha concreta vive, e é o que deixa trocar scrypt por argon2
   // no dia em que a imagem deixar de ser Alpine sem tocar em `application/`.
-  // Um canal de saída, uma configuração: o mesmo notificador serve a vigilância
-  // e a recuperação de senha. Construído UMA vez — duas chamadas abririam dois
-  // pools de conexão SMTP para o mesmo servidor.
-  const notificador = construirNotificador(config, logger);
-
-  const usuarios = new RepositorioUsuariosSqlite(db);
-  const repositorioAssinaturas = new RepositorioAssinaturasSqlite(db);
-  const repositorioPlanos = new RepositorioPlanosSqlite(db);
-  const repositorioRegras = new RepositorioRegrasDeAssinaturaSqlite(db);
+  // (O notificador, montado lá em cima junto das assinaturas, é UM: serve a
+  // vigilância e a recuperação de senha. Duas chamadas a
+  // `construirNotificador` abririam dois pools SMTP para o mesmo servidor.)
 
   // Chaves de API emitidas pela área administrativa. Montado SEMPRE que há
   // banco — não só quando a credencial do operador está configurada: uma
@@ -253,18 +291,6 @@ export function montarAplicacao(config: Config): Aplicacao {
   const adminCredenciais = adminHabilitado(config.admin.usuario, config.admin.senha)
     ? { usuario: config.admin.usuario, senha: config.admin.senha }
     : undefined;
-
-  // O notificador vai para cá com a MESMA regra da recuperação de senha: só o
-  // que entrega de verdade. Aviso de assinatura que só existe no log é
-  // exatamente o bloqueio silencioso que a carência foi criada para evitar.
-  const assinaturas = new ServicoAssinaturas({
-    repositorio: repositorioAssinaturas,
-    planos: repositorioPlanos,
-    regras: repositorioRegras,
-    usuarios,
-    logger,
-    ...(entregaDeVerdade(config) ? { notificador } : {}),
-  });
 
   const contas = new ServicoContas({
     repositorio: usuarios,
@@ -391,6 +417,16 @@ export function montarAplicacao(config: Config): Aplicacao {
       })
     : undefined;
 
+  // Retroativo do calendário: relê os andamentos JÁ gravados de quem ainda
+  // não passou por ele. Só banco, sem rede — por isso pode rodar de hora em
+  // hora sem custo para tribunal nenhum.
+  const agendadorCalendario = new Agendador({
+    intervaloHoras: 1,
+    atrasoInicialMs: 90_000,
+    logger,
+    tarefa: () => calendario.preencherRetroativo(),
+  });
+
   const agendadorVigilancia =
     vigilancia && config.vigilancia.intervaloHoras > 0
       ? new Agendador({
@@ -442,6 +478,8 @@ export function montarAplicacao(config: Config): Aplicacao {
     leitor,
     agendadorLeitor,
     agendadorLimpezaLeitor,
+    calendario,
+    agendadorCalendario,
     contas,
     assinaturas,
     usuarios,
@@ -467,6 +505,7 @@ export function montarAplicacao(config: Config): Aplicacao {
       agendadorBackup?.parar();
       agendadorLeitor?.parar();
       agendadorLimpezaLeitor?.parar();
+      agendadorCalendario.parar();
       db.close();
     },
   };

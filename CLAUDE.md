@@ -88,7 +88,8 @@ src/
 │   └── services/                # ProcessoSearchService, ServicoAcompanhamento,
 │                                #   ServicoVigilanciaOab, ServicoNotificacao,
 │                                #   ServicoPecas, ServicoContas,
-│                                #   ServicoAssinaturas, ServicoLeitor
+│                                #   ServicoAssinaturas, ServicoLeitor,
+│                                #   ServicoCalendario (+ ingestaoDoCalendario)
 ├── infrastructure/
 │   ├── adapters/
 │   │   ├── datajud/             # adapter + mapper + schemas + aliases
@@ -105,6 +106,7 @@ src/
 │   │                            #   senha (scrypt) e sessão (token + cookie)
 │   ├── agenda/                  # Agendador da varredura
 │   ├── arquivos/                # ArmazemEmDisco (guarda temporária do leitor)
+│   ├── calendario/              # gerador do feed ICS (RFC 5545)
 │   ├── pdf/                     # QpdfMontador (qpdf junta; pdf-lib gera avisos)
 │   └── ratelimit/               # TokenBucketRateLimiter
 └── main/
@@ -116,7 +118,7 @@ src/
         ├── erros.ts             # DomainError → status HTTP
         ├── plugins/             # autenticação: sessão (cookie) OU chave de API
         ├── ui/                  # console web (HTML como string, sem build)
-        └── rotas/               # processos, contas, saúde, interface, leitor
+        └── rotas/               # processos, contas, saúde, interface, leitor, calendário
 tests/                           # espelha src/, + http/, integration/, helpers/
 ```
 
@@ -200,6 +202,10 @@ interface ProcessoProvider {
 | `PdfInvalidoError` | a contagem de páginas do PDF gerado não bate com a soma das peças | o job falha; índice desalinhado é pior que nenhum |
 | `PdfDoLeitorExpiradoError` | pediu recorte de um PDF combinado que já saiu do disco | 410; a tela diz que expirou — NÃO baixa de novo do tribunal sem a pessoa pedir |
 | `PecasForaDoPdfError` | pediu recorte com peça que não está naquele PDF | 400 |
+| `EventoDeCalendarioInvalidoError` | data que não existe, hora fora do relógio, intervalo acima de 400 dias, processo fora da carteira | 400 |
+| `EventoDeCalendarioNaoEncontradoError` | evento não existe PARA ESTE workspace | 404; mesma resposta para "não existe" e "é de outro" |
+| `TransicaoDeEventoInvalidaError` | mexer em evento descartado | 409; descartado é final |
+| `FeedDoCalendarioNaoEncontradoError` | token do feed inválido, revogado, assinatura bloqueada ou plano sem o recurso | 404 com o MESMO corpo seco nos quatro casos |
 
 **A distinção que sustenta o produto:** "esse processo não existe" ≠ "não
 consegui ver esse processo". Colapsar as duas coisas faz o sistema dizer ao
@@ -403,7 +409,8 @@ Rota que dispensa autenticação precisa entrar em `rotasPublicas` ao registrar 
 plugin de autenticação: hoje `/health`, `/ready`, o console, as fontes do
 console (`/ui/fontes/:arquivo`), `/v1/contas`, `/v1/sessoes`,
 `/v1/senha/recuperar` e `/v1/senha/redefinir` (e as rotas `/admin`, que têm
-autenticação própria). As quatro últimas
+autenticação própria, e o feed do calendário `/calendario/feed/:arquivo`, que
+se autentica pelo token no próprio caminho). As quatro últimas
 são públicas por necessidade — são as rotas de quem ainda não tem, ou acabou de
 perder, como se autenticar. Pedir chave nelas seria pedir a chave a quem perdeu
 a chave.
@@ -937,6 +944,45 @@ Não são detalhes — moldam o código.
   contagem de prazo sem contar prazo, para advogado, não volta como reclamação
   de interface. `tests/http/painel.spec.ts` falha se a palavra entrar no
   contrato da rota por descuido.
+- **O calendário LÊ datas; não calcula prazo** (v0.32.0). Evento detectado só
+  nasce de data EXPLÍCITA no texto do andamento, colada a um gatilho na mesma
+  frase, e nasce `sugerido` — vale quando o advogado confirma. Tipo `prazo` só
+  com data final escrita ("até 20/10/2026"); "prazo de 15 dias" NÃO vira
+  evento, porque transformar isso em data é contar dias úteis, suspensão e
+  recesso, e apresentar a conta como fato. Na dúvida (duas datas no mesmo
+  gatilho, data solta na frase, dois tipos de gatilho), não gera: falso
+  negativo continua no andamento que o advogado também recebe; falso positivo
+  confiante vira compromisso na agenda dele. O teste que vale é
+  `tests/domain/deteccao-de-eventos.spec.ts` — textos sintéticos, sempre.
+- **A detecção nunca derruba a sincronização.** Ela roda num decorator da porta
+  das pastas (`comDeteccaoDoCalendario`), DEPOIS de gravar o retrato, e falha
+  vai para o log. É o ponto único: varredura, "acompanhar" e vigilância gravam
+  por ali. Ela relê os 180 dias inteiros a cada sincronização (cobre a
+  primeira, que não gera novidade) e é idempotente pela chave de detecção,
+  gravada no nascimento e nunca recalculada — recalcular faria a sugestão
+  original renascer ao lado da que o advogado corrigiu. O índice único cobre
+  os DESCARTADOS: sugestão recusada não volta. Nenhum módulo do calendário
+  importa adaptador de rede; `tests/main/calendario-sem-rede.spec.ts` percorre
+  o grafo de imports.
+- **O feed ICS sai do nosso controle, e leva o mínimo.** `SUMMARY` é tipo e
+  número do processo — nunca o título livre, o trecho do andamento, nome de
+  parte ou a observação do advogado. Processo em segredo de justiça vai sem
+  número, nem no link. A URL é `/calendario/feed/<token>.ics`, FORA do `/v1`
+  (fica anos no Google Agenda de quem assina); só o SHA-256 do token vai ao
+  banco; token inválido, revogado, assinatura bloqueada e plano sem o recurso
+  são o MESMO 404. E o log de acesso registra o PADRÃO dessa rota, não o
+  caminho — o caminho é o token (`ROTAS_COM_SEGREDO_NO_CAMINHO` em
+  `servidor.ts`; rota nova com segredo no caminho entra ali).
+- **Data de calendário não passa por UTC.** Evento guarda `dataLocal`
+  (`AAAA-MM-DD`) e `horaLocal`, no fuso fixo de São Paulo (-03:00, sem horário
+  de verão desde 2019). Dia inteiro sai no ICS como `VALUE=DATE` direto da
+  string; converter para instante e de volta joga a audiência para o dia
+  anterior em qualquer cliente a oeste de Greenwich.
+- **Recurso que entra em todos os planos precisa de retrocarga nos planos
+  gravados** — a semente só vale para banco vazio. O calendário entrou assim
+  (`acrescentarCalendarioAosPlanos`, UMA vez por banco, marca em `estado`, para
+  não desfazer depois a decisão do operador que o tirar pelo painel), e
+  `ServicoPlanos.criar` o inclui por padrão.
 - **Prazo processual é responsabilidade do advogado.** A `procedencia` (fonte +
   `consultadoEm` + `deCache`) acompanha todo `Processo` justamente para que a
   interface possa mostrar quando o dado foi visto. Nunca apresente dado de cache
@@ -978,7 +1024,18 @@ teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
 **leitor de peças, Etapa 1: PDF combinado com índice** (v0.30.0),
 **Etapa 2: ler ao lado, com PDF.js servido pelo próprio servidor** (v0.31.0),
 **remarcar com reaproveitamento e "baixar só algumas"** (v0.31.1),
-Dockerfile multi-stage, CI, 872 testes.
+**calendário, Parte 1: detecção, agenda e feed ICS** (v0.32.0),
+Dockerfile multi-stage, CI, 1009 testes.
+
+**Calendário, Parte 1 (v0.32.0):** eventos por workspace — detectados nos
+andamentos (sugeridos, a confirmar, com procedência) e manuais (confirmados) —
+em `/v1/calendario/eventos`, e o feed ICS em `/calendario/feed/<token>.ics`
+(criar/regenerar/revogar em `/v1/calendario/feed`). Recurso `calendario` em
+todos os planos. Retroativo de 180 dias pelo `Agendador`, sem rede.
+Especificação e as quatro decisões do dono: `docs/calendario-especificacao-v1.0.2.md`.
+**Pendente:** a tela (Parte 2, `ui/calendario.ts`) e o deep link
+`/?processo=<número>` que o feed já usa na descrição; até lá ele abre o
+console na tela inicial.
 
 **Leitor de peças, ajustes (v0.31.1):** o painel abre com "Nova seleção" ao lado
 de "Reabrir o PDF já pronto" (com data e hora); a seleção nova começa vazia,
@@ -1085,6 +1142,7 @@ termos e derruba o número, levando junto o aviso de prazo de todos os
 assinantes), **cálculo de prazo** (dias úteis do art. 219 do CPC, recesso,
 suspensões — alto valor e alto risco: só entra como calculadora com as contas à
 vista, nunca como afirmação), página do processo para o cliente do advogado,
-fila de jobs genérica (a do leitor é mínima e só dele). O cache é em memória — uma instância, e evapora no redeploy.
+alerta de evento do calendário por e-mail/push, sincronização de mão dupla
+com Google/Outlook, fila de jobs genérica (a do leitor é mínima e só dele). O cache é em memória — uma instância, e evapora no redeploy.
 
 Ao implementar qualquer um deles, **atualize este arquivo na mesma PR.**

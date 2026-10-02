@@ -8,6 +8,9 @@ import {
   CredencialTribunalInvalidaError,
   DomainError,
   EmailJaCadastradoError,
+  EventoDeCalendarioNaoEncontradoError,
+  FeedDoCalendarioNaoEncontradoError,
+  TransicaoDeEventoInvalidaError,
   JobDoLeitorNaoEncontradoError,
   LeitorAindaNaoProntoError,
   PdfDoLeitorExpiradoError,
@@ -96,10 +99,24 @@ export function mapearErro(erro: unknown): RespostaDeErro {
     return { status: 409, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 
+  // O feed público: um 404 só, com o mesmo corpo seco para token inválido,
+  // revogado, assinatura bloqueada ou plano sem o recurso. Nada no corpo
+  // distingue um caso do outro — nem o código.
+  if (erro instanceof FeedDoCalendarioNaoEncontradoError) {
+    return { status: 404, corpo: { erro: 'NAO_ENCONTRADO', mensagem: 'Não encontrado.' } };
+  }
+
+  // 409: descartado é final; o pedido é válido, o estado do evento é que não
+  // admite a mudança.
+  if (erro instanceof TransicaoDeEventoInvalidaError) {
+    return { status: 409, corpo: { erro: erro.codigo, mensagem: erro.message } };
+  }
+
   if (
     erro instanceof ProcessoNaoEncontradoError ||
     erro instanceof ChaveApiNaoEncontradaError ||
-    erro instanceof JobDoLeitorNaoEncontradoError
+    erro instanceof JobDoLeitorNaoEncontradoError ||
+    erro instanceof EventoDeCalendarioNaoEncontradoError
   ) {
     return { status: 404, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }

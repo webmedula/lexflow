@@ -539,3 +539,64 @@ export class SegredoDeJusticaNaoGuardadoError extends DomainError {
 function mb(bytes: number): number {
   return Math.round(bytes / 1_048_576);
 }
+
+/**
+ * Evento do calendário fora do contrato: data que não existe no calendário,
+ * hora fora do relógio, título vazio, intervalo de consulta grande demais.
+ *
+ * 400: é o pedido que está errado, e a mensagem diz qual campo.
+ */
+export class EventoDeCalendarioInvalidoError extends DomainError {
+  readonly codigo = 'EVENTO_DE_CALENDARIO_INVALIDO';
+
+  constructor(motivo: string) {
+    super(motivo);
+  }
+}
+
+/**
+ * O evento não existe PARA ESTE workspace.
+ *
+ * Mesma resposta para "não existe" e "é de outro": diferenciar permitiria a
+ * quem tem um id alheio confirmar que ele é válido.
+ */
+export class EventoDeCalendarioNaoEncontradoError extends DomainError {
+  readonly codigo = 'EVENTO_DE_CALENDARIO_NAO_ENCONTRADO';
+
+  constructor(readonly eventoId: string) {
+    super('Evento não encontrado no seu calendário.');
+  }
+}
+
+/**
+ * Mudança de estado que o evento não admite — em geral, mexer num evento
+ * descartado. Descartado é final de propósito: é o que garante que uma
+ * sugestão recusada pelo advogado nunca volte a aparecer.
+ */
+export class TransicaoDeEventoInvalidaError extends DomainError {
+  readonly codigo = 'TRANSICAO_DE_EVENTO_INVALIDA';
+
+  constructor(
+    readonly de: string,
+    readonly acao: string,
+  ) {
+    super(`Um evento ${de} não pode ser ${acao}.`);
+  }
+}
+
+/**
+ * O feed ICS pedido não existe — ou existe e não pode ser servido.
+ *
+ * Um erro só para token inválido, token revogado, assinatura bloqueada e
+ * plano sem o recurso, e a tradução HTTP é um 404 sem corpo informativo. A URL
+ * do feed vive anos dentro do Google Agenda de alguém: qualquer diferença entre
+ * as respostas ensinaria a quem a encontrou que o token já valeu, ou de quem
+ * é a assinatura.
+ */
+export class FeedDoCalendarioNaoEncontradoError extends DomainError {
+  readonly codigo = 'NAO_ENCONTRADO';
+
+  constructor() {
+    super('Não encontrado.');
+  }
+}

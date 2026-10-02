@@ -306,6 +306,73 @@ const ESQUEMA = [
   `CREATE INDEX IF NOT EXISTS idx_jobs_leitor_fila ON jobs_leitor (estado, criado_em)`,
   `CREATE INDEX IF NOT EXISTS idx_jobs_leitor_expira ON jobs_leitor (expira_em)`,
 
+  // Calendário (v0.32.0): eventos da agenda do advogado.
+  //
+  // A chave é (workspace, id): nenhuma consulta chega a um evento sem dizer de
+  // quem ele é. `chave_deteccao` é a identidade de uma sugestão lida de um
+  // andamento — (processo, andamento, tipo, data, hora) — gravada UMA vez, no
+  // nascimento, e nunca recalculada: se fosse, corrigir a data de uma sugestão
+  // faria a releitura do andamento criar a original de novo. O índice único
+  // dela cobre também os DESCARTADOS, e é isso que impede uma sugestão
+  // recusada de voltar.
+  //
+  // `segredo_justica` é cópia do processo, atualizada a cada sincronização:
+  // o feed decide por ela se pode mostrar o número.
+  `CREATE TABLE IF NOT EXISTS eventos_calendario (
+     workspace        TEXT NOT NULL,
+     id               TEXT NOT NULL,
+     numero           TEXT NOT NULL,
+     tribunal         TEXT NOT NULL,
+     tipo             TEXT NOT NULL,
+     titulo           TEXT NOT NULL,
+     observacao       TEXT,
+     data_local       TEXT NOT NULL,
+     hora_local       TEXT,
+     duracao_min      INTEGER,
+     origem           TEXT NOT NULL,
+     estado           TEXT NOT NULL,
+     mov_id           TEXT,
+     mov_data         TEXT,
+     trecho           TEXT,
+     chave_deteccao   TEXT,
+     revisar          INTEGER NOT NULL DEFAULT 0,
+     revisao_ate      TEXT,
+     segredo_justica  INTEGER NOT NULL DEFAULT 0,
+     sequencia        INTEGER NOT NULL DEFAULT 0,
+     criado_em        TEXT NOT NULL,
+     atualizado_em    TEXT NOT NULL,
+     confirmado_em    TEXT,
+     descartado_em    TEXT,
+     PRIMARY KEY (workspace, id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_eventos_ws_data
+     ON eventos_calendario (workspace, data_local)`,
+  `CREATE INDEX IF NOT EXISTS idx_eventos_ws_processo
+     ON eventos_calendario (workspace, numero)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_eventos_deteccao
+     ON eventos_calendario (workspace, chave_deteccao)
+     WHERE chave_deteccao IS NOT NULL`,
+
+  // Feeds ICS. O token em claro NUNCA é gravado — mesma regra de `sessoes` e
+  // `chaves_api`: vazar a tabela não pode virar agenda alheia exposta. Um
+  // vigente por workspace; regenerar revoga o anterior na mesma transação.
+  `CREATE TABLE IF NOT EXISTS calendario_feeds (
+     id               TEXT PRIMARY KEY,
+     workspace        TEXT NOT NULL,
+     token_hash       TEXT NOT NULL UNIQUE,
+     inclui_sugeridos INTEGER NOT NULL DEFAULT 0,
+     criado_em        TEXT NOT NULL,
+     revogado_em      TEXT
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_feeds_ws ON calendario_feeds (workspace, revogado_em)`,
+
+  // Quem já teve os andamentos guardados relidos pela detecção (o
+  // preenchimento retroativo de 180 dias). Uma linha por workspace.
+  `CREATE TABLE IF NOT EXISTS calendario_retroativo (
+     workspace TEXT PRIMARY KEY,
+     feito_em  TEXT NOT NULL
+   )`,
+
   `CREATE INDEX IF NOT EXISTS idx_sessoes_usuario ON sessoes(usuario_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sessoes_expira ON sessoes(expira_em)`,
 ];
@@ -456,6 +523,7 @@ export function abrirBanco(caminho: string): DatabaseSync {
   migrarColunas(db);
   preencherPartesTexto(db);
   semearPlanos(db);
+  acrescentarCalendarioAosPlanos(db);
   retrocarregarAssinaturas(db);
 
   // Segunda passagem: o esquema já existe, então dá para perguntar ao banco se
@@ -605,6 +673,58 @@ function semearPlanos(db: DatabaseSync): void {
       p.precoMensalCentavos,
       p.ordem,
     );
+  }
+}
+
+/** Marca, na tabela `estado`, de que a retrocarga do calendário já rodou. */
+export const MARCA_CALENDARIO_NOS_PLANOS = 'retrocarga:calendario-nos-planos';
+
+/**
+ * O calendário entra em TODOS os planos já gravados (v0.32.0).
+ *
+ * Decisão do dono: o calendário é recurso do Acompanhamento, ou seja, de todos
+ * os planos. Pôr só na semente não bastaria — a semente só entra com a tabela
+ * vazia, e em produção o catálogo já existe. Seria a mesma lição da cobrança:
+ * recurso que entra sem retrocarga é recurso que ninguém que já assina recebe.
+ *
+ * Roda UMA vez por banco (marca em `estado`), e não a cada arranque: depois
+ * dela o catálogo volta a ser do operador. Se ele tirar o calendário de um
+ * plano pelo painel, um redeploy não pode desfazer a decisão em silêncio.
+ * Dentro da execução, só acrescenta a quem ainda não tem — nunca duplica.
+ */
+function acrescentarCalendarioAosPlanos(db: DatabaseSync): void {
+  const feita = db
+    .prepare('SELECT 1 FROM estado WHERE chave = ?')
+    .get(MARCA_CALENDARIO_NOS_PLANOS);
+  if (feita) return;
+
+  const planos = db.prepare('SELECT codigo, recursos FROM planos').all() as Array<{
+    codigo: string;
+    recursos: string;
+  }>;
+  const gravar = db.prepare('UPDATE planos SET recursos = ? WHERE codigo = ?');
+
+  db.exec('BEGIN');
+  try {
+    for (const p of planos) {
+      let recursos: unknown;
+      try {
+        recursos = JSON.parse(p.recursos);
+      } catch {
+        // Linha corrompida não derruba o arranque; fica como está.
+        continue;
+      }
+      if (!Array.isArray(recursos) || recursos.includes('calendario')) continue;
+      gravar.run(JSON.stringify([...recursos, 'calendario']), p.codigo);
+    }
+    db.prepare('INSERT INTO estado (chave, valor) VALUES (?, ?)').run(
+      MARCA_CALENDARIO_NOS_PLANOS,
+      new Date().toISOString(),
+    );
+    db.exec('COMMIT');
+  } catch (erro) {
+    db.exec('ROLLBACK');
+    throw erro;
   }
 }
 

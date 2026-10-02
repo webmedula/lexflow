@@ -23,7 +23,12 @@ import { PlanoInvalidoError } from '../errors/index.js';
  * sentido para quem escreveu o código.
  */
 export type RecursoDoPlano =
-  'consulta' | 'acompanhamento' | 'vigilancia' | 'pecas' | 'analiseIa';
+  | 'consulta'
+  | 'acompanhamento'
+  | 'vigilancia'
+  | 'calendario'
+  | 'pecas'
+  | 'analiseIa';
 
 export interface DescricaoDoRecurso {
   readonly recurso: RecursoDoPlano;
@@ -56,6 +61,12 @@ export const RECURSOS: readonly DescricaoDoRecurso[] = Object.freeze([
     recurso: 'vigilancia',
     nome: 'Vigilância por OAB',
     frase: 'a vigilância por OAB',
+    implementado: true,
+  },
+  {
+    recurso: 'calendario',
+    nome: 'Calendário',
+    frase: 'o calendário',
     implementado: true,
   },
   { recurso: 'pecas', nome: 'Peças do processo', frase: 'as peças do processo', implementado: true },
@@ -103,7 +114,23 @@ export interface Plano {
   readonly ordem: number;
 }
 
-const BASE: readonly RecursoDoPlano[] = ['consulta', 'acompanhamento', 'vigilancia'];
+/**
+ * O que todo plano tem. O calendário entrou aqui na v0.32.0 por decisão do
+ * dono ("recurso do Acompanhamento, ou seja, de todos os planos") — e, como a
+ * semente só vale para banco vazio, `banco.ts` acrescenta-o UMA vez aos planos
+ * já gravados, e `ServicoPlanos.criar` o inclui por padrão nos planos novos.
+ */
+const BASE: readonly RecursoDoPlano[] = [
+  'consulta',
+  'acompanhamento',
+  'vigilancia',
+  'calendario',
+];
+
+/** Recursos que todo plano criado pelo painel recebe por padrão. */
+export const RECURSOS_PADRAO_DE_PLANO_NOVO: readonly RecursoDoPlano[] = Object.freeze([
+  'calendario',
+]);
 
 /**
  * Os três planos com que o sistema nasceu.

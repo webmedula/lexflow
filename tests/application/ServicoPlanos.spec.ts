@@ -94,6 +94,21 @@ describe('ServicoPlanos — criar', () => {
     expect(criado.nome).toBe('Escritório');
   });
 
+  it('plano novo inclui o calendário por padrão, mesmo que o formulário não o marque', async () => {
+    const { servico } = montar();
+    const criado = await servico.criar({ ...NOVO, recursos: ['consulta'] });
+    expect(criado.recursos).toEqual(['consulta', 'calendario']);
+    const comEle = await servico.criar({
+      ...NOVO,
+      codigo: 'outro',
+      recursos: ['calendario', 'consulta'],
+    });
+    expect(comEle.recursos).toEqual(['calendario', 'consulta']);
+    // Tirar depois, pela edição, continua possível: é o operador decidindo.
+    const sem = await servico.atualizar('outro', { recursos: ['consulta'] });
+    expect(sem.recursos).toEqual(['consulta']);
+  });
+
   it('recusa código repetido', async () => {
     const { servico } = montar();
     await expect(servico.criar({ ...NOVO, codigo: 'pecas' })).rejects.toThrow(PlanoJaExisteError);

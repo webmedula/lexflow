@@ -24,6 +24,7 @@ import { rotasDeVigilancia } from './rotas/vigilancias.js';
 import { rotasDePecas } from './rotas/pecas.js';
 import { rotasDoLeitor } from './rotas/leitor.js';
 import { rotasDoPainel } from './rotas/painel.js';
+import { ROTA_FEED_PUBLICO, rotasDoCalendario } from './rotas/calendario.js';
 import { rotasDeAssinaturas } from './rotas/assinaturas.js';
 import { ROTAS_ADMIN, rotasDeAdmin } from './rotas/admin.js';
 import {
@@ -120,6 +121,9 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
       // autenticação nelas seria pedir a chave para quem perdeu a chave.
       ROTA_RECUPERAR,
       ROTA_REDEFINIR,
+      // O feed ICS se autentica pelo PRÓPRIO token, na URL: o Google Agenda e o
+      // Outlook não mandam cookie nem chave de API. Sem token válido, 404.
+      ROTA_FEED_PUBLICO,
       ...ROTAS_ADMIN,
     ],
   });
@@ -139,6 +143,9 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
   void servidor.register(rotasDePecas(app.pecas, app.assinaturas));
   void servidor.register(rotasDoLeitor(app.leitor, app.assinaturas));
   void servidor.register(rotasDoPainel(app.acompanhamento, app.pecas));
+  void servidor.register(
+    rotasDoCalendario(app.calendario, app.assinaturas, { urlBase: config.http.urlBase }),
+  );
   void servidor.register(rotasDeAssinaturas(app.assinaturas, app.planos));
   void servidor.register(rotasDeVigilancia(app.vigilancia, app.preferenciasNotificacao));
   void servidor.register(
@@ -175,7 +182,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
     // isso como incidente enche o log de ruído até ninguém mais olhar.
     const contexto = {
       metodo: requisicao.method,
-      rota: rotaParaLog(requisicao.url),
+      rota: rotaParaLog(requisicao.url, requisicao.routeOptions.url),
       status,
       erro: corpo.erro,
       chave: requisicao.identidadeDaChave,
@@ -197,7 +204,7 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
     if (requisicao.url === ROTA_HEALTH) return;
     log.info('requisição atendida', {
       metodo: requisicao.method,
-      rota: rotaParaLog(requisicao.url),
+      rota: rotaParaLog(requisicao.url, requisicao.routeOptions.url),
       status: resposta.statusCode,
       duracaoMs: Math.round(resposta.elapsedTime),
       chave: requisicao.identidadeDaChave,
@@ -225,10 +232,16 @@ export function construirServidor(app: Aplicacao, config: Config): FastifyInstan
  * de endereço com `replaceState` antes de qualquer outra coisa. Mas isso é
  * depois de o servidor ter respondido — e escrito o log.)
  */
-function rotaParaLog(url: string): string {
+function rotaParaLog(url: string, padrao?: string): string {
+  // Rota cujo CAMINHO é o segredo: o log leva o padrão, não o caminho. O feed
+  // do calendário é `/calendario/feed/<token>.ics`, e o token é a única coisa
+  // que separa a agenda do advogado de quem lê o log.
+  if (padrao !== undefined && ROTAS_COM_SEGREDO_NO_CAMINHO.has(padrao)) return padrao;
   const corte = url.indexOf('?');
   return corte === -1 ? url : url.slice(0, corte);
 }
+
+const ROTAS_COM_SEGREDO_NO_CAMINHO: ReadonlySet<string> = new Set([ROTA_FEED_PUBLICO]);
 
 function temStatusCode(erro: unknown): erro is { statusCode: number } {
   return (
@@ -262,6 +275,7 @@ export async function iniciar(app: Aplicacao, config: Config): Promise<FastifyIn
   app.agendadorBackup?.iniciar();
   app.agendadorLeitor?.iniciar();
   app.agendadorLimpezaLeitor?.iniciar();
+  app.agendadorCalendario?.iniciar();
 
   app.logger.info('Processo Vivo no ar', {
     versao: VERSAO,
