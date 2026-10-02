@@ -36,17 +36,32 @@ export interface EstadoDaPasta {
 }
 
 /**
- * Janela em que uma determinação ainda conta como pendente.
+ * Janela, em dias, em que uma determinação ainda conta como pendente.
  *
- * Prazo processual comum vai de 5 a 15 dias; 30 cobre com folga inclusive a
- * contagem em dias úteis. Sem janela, um "intime-se" de 2019 deixaria a pasta
- * marcada como pendente para sempre, e o selo perderia o sentido — toda pasta
- * antiga ficaria vermelha.
+ * É a configuração ÚNICA (`PENDENCIA_JANELA_DIAS`, 10 por padrão desde a
+ * v0.32.1; era 30): o selo da carteira, o card do painel e o bloco "Pede
+ * providência" da tela do processo leem o MESMO valor, que o servidor entrega
+ * à tela. Duas janelas dariam uma carteira que diz "providência" e uma tela do
+ * processo que não mostra o ato.
+ *
+ * Sem janela, um "intime-se" de 2019 deixaria a pasta marcada como pendente
+ * para sempre, e o selo perderia o sentido — toda pasta antiga ficaria
+ * vermelha. Com 30 dias a carteira inteira de um escritório ativo vivia
+ * marcada; 10 foi o que os advogados pediram.
  *
  * Não é cálculo de prazo, e não se apresenta como tal: é o recorte do que vale
- * a pena olhar primeiro.
+ * a pena olhar primeiro. O ato fora da janela continua marcado na linha do
+ * tempo — só deixa de ocupar o topo.
  */
-const DIAS_DE_PENDENCIA = 30;
+export const PENDENCIA_JANELA_DIAS_PADRAO = 10;
+
+/** Instante a partir do qual um ato ainda está na janela de pendência. */
+export function inicioDaJanelaDePendencia(
+  agora: Date,
+  janelaDias: number = PENDENCIA_JANELA_DIAS_PADRAO,
+): Date {
+  return new Date(agora.getTime() - janelaDias * 86_400_000);
+}
 
 /** Título de ato que encerra a pasta. `desarquivamento` NÃO entra — ele reabre. */
 const ENCERRAMENTO = /\b(arquivamento|arquivado|arquivados|baixa\s+definitiva)\b/i;
@@ -62,19 +77,20 @@ export interface EntradaDoEstado {
 export function estadoDaPasta(
   entrada: EntradaDoEstado,
   agora: Date = new Date(),
+  janelaDias: number = PENDENCIA_JANELA_DIAS_PADRAO,
 ): EstadoDaPasta {
   const naoVerificado =
     entrada.erro !== undefined || entrada.sincronizadoEm === undefined;
   const movs = entrada.movimentacoes ?? [];
 
-  const limite = agora.getTime() - DIAS_DE_PENDENCIA * 86_400_000;
+  const limite = inicioDaJanelaDePendencia(agora, janelaDias).getTime();
   const recentes = movs.filter((m) => m.data.getTime() >= limite);
   const pendente = recentes.find((m) => m.exigeAcao ?? triar(m).exigeAcao);
   if (pendente) {
     return {
       rotulo: 'PROVIDENCIA',
       naoVerificado,
-      motivo: `"${pendente.titulo}" nos últimos ${DIAS_DE_PENDENCIA} dias`,
+      motivo: `"${pendente.titulo}" nos últimos ${janelaDias} dias`,
     };
   }
 

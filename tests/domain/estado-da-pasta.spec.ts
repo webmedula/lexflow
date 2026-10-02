@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { estadoDaPasta } from '../../src/domain/entities/estadoDaPasta.js';
+import {
+  estadoDaPasta,
+  inicioDaJanelaDePendencia,
+  PENDENCIA_JANELA_DIAS_PADRAO,
+} from '../../src/domain/entities/estadoDaPasta.js';
 import type { Movimentacao } from '../../src/domain/entities/Movimentacao.js';
 
 const AGORA = new Date('2026-09-24T12:00:00');
@@ -136,5 +140,55 @@ describe('estado da pasta', () => {
       AGORA,
     );
     expect(e.rotulo).toBe('PROVIDENCIA');
+  });
+
+  describe('janela de pendência (v0.32.1: 10 dias, antes 30)', () => {
+    const intime = 'Intime-se a parte autora.';
+
+    it('o padrão é 10 dias', () => {
+      expect(PENDENCIA_JANELA_DIAS_PADRAO).toBe(10);
+    });
+
+    it('ato de 9 dias atrás ainda pede providência; o de 12 não, e diz de quantos dias é a janela', () => {
+      const dentro = estadoDaPasta(
+        { sincronizadoEm: AGORA, movimentacoes: [mov(9, 'Despacho', intime)] },
+        AGORA,
+      );
+      expect(dentro.rotulo).toBe('PROVIDENCIA');
+      expect(dentro.motivo).toContain('últimos 10 dias');
+
+      // Com os 30 dias antigos este ato marcava a pasta: é exatamente o que mudou.
+      const fora = estadoDaPasta(
+        { sincronizadoEm: AGORA, movimentacoes: [mov(12, 'Despacho', intime)] },
+        AGORA,
+      );
+      expect(fora.rotulo).toBe('EM_CURSO');
+    });
+
+    it('a borda da janela ainda conta', () => {
+      const e = estadoDaPasta(
+        { sincronizadoEm: AGORA, movimentacoes: [mov(10, 'Despacho', intime)] },
+        AGORA,
+      );
+      expect(e.rotulo).toBe('PROVIDENCIA');
+    });
+
+    it('a janela vem de configuração: o mesmo ato muda de estado quando ela muda', () => {
+      const entrada = {
+        sincronizadoEm: AGORA,
+        movimentacoes: [mov(12, 'Despacho', intime)],
+      };
+      expect(estadoDaPasta(entrada, AGORA, 7).rotulo).toBe('EM_CURSO');
+      expect(estadoDaPasta(entrada, AGORA, 15).rotulo).toBe('PROVIDENCIA');
+    });
+
+    it('o limite da janela sai de UMA função, que a tela e o selo compartilham', () => {
+      expect(inicioDaJanelaDePendencia(AGORA).getTime()).toBe(
+        AGORA.getTime() - 10 * 86_400_000,
+      );
+      expect(inicioDaJanelaDePendencia(AGORA, 3).getTime()).toBe(
+        AGORA.getTime() - 3 * 86_400_000,
+      );
+    });
   });
 });

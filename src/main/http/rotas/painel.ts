@@ -27,6 +27,7 @@ function workspaceDe(requisicao: FastifyRequest): string {
 export function rotasDoPainel(
   acompanhamento: ServicoAcompanhamento,
   pecas: ServicoPecas | undefined,
+  pendenciaJanelaDias: number,
 ): FastifyPluginAsync {
   return async (servidor) => {
     servidor.get('/v1/painel', async (req) => {
@@ -63,6 +64,7 @@ export function rotasDoPainel(
             ...(a.processo ? { movimentacoes: a.processo.movimentacoes } : {}),
           },
           agora,
+          pendenciaJanelaDias,
         );
         if (e.rotulo !== 'ARQUIVADO') ativos += 1;
         if (e.rotulo === 'PROVIDENCIA') pedemProvidencia += 1;
@@ -95,6 +97,8 @@ export function rotasDoPainel(
           ativos,
           totalPastas: carteira.length,
           pedemProvidencia,
+          // A mesma janela do selo da carteira: o card diz de quantos dias é.
+          pendenciaJanelaDias,
           baixadasHoje,
         },
         pecasBaixadas: baixadas.map((p) => ({

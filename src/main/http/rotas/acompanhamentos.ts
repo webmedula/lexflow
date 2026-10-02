@@ -8,6 +8,9 @@ import type {
 } from '../../../domain/entities/Acompanhamento.js';
 import type { AcompanhamentoResumido } from '../../../domain/ports/RepositorioAcompanhamentos.js';
 import { estadoDaPasta } from '../../../domain/entities/estadoDaPasta.js';
+import { triar } from '../../../domain/entities/triagem.js';
+import { agruparNovidades } from '../../../domain/entities/agruparNovidades.js';
+import type { GrupoDeNovidades } from '../../../domain/entities/agruparNovidades.js';
 
 /**
  * O workspace vem da chave de API, resolvido no plugin de autenticação. Estas
@@ -31,7 +34,11 @@ function diasValidos(bruto: string | undefined): number | undefined {
   return Number.isInteger(n) && n > 0 && n <= 3650 ? n : undefined;
 }
 
-function resumoJson(a: AcompanhamentoResumido): Record<string, unknown> {
+function resumoJson(
+  a: AcompanhamentoResumido,
+  pendenciaJanelaDias: number,
+  agora: Date,
+): Record<string, unknown> {
   const p = a.processo;
   return {
     numero: p ? p.numero.formatado : a.numero,
@@ -71,12 +78,16 @@ function resumoJson(a: AcompanhamentoResumido): Record<string, unknown> {
     // ter rodado. Uma pasta cujo prazo venceu às 3h e só é remarcada às 6h são
     // três horas em que a tela mente.
     estado: (() => {
-      const e = estadoDaPasta({
-        ...(a.erro !== undefined ? { erro: a.erro } : {}),
-        ...(a.sincronizadoEm !== undefined ? { sincronizadoEm: a.sincronizadoEm } : {}),
-        novidadesNaoVistas: a.novidadesNaoVistas,
-        ...(p ? { movimentacoes: p.movimentacoes } : {}),
-      });
+      const e = estadoDaPasta(
+        {
+          ...(a.erro !== undefined ? { erro: a.erro } : {}),
+          ...(a.sincronizadoEm !== undefined ? { sincronizadoEm: a.sincronizadoEm } : {}),
+          novidadesNaoVistas: a.novidadesNaoVistas,
+          ...(p ? { movimentacoes: p.movimentacoes } : {}),
+        },
+        agora,
+        pendenciaJanelaDias,
+      );
       return {
         rotulo: e.rotulo,
         naoVerificado: e.naoVerificado,
@@ -107,9 +118,30 @@ function novidadeJson(n: Novidade): Record<string, unknown> {
     codigoTpu: n.codigoTpu ?? null,
     conteudo: n.conteudo ?? null,
     detectadaEm: n.detectadaEm.toISOString(),
+    // Só MARCA. Nunca é critério de filtro nem de agrupamento (triagem ordena,
+    // nunca esconde): a atualização anterior que pede providência continua
+    // visível como tal depois de expandida.
+    exigeAcao: triar({
+      data: n.data,
+      titulo: n.titulo,
+      ...(n.codigoTpu !== undefined ? { codigoTpu: n.codigoTpu } : {}),
+      ...(n.conteudo !== undefined ? { conteudo: n.conteudo } : {}),
+    }).exigeAcao,
     vista: n.vistaEm !== undefined,
   };
 }
+
+function grupoJson(g: GrupoDeNovidades): Record<string, unknown> {
+  return {
+    numero: g.numero,
+    maisRecente: novidadeJson(g.maisRecente),
+    anteriores: g.anteriores.map(novidadeJson),
+    naoVistas: g.naoVistas,
+  };
+}
+
+/** Teto de leitura: o agrupamento precisa ver tudo para contar o que a janela deixou de fora. */
+const LIMITE_DE_LEITURA_DAS_NOVIDADES = 5000;
 
 interface QueryLista {
   texto?: string;
@@ -128,12 +160,22 @@ interface QueryNovidades {
   tribunal?: string;
   naoVistas?: string;
   limite?: string;
+  /** `todas` desliga a janela; ausente, vale `NOVIDADES_JANELA_DIAS`. */
+  janela?: string;
+}
+
+export interface JanelasDasTelas {
+  readonly novidadesJanelaDias: number;
+  readonly pendenciaJanelaDias: number;
 }
 
 const verdadeiro = (v: string | undefined): boolean => v === 'true' || v === '1';
 
 export function rotasDeAcompanhamento(
   servico: ServicoAcompanhamento,
+  janelas: JanelasDasTelas,
+  // Injetável: as janelas de dias se testam com relógio fixo, nunca com sleep.
+  agora: () => Date = () => new Date(),
 ): FastifyPluginAsync {
   return async (servidor) => {
     servidor.get<{ Querystring: QueryLista }>('/v1/acompanhamentos', async (req) => {
@@ -157,7 +199,9 @@ export function rotasDeAcompanhamento(
         // que foi como um filtro esquecido convenceu o dono do produto de que
         // o sistema tinha perdido processos.
         totalSemFiltro: await servico.contarAcompanhamentos(workspaceDe(req)),
-        acompanhamentos: lista.map(resumoJson),
+        acompanhamentos: lista.map((a) =>
+          resumoJson(a, janelas.pendenciaJanelaDias, agora()),
+        ),
       };
     });
 
@@ -248,14 +292,21 @@ export function rotasDeAcompanhamento(
     servidor.get<{ Querystring: QueryNovidades }>('/v1/novidades', async (req) => {
       const q = req.query;
       const ws = workspaceDe(req);
+      const todas = q.janela === 'todas';
+      // Lê tudo e deixa a janela para o domínio: só assim dá para dizer quantas
+      // atualizações ficaram de fora (e nada é descartado em silêncio).
       const lista = await servico.novidades(ws, {
         ...(q.numero ? { numero: q.numero.replace(/\D/g, '') } : {}),
         ...(q.tribunal ? { tribunal: q.tribunal } : {}),
         ...(verdadeiro(q.naoVistas) ? { somenteNaoVistas: true } : {}),
-        ...(q.limite ? { limite: Number(q.limite) } : {}),
+        limite: q.limite ? Number(q.limite) : LIMITE_DE_LEITURA_DAS_NOVIDADES,
       });
+      const janelaDias = todas ? undefined : janelas.novidadesJanelaDias;
+      const agrupadas = agruparNovidades(lista, agora(), janelaDias);
       return {
-        total: lista.length,
+        total: agrupadas.dentroDaJanela,
+        // Contam ATUALIZAÇÕES não vistas, não linhas: o menu e o painel
+        // continuam com o mesmo número de antes do agrupamento.
         naoVistas: await servico.contarNaoVistas(ws),
         // Quantos processos o assinante acompanha.
         //
@@ -267,7 +318,15 @@ export function rotasDeAcompanhamento(
         // que aconteceu num teste real: o dado estava salvo, e a interface
         // convenceu o dono de que tinha sumido.
         acompanhados: await servico.contarAcompanhamentos(ws),
-        novidades: lista.map(novidadeJson),
+        // `null` = "Todas". A tela usa para rotular a alternância e dizer
+        // quantas atualizações mais antigas não estão na lista.
+        janelaDias: janelaDias ?? null,
+        janelaPadraoDias: janelas.novidadesJanelaDias,
+        foraDaJanela: agrupadas.foraDaJanela,
+        grupos: agrupadas.grupos.map(grupoJson),
+        novidades: agrupadas.grupos.flatMap((g) =>
+          [g.maisRecente, ...g.anteriores].map(novidadeJson),
+        ),
       };
     });
 
@@ -291,7 +350,7 @@ export function rotasDeAcompanhamento(
         servico.facetas(ws),
         servico.clientes(ws),
       ]);
-      return { ...facetas, clientes };
+      return { ...facetas, clientes, pendenciaJanelaDias: janelas.pendenciaJanelaDias };
     });
 
     /**

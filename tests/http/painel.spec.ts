@@ -197,7 +197,36 @@ describe('painel', () => {
       'ativos',
       'baixadasHoje',
       'pedemProvidencia',
+      // A janela de dias do selo — um recorte do que olhar primeiro, não um prazo.
+      'pendenciaJanelaDias',
       'totalPastas',
     ]);
+  });
+
+  it('o card diz a janela de pendência configurada — a mesma do selo da carteira', async () => {
+    const outro = construirServidor(
+      aplicacaoDeTeste([new ProviderFalso({ nome: 'falso' })]),
+      carregarConfig({
+        PROCESSOVIVO_PROVIDER_CHAIN: 'mock-crawler-tjsp',
+        LOG_LEVEL: 'silent',
+        PROCESSOVIVO_API_KEYS: CHAVE,
+        CACHE_ENABLED: 'false',
+        PENDENCIA_JANELA_DIAS: '7',
+      } as NodeJS.ProcessEnv),
+    );
+    try {
+      const r = await outro.inject({
+        method: 'GET',
+        url: '/v1/painel',
+        headers: cabecalhos,
+      });
+      expect(
+        (r.json() as { cards: { pendenciaJanelaDias: number } }).cards
+          .pendenciaJanelaDias,
+      ).toBe(7);
+      expect((await painel()).cards).toMatchObject({ pendenciaJanelaDias: 10 });
+    } finally {
+      await outro.close();
+    }
   });
 });

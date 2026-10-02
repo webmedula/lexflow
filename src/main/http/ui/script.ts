@@ -240,13 +240,15 @@ function verNovidades(){
   var q=[];
   if($('f-nv-naovistas')&&$('f-nv-naovistas').classList.contains('on'))q.push('naoVistas=true');
   var trib=window.__f_nv_trib||''; if(trib)q.push('tribunal='+encodeURIComponent(trib));
+  /* A janela de tempo NÃO conta como filtro para o texto de "vazio": ela tem aviso próprio. */
+  var jan=window.__f_nv_janela==='todas'?'&janela=todas':'';
 
   /* Duas chamadas em paralelo, e o painel NÃO derruba a tela se falhar: os
      cards são resumo, o feed é o conteúdo. Trocar a tela inteira por um erro
      porque a contagem não veio seria perder o que funciona por causa do que
      enfeita. */
   Promise.all([
-    api('/v1/novidades'+(q.length?'?'+q.join('&'):'')),
+    api('/v1/novidades?'+q.join('&')+jan),
     api('/v1/painel').catch(function(){return null})
   ]).then(function(res){
     var r=res[0], pn=res[1];
@@ -280,7 +282,7 @@ function verNovidades(){
     h+='<div class="'+(temTrilho?'duas-colunas':'')+'"><div>';
 
     h+='<div class="cartao feed"><div class="feed-topo"><h3>Últimas atualizações</h3>'+
-       '<div class="chips"><button class="chip'+
+       '<div class="chips">'+window.__pvAtualizacoes.alternancia(r)+'<button class="chip'+
        (window.__f_nv_nv?' on':'')+'" id="f-nv-naovistas">Só não lidas</button>'+
        '<select id="f-nv-trib" aria-label="Tribunal">'+
        '<option value="">Todos os tribunais</option>'+
@@ -288,11 +290,14 @@ function verNovidades(){
          return '<option value="'+esc(t)+'"'+(trib===t?' selected':'')+'>'+esc(t)+'</option>'}).join('')+
        '</select></div></div>';
 
-    if(!r.novidades.length){
+    if(!r.grupos.length){
       /* Três estados diferentes, e confundi-los foi o defeito: "não tenho
          processo", "tenho processos e nada mudou" e "o filtro escondeu". O
          segundo é INFORMAÇÃO — silêncio verificado —, não ausência dela. */
-      h+=q.length
+      h+=r.foraDaJanela>0
+        ? vazio('🔔','Nenhuma atualização nos últimos '+r.janelaPadraoDias+' dias',
+            'Há atualizações mais antigas — elas não foram descartadas.')
+        : q.length
         ? vazio('🔔','Nenhuma atualização com os filtros atuais',
             'Ajuste os filtros acima para ver mais.')
         : acomp===0
@@ -302,20 +307,8 @@ function verNovidades(){
           : vazio('✓','Nenhuma movimentação nova',
               'Seus '+acomp+' processo(s) foram verificados e nada mudou desde a última consulta. Esta tela mostra só o que é NOVO — para ver a carteira inteira, abra Meus processos.',
               '<button class="bt bt2" onclick="window.__processovivo_ir(\'processos\')">Ver meus processos</button>');
-    }else{
-      r.novidades.forEach(function(n){
-        var dm=diaMes(n.data);
-        h+='<div class="nov'+(n.vista?'':' nl')+'">'+
-          '<div class="q" title="'+esc(dt(n.data))+'"><b>'+esc(dm[0])+'</b><span>'+esc(dm[1])+'</span></div>'+
-          '<div style="min-width:0">'+
-          '<div class="t">'+esc(n.titulo)+'</div>'+
-          (n.conteudo?'<div class="nota">'+esc(n.conteudo)+'</div>':'')+
-          '<div class="p" data-abrir="'+esc(n.numero)+'">'+mascara(n.numero)+'</div>'+
-          '</div>'+
-          '<div class="lado">'+(n.vista?'':'<span class="selo nv">novo</span>')+
-          '<span>'+esc(humano(n.detectadaEm))+'</span></div></div>';
-      });
     }
+    h+=window.__pvAtualizacoes.corpo(r,window.__f_nv_abertos);
     h+='</div></div>';
     if(temTrilho)h+='<aside class="trilho">'+blocoPecasBaixadas(pn.pecasBaixadas)+'</aside>';
     h+='</div>';
@@ -330,8 +323,8 @@ function verNovidades(){
       this.classList.toggle('on');verNovidades()});
     $('f-nv-trib').addEventListener('change',function(){
       window.__f_nv_trib=this.value;verNovidades()});
-    alvo.querySelectorAll('[data-abrir]').forEach(function(el){
-      el.addEventListener('click',function(){abrir(el.getAttribute('data-abrir'))})});
+    window.__f_nv_abertos=window.__f_nv_abertos||{};
+    window.__pvAtualizacoes.ligar(alvo,r,function(j){window.__f_nv_janela=j;verNovidades()},window.__f_nv_abertos);
 
     /* Aqui NÃO há restauração de foco, e é de propósito: esta tela não tem
        campo de texto — só um chip e um select, que não perdem digitação. O
@@ -379,7 +372,7 @@ function cardsDoPainel(c,naoLidas){
     card(c.ativos,'Processos ativos',
       arquivadas>0?arquivadas+' arquivado(s) fora da conta':'')+
     card(c.pedemProvidencia,'Pedem providência',
-      'ato dos últimos 30 dias que abre prazo','al')+
+      'ato dos últimos '+c.pendenciaJanelaDias+' dias que abre prazo','al')+
     card(naoLidas,'Novidades não lidas','movimentação nova ainda não aberta','nv')+
     card(c.baixadasHoje,'Peças baixadas hoje','')+
     '</div>';
@@ -1156,7 +1149,7 @@ function abrir(numero){
 window.__processovivo_abrir=abrir;
 /* O que o leitor (scriptLeitor.ts) e o calendário (calendario.ts) usam do console.
    Um objeto pequeno e explícito: eles não leem o estado da tela por dentro. */
-window.__pv={api:api,esc:esc,explicar:explicar,dth:dth,erroBloco:erroBloco,vazio:vazio,abrir:abrir,chave:function(){return estado.chave}};
+window.__pv={api:api,esc:esc,explicar:explicar,dth:dth,erroBloco:erroBloco,vazio:vazio,abrir:abrir,chave:function(){return estado.chave},dt:dt,diaMes:diaMes,humano:humano,mascara:mascara};
 
 function ligarBotoesDetalhe(numero,acompanhado){
   var b=$('acompanhar');
@@ -1186,14 +1179,11 @@ function agrupar(movs){
 }
 
 /**
- * A tela de um processo.
- *
- * A ordem dos blocos MUDOU na v0.10.0, e a mudança é a coisa mais importante
- * desta tela: antes ela respondia "o que é este processo?" — número, classe,
- * vara, distribuição — quando a pergunta que o advogado faz ao abrir é "o que
- * eu preciso fazer?". Agora vem primeiro o que exige providência, depois o
- * último ato COM O TRECHO DO TEOR, e só então a ficha cadastral, que é consulta
- * ocasional e não leitura diária.
+ * A tela de um processo. Ordem (v0.32.1): capa, dados do processo, PEÇAS, o que
+ * pede providência (só dentro da janela), último ato, partes, linha do tempo.
+ * Desde a v0.10.0 a providência vem antes do último ato e das partes — a
+ * pergunta de quem abre é "o que eu preciso fazer?" —, e as peças subiram para
+ * logo depois dos dados porque eram o que o advogado procurava rolando a tela.
  */
 function processoHtml(p,acomp,op){
   op=op||{};
@@ -1203,7 +1193,11 @@ function processoHtml(p,acomp,op){
   // O campo exigeAcao vem do servidor (domain/entities/triagem.ts). A tela não
   // reclassifica: duas heurísticas para a mesma coisa divergem no dia em que
   // alguém ajusta só uma.
-  var acoes=movs.filter(function(m){return m.exigeAcao}).slice(0,5);
+  var janPend=(estado.facetas&&estado.facetas.pendenciaJanelaDias)||0;
+  var limPend=janPend>0?Date.now()-janPend*86400000:0;
+  var pedem=movs.filter(function(m){return m.exigeAcao});
+  var acoes=pedem.filter(function(m){return new Date(m.data).getTime()>=limPend});
+  var pendAnteriores=pedem.length-acoes.length;
 
   var h='<div class="capa"><div class="num">'+esc(p.numero)+'</div>'+
     '<div class="sob">'+esc(p.classe||'Classe não informada')+
@@ -1218,21 +1212,50 @@ function processoHtml(p,acomp,op){
   else h+='<button class="bt" id="acompanhar">Acompanhar este processo</button>';
   h+='</div></div>';
 
-  // 1. O que pede providência. Primeiro bloco da página.
+  // 1. Ficha cadastral — os dados do processo; as peças vêm logo abaixo (v0.32.1).
+  h+='<div class="fatos">'+
+    '<div class="fato"><div class="k">Vara</div><div class="v">'+esc(p.vara||'—')+'</div></div>'+
+    '<div class="fato"><div class="k">Distribuição</div><div class="v">'+dt(p.dataDistribuicao)+'</div></div>'+
+    '<div class="fato"><div class="k">Andamentos</div><div class="v">'+movs.length+'</div></div>'+
+    // Com a HORA: verificado às 03h e verificado às 14h são coisas diferentes
+    // quando se conta prazo.
+    (acomp&&acomp.sincronizadoEm?'<div class="fato"><div class="k">Verificado</div><div class="v">'+
+      humano(acomp.sincronizadoEm)+'</div><div class="k">'+dth(acomp.sincronizadoEm)+'</div></div>':'')+
+    (p.procedencia&&p.procedencia.provider?'<div class="fato"><div class="k">Fontes</div>'+
+      '<div class="v">'+esc(p.procedencia.provider)+'</div></div>':'')+
+    (p.valorCausa!=null?'<div class="fato"><div class="k">Valor da causa</div><div class="v">'+
+      p.valorCausa.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'</div></div>':'')+
+    '</div>';
+
+  // 2. Resumo das peças — o diferencial do produto. A altura mínima é reservada
+  //    de propósito: a consulta ao MNI leva dezenas de segundos, e um bloco que
+  //    cresce no meio da página empurra o texto que está sendo lido.
+  h+='<div id="pecas-resumo" style="min-height:96px"></div>';
+
+  // 3. O que pede providência, DENTRO da janela (PENDENCIA_JANELA_DIAS, a mesma
+  //    do selo da carteira e do card do painel — o servidor entrega o valor).
+  //    Ato mais antigo continua marcado na linha do tempo e é contado aqui:
+  //    sair do topo não é sumir da tela.
   if(acoes.length){
-    h+='<div class="cartao alerta"><h3 class="sec">Pede providência · '+acoes.length+'</h3>';
+    h+='<div class="cartao alerta"><h3 class="sec">Pede providência · '+acoes.length+
+      (janPend>0?' <span class="nota" style="font-weight:500">(últimos '+janPend+' dias)</span>':'')+'</h3>';
     acoes.forEach(function(m){
       h+='<div class="acao"><div class="dt">'+dt(m.data)+'</div><div>'+
         '<div class="tt">'+esc(m.titulo)+'</div>'+
         (m.conteudo?'<div class="cp">'+esc(recorte(m.conteudo,260))+'</div>':'')+
         '</div></div>';
     });
+    if(pendAnteriores>0)h+='<div class="nota">'+pendAnteriores+' ato(s) anterior(es) que pedem '+
+      'providência não estão aqui — veja na linha do tempo.</div>';
     h+='<div class="nota">Marcado por leitura automática do texto (prazo, '+
       '"intime-se", "manifeste-se"). <strong>Confira sempre no ato completo</strong> — '+
       'a contagem do prazo é sua.</div></div>';
+  }else if(pendAnteriores>0){
+    h+='<div class="cartao"><div class="nota">Nenhum ato dos últimos '+janPend+' dias pede providência. '+
+      pendAnteriores+' ato(s) anterior(es) que pedem providência — veja na linha do tempo.</div></div>';
   }
 
-  // 2. O último ato, com trecho do teor. Antes esta faixa mostrava só o rótulo
+  // 4. O último ato, com trecho do teor. Antes esta faixa mostrava só o rótulo
   //    ("Ato ordinatório"), que é categoria e não informação.
   if(ultima){
     h+='<div class="agora"><div class="k">Última movimentação</div>'+
@@ -1246,17 +1269,7 @@ function processoHtml(p,acomp,op){
       '</div>';
   }
 
-  // 2b. Resumo das peças — o diferencial do produto, ACIMA das partes e muito
-  //     acima da linha do tempo. Antes ele ficava no fim da página, depois de
-  //     até 381 andamentos: o advogado que não rolasse até lá concluía que o
-  //     sistema não tinha peças, que é a conclusão mais cara possível.
-  //
-  //     A altura mínima é reservada de propósito. A consulta ao MNI leva
-  //     dezenas de segundos, e um bloco que cresce no meio da página empurra o
-  //     texto que está sendo lido.
-  h+='<div id="pecas-resumo" style="min-height:96px"></div>';
-
-  // 3. Partes: quem está do outro lado importa mais que a data de distribuição.
+  // 5. Partes: quem está do outro lado importa mais que a data de distribuição.
   h+='<div class="cartao"><h3 class="sec">Partes</h3>';
   if(p.partes&&p.partes.length){
     p.partes.forEach(function(pt){
@@ -1271,21 +1284,6 @@ function processoHtml(p,acomp,op){
       'processo sem publicação recente no diário aparece sem partes.</div>';
   }
   h+='</div>';
-
-  // 4. Ficha cadastral.
-  h+='<div class="fatos">'+
-    '<div class="fato"><div class="k">Vara</div><div class="v">'+esc(p.vara||'—')+'</div></div>'+
-    '<div class="fato"><div class="k">Distribuição</div><div class="v">'+dt(p.dataDistribuicao)+'</div></div>'+
-    '<div class="fato"><div class="k">Andamentos</div><div class="v">'+movs.length+'</div></div>'+
-    // Com a HORA: verificado às 03h e verificado às 14h são coisas diferentes
-    // quando se conta prazo.
-    (acomp&&acomp.sincronizadoEm?'<div class="fato"><div class="k">Verificado</div><div class="v">'+
-      humano(acomp.sincronizadoEm)+'</div><div class="k">'+dth(acomp.sincronizadoEm)+'</div></div>':'')+
-    (p.procedencia&&p.procedencia.provider?'<div class="fato"><div class="k">Fontes</div>'+
-      '<div class="v">'+esc(p.procedencia.provider)+'</div></div>':'')+
-    (p.valorCausa!=null?'<div class="fato"><div class="k">Valor da causa</div><div class="v">'+
-      p.valorCausa.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'</div></div>':'')+
-    '</div>';
 
   // 5. A régua temporal.
   /* A régua só substitui a linha do tempo quando a espinha é a DO TRIBUNAL.
