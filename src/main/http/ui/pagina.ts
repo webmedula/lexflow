@@ -3,6 +3,7 @@ import { FAVICON_DATA_URI, LOGO_FUNDO_ESCURO } from './marca.js';
 import { ESTILOS_LEITOR } from './estilosLeitor.js';
 import { SCRIPT } from './script.js';
 import { SCRIPT_LEITOR } from './scriptLeitor.js';
+import { ESTILOS_CALENDARIO, SCRIPT_CALENDARIO } from './calendario.js';
 
 /**
  * Ícones da navegação: traço, sem preenchimento, na cor do texto
@@ -29,6 +30,9 @@ export const ICONES = {
   sino: icone('<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>'),
   pasta: icone(
     '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  ),
+  calendario: icone(
+    '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
   ),
   lupa: icone('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
   olho: icone('<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'),
@@ -65,7 +69,7 @@ export function paginaConsole(versao: string): string {
 <link rel="icon" type="image/svg+xml" href="${FAVICON_DATA_URI}">
 <meta name="theme-color" content="#0b192c">
 <script>${SCRIPT_TEMA}</script>
-<style>${ESTILOS}${ESTILOS_LEITOR}</style>
+<style>${ESTILOS}${ESTILOS_LEITOR}${ESTILOS_CALENDARIO}</style>
 </head>
 <body>
 
@@ -81,6 +85,7 @@ export function paginaConsole(versao: string): string {
     <nav class="nav">
       <button id="nav-novidades">${ICONES.sino}<span>Atualizações</span> <span class="bolha oculto" id="bolha"></span></button>
       <button id="nav-processos">${ICONES.pasta}<span>Meus processos</span> <span class="cont" id="cont-processos"></span></button>
+      <button id="nav-calendario">${ICONES.calendario}<span>Calendário</span></button>
       <button id="nav-buscar">${ICONES.lupa}<span>Buscar</span></button>
       <button id="nav-vigilancia">${ICONES.olho}<span>Vigilância</span></button>
       <button id="nav-credenciais">${ICONES.chave}<span>Meus acessos</span></button>
@@ -102,6 +107,7 @@ export function paginaConsole(versao: string): string {
 
 <script>${SCRIPT}</script>
 <script>${SCRIPT_LEITOR}</script>
+<script>${SCRIPT_CALENDARIO}</script>
 </body>
 </html>`;
 }

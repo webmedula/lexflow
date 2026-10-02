@@ -300,3 +300,24 @@ describe('Assinatura', () => {
     expect(a.venceEm.toISOString()).toBe(antes);
   });
 });
+
+describe('Plano — recursos (v0.32.0)', () => {
+  it('a lista de recursos é esta, nesta ordem', () => {
+    /*
+     * Fixa a lista. Recurso novo entra aqui na mesma PR — e com a pergunta
+     * "os planos já gravados recebem?" respondida em `banco.ts`.
+     */
+    expect(RECURSOS.map((r) => [r.recurso, r.implementado])).toEqual([
+      ['consulta', true],
+      ['acompanhamento', true],
+      ['vigilancia', true],
+      ['calendario', true],
+      ['pecas', true],
+      ['analiseIa', false],
+    ]);
+  });
+
+  it('o calendário está em TODOS os planos da semente', () => {
+    for (const p of PLANOS_INICIAIS) expect(planoInclui(p, 'calendario')).toBe(true);
+  });
+});

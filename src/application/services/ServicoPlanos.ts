@@ -1,5 +1,10 @@
 import type { StatusAssinatura } from '../../domain/entities/Assinatura.js';
-import { ordenarPlanos, planosAVenda, validarPlano } from '../../domain/entities/Plano.js';
+import {
+  RECURSOS_PADRAO_DE_PLANO_NOVO,
+  ordenarPlanos,
+  planosAVenda,
+  validarPlano,
+} from '../../domain/entities/Plano.js';
 import type { CodigoPlano, Plano, RecursoDoPlano } from '../../domain/entities/Plano.js';
 import { validarRegras } from '../../domain/entities/RegrasDeAssinatura.js';
 import type { RegrasDeAssinatura } from '../../domain/entities/RegrasDeAssinatura.js';
@@ -133,7 +138,13 @@ export class ServicoPlanos {
       codigo,
       nome: dados.nome.trim(),
       resumo: dados.resumo.trim(),
-      recursos: [...dados.recursos],
+      // O calendário é de todos os planos (decisão do dono, v0.32.0): entra
+      // mesmo que o formulário não o marque. Tirar depois, pela edição, é
+      // possível — é o operador decidindo, não esquecendo.
+      recursos: [
+        ...dados.recursos,
+        ...RECURSOS_PADRAO_DE_PLANO_NOVO.filter((r) => !dados.recursos.includes(r)),
+      ],
       disponivelParaContratacao: dados.disponivelParaContratacao,
       precoMensalCentavos: dados.precoMensalCentavos,
       // De dez em dez, para sobrar espaço de encaixar um plano entre dois sem

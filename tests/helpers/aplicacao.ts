@@ -3,8 +3,11 @@ import { ServicoAcompanhamento } from '../../src/application/services/ServicoAco
 import { ServicoNotificacao } from '../../src/application/services/ServicoNotificacao.js';
 import { ServicoPecas } from '../../src/application/services/ServicoPecas.js';
 import { ServicoLeitor } from '../../src/application/services/ServicoLeitor.js';
+import { ServicoCalendario } from '../../src/application/services/ServicoCalendario.js';
+import { comDeteccaoDoCalendario } from '../../src/application/services/ingestaoDoCalendario.js';
+import { RepositorioDeEventosSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioDeEventosSqlite.js';
 import type { ConfiguracaoLeitor } from '../../src/application/services/ServicoLeitor.js';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { Clock } from '../../src/domain/ports/Clock.js';
 import { ArmazemEmDisco } from '../../src/infrastructure/arquivos/ArmazemEmDisco.js';
 import { QpdfMontador } from '../../src/infrastructure/pdf/QpdfMontador.js';
@@ -150,7 +153,35 @@ export function aplicacaoDeTeste(
 ): Aplicacao {
   const orquestrador = new ProcessoSearchService({ providers });
   const db = abrirBanco(':memory:');
-  const repositorio = new RepositorioAcompanhamentosSqlite(db);
+  const repositorioCru = new RepositorioAcompanhamentosSqlite(db);
+
+  const usuarios = new RepositorioUsuariosSqlite(db);
+  const repositorioAssinaturas = new RepositorioAssinaturasSqlite(db);
+  const repositorioChavesApi = new RepositorioChavesApiSqlite(db);
+  const repositorioPlanos = new RepositorioPlanosSqlite(db);
+  const repositorioRegras = new RepositorioRegrasDeAssinaturaSqlite(db);
+  const assinaturas = new ServicoAssinaturas({
+    repositorio: repositorioAssinaturas,
+    planos: repositorioPlanos,
+    regras: repositorioRegras,
+    usuarios,
+    logger: loggerSilencioso,
+    ...(opcoes.notificador ? { notificador: opcoes.notificador } : {}),
+    ...(opcoes.agora ? { agora: opcoes.agora } : {}),
+  });
+
+  // Como no composition root: o calendário lê o repositório cru, e todo o
+  // resto grava pelo decorado — o ponto único da detecção.
+  const calendario = new ServicoCalendario({
+    eventos: new RepositorioDeEventosSqlite(db),
+    acompanhamentos: repositorioCru,
+    tokens: tokensDeSessao,
+    logger: loggerSilencioso,
+    assinaturas,
+    gerarId: () => randomUUID(),
+    ...(opcoes.agora ? { agora: opcoes.agora } : {}),
+  });
+  const repositorio = comDeteccaoDoCalendario(repositorioCru, calendario, loggerSilencioso);
 
   const acompanhamento = new ServicoAcompanhamento({
     repositorio,
@@ -230,12 +261,6 @@ export function aplicacaoDeTeste(
       tarefa: async () => {},
     });
 
-  const usuarios = new RepositorioUsuariosSqlite(db);
-  const repositorioAssinaturas = new RepositorioAssinaturasSqlite(db);
-  const repositorioChavesApi = new RepositorioChavesApiSqlite(db);
-  const repositorioPlanos = new RepositorioPlanosSqlite(db);
-  const repositorioRegras = new RepositorioRegrasDeAssinaturaSqlite(db);
-
   return {
     buscarProcessoPorNumero: new BuscarProcessoPorNumero(orquestrador),
     buscarProcessosPorOab: new BuscarProcessosPorOab(orquestrador),
@@ -248,15 +273,9 @@ export function aplicacaoDeTeste(
     leitor,
     agendadorLeitor: undefined,
     agendadorLimpezaLeitor: undefined,
-    assinaturas: new ServicoAssinaturas({
-      repositorio: repositorioAssinaturas,
-      planos: repositorioPlanos,
-      regras: repositorioRegras,
-      usuarios,
-      logger: loggerSilencioso,
-      ...(opcoes.notificador ? { notificador: opcoes.notificador } : {}),
-      ...(opcoes.agora ? { agora: opcoes.agora } : {}),
-    }),
+    assinaturas,
+    calendario,
+    agendadorCalendario: undefined,
     usuarios,
     repositorioAssinaturas,
     planos: new ServicoPlanos({

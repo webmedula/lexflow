@@ -1,6 +1,6 @@
-# Calendário — especificação — v1.0.1
+# Calendário — especificação — v1.0.3
 
-Documento: `calendario-especificacao-v1.0.1` · 01/10/2026 · para o repositório `webmedula/processovivo`
+Documento: `calendario-especificacao-v1.0.3` · 02/10/2026 · para o repositório `webmedula/processovivo`
 (base: **v0.31.1**, já com o leitor na `main`; o calendário entra na próxima versão menor, **0.32.0**).
 
 ## 1. Objetivo
@@ -198,5 +198,57 @@ Atualizar o teste que fixa as chaves/rotas da API, se houver.
 
 ## 14. Histórico de versões
 
+- **v1.0.3 (02/10/2026):** acrescenta a seção 16 — redesignação com data nova gera sugestão; rota
+  para alterar só "incluir sugeridos" do feed; o console passa a abrir `/?processo=<número>`. Onde a
+  seção 16 e a seção 5 divergem, vale a 16.
+- **v1.0.2 (02/10/2026):** acrescenta a seção 15, "Decisões de implementação" — as quatro
+  divergências entre esta especificação e o código/`CLAUDE.md`, decididas pelo dono. Onde a seção
+  15 e as seções 7 a 9 divergem, vale a 15.
 - **v1.0.1 (01/10/2026):** base passa a v0.31.1 e versão-alvo 0.32.0 (leitor já mergeado); sem mudança de regra.
 - **v1.0.0 (01/10/2026):** primeira versão (substituída).
+
+## 15. Decisões de implementação (dono, 02/10/2026)
+
+Valem mais que as seções anteriores onde divergirem.
+
+1. **Plano.** O calendário é recurso do Acompanhamento, ou seja, de **todos** os planos. Como os
+   planos são dado desde a v0.28.0 (a semente só entra com a tabela vazia, e cada plano gravado
+   guarda a lista completa de recursos — não há herança no banco), pôr o recurso só na semente não
+   bastaria: seria a mesma lição de "cobrança que entra sem retrocarga é bloqueio em massa". Por
+   isso: retrocarga idempotente no arranque que acrescenta `'calendario'` a todo plano já gravado
+   (uma vez por banco, com marca em `estado`, para não desfazer depois uma decisão do operador), e
+   plano criado depois pelo painel o inclui por padrão. Testes: assinatura de plano gravado antes
+   enxerga o calendário depois da migração; segunda execução não duplica.
+2. **Porta.** `RepositorioDeEventos` fica em `domain/ports`, como o `CLAUDE.md` e todas as outras
+   portas. O "`application/ports`" da seção 7 não vale.
+3. **Rotas.** As rotas de dados ficam sob `/v1/calendario/...` (eventos e gestão do feed). A URL
+   pública do feed fica **fora** do `/v1`: `/calendario/feed/:token.ics`, porque quem assina no
+   Google ou no Outlook guarda essa URL por anos e um prefixo versionado a quebraria. Ela entra em
+   `rotasPublicas`, com limitador de taxa e teste.
+4. **Erros e autenticação.** Segue o sistema: vencido além da carência = 402
+   (`AssinaturaInativaError`); plano sem o recurso = 403 (`RecursoNaoIncluidoNoPlanoError`); sessão
+   e chave de API resolvem para o mesmo workspace e a rota não distingue; workspace sem assinatura
+   (chave de API) passa livre; status derivado das datas, como no resto. No feed público, para não
+   revelar nada, token inválido, revogado, assinatura bloqueada ou plano sem o recurso respondem o
+   **mesmo** 404, sem corpo informativo.
+
+## 16. Acréscimos do dono (02/10/2026, v1.0.3)
+
+Valem mais que as seções anteriores onde divergirem (em especial a seção 5, que mandava
+"redesignada: não cria sugestão nova").
+
+1. **Redesignação com data nova gera sugestão.** Audiência, perícia (ou sessão de julgamento)
+   REDESIGNADA com data nova e explícita — "redesignada para o dia 20/11/2026 às 14h" — passa a
+   gerar sugestão nova, e o evento detectado antes (mesmo processo e tipo) continua marcado para
+   revisão. Se houver duas datas na frase, vale apenas a que vem logo depois de "para", "para o dia"
+   ou "para a data de"; se isso não for claro (nenhuma ou mais de uma data depois de "para", ou
+   gatilhos de tipos diferentes na frase), não gera. Cancelada, retirada de pauta, adiada e
+   desmarcada continuam sem gerar sugestão.
+2. **"Incluir sugeridos" sem trocar o token.** `PATCH /v1/calendario/feed` com
+   `{ "incluiSugeridos": true|false }` altera só essa opção do feed vigente; a URL já assinada
+   continua valendo. Sem feed vigente: 404 `FEED_DO_CALENDARIO_AUSENTE` (rota autenticada — aqui
+   não há o que esconder do dono da agenda).
+3. **Link do evento.** O console passa a interpretar `/?processo=<número CNJ>`: abre a tela do
+   processo (depois do login, se a pessoa chegou deslogada) e apaga o parâmetro da barra de
+   endereço. Só número de 20 dígitos; o resto é ignorado. É o link que a descrição do evento no
+   feed já usava.
