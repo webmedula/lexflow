@@ -1,5 +1,6 @@
 import { NumeroCNJ } from '../../domain/entities/NumeroCNJ.js';
 import type { Peca } from '../../domain/entities/Peca.js';
+import type { ListagemDaPasta } from '../../domain/entities/PastaDigital.js';
 import { montarIndice } from '../../domain/entities/IndicePagina.js';
 import type { EntradaIndice, ItemDoIndice } from '../../domain/entities/IndicePagina.js';
 import {
@@ -12,6 +13,7 @@ import {
 } from '../../domain/entities/JobLeitor.js';
 import type {
   ExtratoDoJob,
+  FinalidadeDoJob,
   JobLeitor,
   MotivoNaoObtida,
   PecaDoJob,
@@ -29,6 +31,7 @@ import {
   PdfDoLeitorExpiradoError,
   PecasForaDoPdfError,
   SegredoDeJusticaNaoGuardadoError,
+  SemHabilitacaoNosAutosError,
 } from '../../domain/errors/index.js';
 import type { ArmazemDoLeitor } from '../../domain/ports/ArmazemDoLeitor.js';
 import type { Clock } from '../../domain/ports/Clock.js';
@@ -36,7 +39,6 @@ import { clockDoSistema } from '../../domain/ports/Clock.js';
 import type { FilaDeJobs } from '../../domain/ports/FilaDeJobs.js';
 import type { Logger } from '../../domain/ports/Logger.js';
 import type {
-  ConversaoDeHtml,
   MontadorDePdf,
   PaginaDeAviso,
   ParteDoPdf,
@@ -47,6 +49,8 @@ import type {
   ProvedorDePecas,
 } from '../../domain/ports/ProvedorDePecas.js';
 import type { RepositorioCredenciais } from '../../domain/ports/RepositorioCredenciais.js';
+import type { GuardaDePecas } from './GuardaDePecas.js';
+import { observacoesDaConversao } from './observacoesDaConversao.js';
 import type { BuscarProcessoPorNumero } from '../../domain/usecases/BuscarProcessoPorNumero.js';
 
 export interface ConfiguracaoLeitor extends PoliticaDeLote {
@@ -92,6 +96,13 @@ export interface OpcoesServicoLeitor {
   readonly gerarId: () => string;
   /** Chamado depois de enfileirar: o composition root acorda o executor. */
   readonly aoEnfileirar?: () => void;
+  /**
+   * A guarda por peça da Pasta digital (v0.33.0). Com ela, toda peça que o
+   * leitor baixa passa a morar lá — já como PDF, aberta pela lista antes mesmo
+   * de o combinado ficar pronto — e peça já guardada não volta ao tribunal.
+   * Sem ela, o leitor é o da v0.31.
+   */
+  readonly guarda?: GuardaDePecas;
 }
 
 /** O PDF combinado pronto para ser lido por trechos. */
@@ -144,9 +155,12 @@ export class ServicoLeitor {
   private readonly esperar: (ms: number) => Promise<void>;
   private readonly gerarId: () => string;
   private readonly aoEnfileirar: (() => void) | undefined;
+  private readonly guarda: GuardaDePecas | undefined;
 
   private ultimaChamada: number | undefined;
   private rodando: Promise<number> | undefined;
+  /** Fila das chamadas ao tribunal: a pausa vale entre TODAS, de jobs e de cliques. */
+  private cadeiaDeChamadas: Promise<unknown> = Promise.resolve();
   /** Recortes em fila: dois ao mesmo tempo no mesmo job brigariam pela lista. */
   private recortes: Promise<unknown> = Promise.resolve();
 
@@ -165,6 +179,7 @@ export class ServicoLeitor {
       opcoes.esperar ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.gerarId = opcoes.gerarId;
     this.aoEnfileirar = opcoes.aoEnfileirar;
+    this.guarda = opcoes.guarda;
   }
 
   /** Ordem de grandeza do tempo, com os números medidos. Ver `estimarSegundos`. */
@@ -201,6 +216,89 @@ export class ServicoLeitor {
       confirmarAcimaDe: this.config.confirmarAcimaDe,
       exigeConfirmacao: pecas > this.config.confirmarAcimaDe,
     };
+  }
+
+  /**
+   * Prepara uma consulta ao tribunal para o assinante: confere que há fonte de
+   * peças para o tribunal do processo e que a credencial existe e NÃO foi
+   * recusada. Pública porque a Pasta digital faz o mesmo antes de buscar uma
+   * peça — e uma segunda cópia desta conferência divergiria da primeira.
+   */
+  prepararConsulta(
+    workspace: string,
+    numeroProcesso: string,
+  ): Promise<{ numero: string; tribunal: string; credencial: CredencialTribunal }> {
+    return this.preparar(workspace, numeroProcesso);
+  }
+
+  /** @throws {SegredoDeJusticaNaoGuardadoError} pelas fontes públicas, em melhor esforço. */
+  recusarSegredo(numero: string): Promise<void> {
+    return this.recusarSegredoPelasFontesPublicas(numero);
+  }
+
+  /**
+   * A ÚNICA porta de saída do leitor e da Pasta para o tribunal: um lote de
+   * peças pela fonte, atrás da pausa e da fila de chamadas. A Pasta digital
+   * não conhece o provedor — passa por aqui, de modo que não há como buscar
+   * peça sem respeitar o mesmo ritmo e o mesmo balde/disjuntor do adapter.
+   */
+  consultarLote(
+    numeroProcesso: string,
+    idsPecas: readonly string[],
+    credencial: CredencialTribunal,
+    aoIniciar?: () => void,
+  ): Promise<LoteDePecas> {
+    const provedor = this.provedor;
+    const lote = provedor.obterConteudosEmLote?.bind(provedor);
+    if (!lote) throw new OperacaoNaoSuportadaError(provedor.nome, 'obterConteudosEmLote');
+    return this.chamada(() => lote(numeroProcesso, idsPecas, credencial), aoIniciar);
+  }
+
+  /** Até quando o tribunal está em pausa por 403; `undefined` com o disjuntor fechado. */
+  pausadoAte(): Date | undefined {
+    return this.provedor.pausadoAte?.();
+  }
+
+  /** Marca a credencial como recusada (o tribunal disse que usuário/senha não valem). */
+  registrarRecusa(workspace: string, tribunal: string): Promise<void> {
+    return this.credenciais.registrarRecusa(workspace, tribunal);
+  }
+
+  registrarUso(workspace: string, tribunal: string): Promise<void> {
+    return this.credenciais.registrarUso(workspace, tribunal);
+  }
+
+  /**
+   * Abre espaço na cota do workspace pela regra de substituição (v0.31.1),
+   * estendida às peças guardadas. @returns o uso depois da limpeza.
+   */
+  garantirEspaco(
+    workspace: string,
+    numero: string,
+    opcoes: { readonly depoisDeGravar?: { readonly pecaId: string } } = {},
+  ): Promise<number> {
+    return this.abrirEspaco(workspace, {
+      numero,
+      preservar: new Set(),
+      ...(opcoes.depoisDeGravar
+        ? {
+            acimaDe: true,
+            preservarPecas: new Set([`${numero}:${opcoes.depoisDeGravar.pecaId}`]),
+          }
+        : {}),
+    });
+  }
+
+  get cotaPorWorkspaceBytes(): number {
+    return this.config.cotaPorWorkspaceBytes;
+  }
+
+  get cotaPorPdfBytes(): number {
+    return this.config.cotaPorPdfBytes;
+  }
+
+  get pausaEntreChamadasMs(): number {
+    return this.config.pausaEntreChamadasMs;
   }
 
   /** O job mais recente deste processo, para a tela reabrir o PDF que já existe. */
@@ -247,6 +345,15 @@ export class ServicoLeitor {
     workspace: string,
     numeroProcesso: string,
     idsPecas: readonly string[],
+    opcoes: {
+      readonly finalidade?: FinalidadeDoJob;
+      /**
+       * A listagem que a Pasta digital já tem (v0.33.0). Com ela o job nasce
+       * com as peças definidas e NÃO lista de novo no tribunal — o que faz
+       * "baixar marcadas" com tudo em guarda custar zero consultas.
+       */
+      readonly listagem?: ListagemDaPasta;
+    } = {},
   ): Promise<JobLeitor> {
     const { numero, tribunal, credencial } = await this.preparar(
       workspace,
@@ -263,6 +370,7 @@ export class ServicoLeitor {
     await this.recusarSegredoPelasFontesPublicas(numero);
 
     const agora = this.clock.agora();
+    const pedidas = [...new Set(idsPecas)];
     const job: JobLeitor = {
       id: this.gerarId(),
       workspace,
@@ -270,8 +378,12 @@ export class ServicoLeitor {
       tribunal,
       credencial: this.identificarCredencial(workspace, credencial),
       estado: 'na_fila',
-      pedidas: [...new Set(idsPecas)],
-      pecas: [],
+      pedidas,
+      pecas: opcoes.listagem ? pecasDaListagem(opcoes.listagem, pedidas) : [],
+      ...(opcoes.listagem
+        ? { idsListados: opcoes.listagem.pecas.map((p) => p.pecaId) }
+        : {}),
+      ...(opcoes.finalidade ? { finalidade: opcoes.finalidade } : {}),
       tamanhoLote: this.config.inicial,
       loteTravado: false,
       chamadas: 0,
@@ -389,7 +501,11 @@ export class ServicoLeitor {
     return {
       job,
       tamanho,
-      nomeArquivo: `processo-${job.numeroProcesso}-pecas.pdf`,
+      // O "Baixar PDF" das marcadas da Pasta tem nome próprio (v0.33.0).
+      nomeArquivo:
+        job.finalidade === 'selecionadas'
+          ? `processo-${job.numeroProcesso}-pecas-selecionadas.pdf`
+          : `processo-${job.numeroProcesso}-pecas.pdf`,
       ler: (inicio, fim) => this.armazem.ler(workspace, arquivo.localizador, inicio, fim),
     };
   }
@@ -492,6 +608,13 @@ export class ServicoLeitor {
     }
     if (apagados > 0)
       this.logger.info('PDFs do leitor apagados pelo prazo', { apagados, bytes });
+    // As peças guardadas seguem o mesmo prazo e a mesma hora de limpeza.
+    if (this.guarda) {
+      const pecas = await this.guarda.limparVencidas((ws) =>
+        this.arquivosEmUsoPorJobAtivo(ws),
+      );
+      bytes += pecas.bytes;
+    }
     await this.registrarUsoDeDisco();
     return { apagados, bytes };
   }
@@ -500,7 +623,13 @@ export class ServicoLeitor {
   async apagarDoWorkspace(workspace: string): Promise<void> {
     const bytes = await this.armazem.apagarWorkspace(workspace);
     const jobs = await this.fila.apagarDoWorkspace(workspace);
-    this.logger.info('leitor: dados do workspace apagados', { workspace, jobs, bytes });
+    const pecas = (await this.guarda?.apagarDoWorkspace(workspace)) ?? 0;
+    this.logger.info('leitor: dados do workspace apagados', {
+      workspace,
+      jobs,
+      pecas,
+      bytes,
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -564,12 +693,29 @@ export class ServicoLeitor {
   }
 
   /** Toda consulta do leitor ao tribunal passa aqui: é onde mora a pausa. */
-  private async chamada<T>(operacao: () => Promise<T>): Promise<T> {
+  private chamada<T>(operacao: () => Promise<T>, aoIniciar?: () => void): Promise<T> {
+    // Em fila, uma de cada vez: a pausa só protege o tribunal se valer entre
+    // TODAS as chamadas. Dois chamadores concorrentes (um job em andamento e o
+    // clique numa peça) leriam `ultimaChamada` ao mesmo tempo e sairiam juntos.
+    const minha = this.cadeiaDeChamadas.then(() =>
+      this.chamadaComPausa(operacao, aoIniciar),
+    );
+    this.cadeiaDeChamadas = minha.catch(() => undefined);
+    return minha;
+  }
+
+  private async chamadaComPausa<T>(
+    operacao: () => Promise<T>,
+    aoIniciar?: () => void,
+  ): Promise<T> {
     if (this.ultimaChamada !== undefined) {
       const falta =
         this.config.pausaEntreChamadasMs - (this.clock.monotonico() - this.ultimaChamada);
       if (falta > 0) await this.esperar(falta);
     }
+    // Só agora a chamada sai: até aqui ela esperava a vez (a de outro job, a
+    // pausa). A Pasta usa o aviso para dizer "aguardando a fila" ou "baixando".
+    aoIniciar?.();
     try {
       return await operacao();
     } finally {
@@ -615,6 +761,9 @@ export class ServicoLeitor {
         await gravar(listado);
         await this.credenciais.registrarUso(job.workspace, job.tribunal);
       }
+
+      // Peça que já está na guarda por peça não volta ao tribunal.
+      await this.aplicarGuarda(() => job, gravar);
 
       const interrupcao = await this.baixar(() => job, gravar, credencial);
       if (interrupcao) {
@@ -779,6 +928,41 @@ export class ServicoLeitor {
   }
 
   /**
+   * Peças pendentes que já estão na guarda por peça passam a obtidas — sem
+   * consulta ao tribunal. Roda a cada execução (e não na criação): o job pode
+   * esperar na fila por minutos, e a guarda muda nesse intervalo.
+   */
+  private async aplicarGuarda(
+    atual: () => JobLeitor,
+    gravar: (m: Partial<JobLeitor>) => Promise<void>,
+  ): Promise<void> {
+    if (!this.guarda) return;
+    const job = atual();
+    if (!job.pecas.some((p) => p.situacao === 'pendente')) return;
+    const guardadas = await this.guarda.doProcesso(job.workspace, job.numeroProcesso);
+    if (guardadas.size === 0) return;
+    let mudou = false;
+    const pecas = job.pecas.map((p): PecaDoJob => {
+      if (p.situacao !== 'pendente') return p;
+      const e = guardadas.get(p.pecaId);
+      if (!e) return p;
+      mudou = true;
+      return {
+        ...semMotivo(p),
+        situacao: 'obtida',
+        mimetype: 'application/pdf',
+        bytes: e.bytes,
+        arquivo: e.localizador,
+        deCache: {
+          conversao: e.conversao,
+          ...(e.observacao !== undefined ? { observacao: e.observacao } : {}),
+        },
+      };
+    });
+    if (mudou) await gravar({ pecas });
+  }
+
+  /**
    * Os lotes. Devolve a interrupção, quando houve; `MniBloqueadoError` sobe
    * para o chamador pausar o job.
    */
@@ -818,6 +1002,13 @@ export class ServicoLeitor {
             mensagem: erro.message,
           };
         }
+        if (erro instanceof SemHabilitacaoNosAutosError) {
+          return {
+            ok: false as const,
+            motivo: 'sem_habilitacao' as const,
+            mensagem: erro.message,
+          };
+        }
         return {
           ok: false as const,
           motivo: 'interrompido' as const,
@@ -847,6 +1038,32 @@ export class ServicoLeitor {
             situacao: 'vazia',
             mimetype: c.mimetype,
             bytes: 0,
+          });
+          continue;
+        }
+        // Com a guarda por peça, o arquivo nasce lá, já como PDF: a lista da
+        // Pasta passa a poder abri-lo na hora, sem esperar o combinado. Se a
+        // guarda não consegue (HTML ilegível, imagem quebrada), vale o caminho
+        // antigo — a montagem registra o motivo no índice como sempre.
+        const guardada = await this.guarda?.guardar(
+          job.workspace,
+          job.numeroProcesso,
+          p.pecaId,
+          { mimetype: c.mimetype, bytes: c.bytes },
+        );
+        if (guardada?.ok) {
+          const e = guardada.entrada;
+          novosBytes += e.bytes;
+          atualizadas.set(p.pecaId, {
+            ...semMotivo(p),
+            situacao: 'obtida',
+            mimetype: 'application/pdf',
+            bytes: e.bytes,
+            arquivo: e.localizador,
+            deCache: {
+              conversao: e.conversao,
+              ...(e.observacao !== undefined ? { observacao: e.observacao } : {}),
+            },
           });
           continue;
         }
@@ -940,6 +1157,9 @@ export class ServicoLeitor {
 
     // Fase 1: lotes, na ordem dos autos.
     for (;;) {
+      // Um clique na Pasta pode ter guardado uma peça enquanto o job andava:
+      // ela não é pedida de novo.
+      await this.aplicarGuarda(atual, gravar);
       const job = atual();
       const ids = job.pecas
         .filter((p) => p.situacao === 'pendente')
@@ -1056,7 +1276,27 @@ export class ServicoLeitor {
       }
       const caminho = await this.armazem.caminhoLocal(ws, p.arquivo);
       const tipo = (p.mimetype ?? '').toLowerCase();
-      if (tipo.includes('pdf')) {
+      if (p.deCache) {
+        // Veio da guarda por peça: já é PDF. A conversão que houve na entrada
+        // continua dita no índice.
+        const inspecao = await this.montador.inspecionarPdf(caminho);
+        if (inspecao.valido) {
+          destinos.push({ tipo: 'arquivo', parte: { arquivo: caminho } });
+          itens.push(
+            itemDe(
+              p,
+              p.deCache.conversao === 'html'
+                ? 'html_convertida'
+                : p.deCache.conversao === 'imagem'
+                  ? 'convertida'
+                  : 'incorporada',
+              p.deCache.observacao,
+            ),
+          );
+        } else {
+          naoIncorporada(p, inspecao.motivo);
+        }
+      } else if (tipo.includes('pdf')) {
         const inspecao = await this.montador.inspecionarPdf(caminho);
         if (inspecao.valido) {
           destinos.push({ tipo: 'arquivo', parte: { arquivo: caminho } });
@@ -1203,6 +1443,16 @@ export class ServicoLeitor {
     return usados;
   }
 
+  /** Localizadores da guarda por peça de que um job em andamento ainda precisa. */
+  private async arquivosEmUsoPorJobAtivo(workspace: string): Promise<Set<string>> {
+    const usados = new Set<string>();
+    for (const j of await this.fila.doWorkspace(workspace)) {
+      if (!ESTADOS_ATIVOS.includes(j.estado)) continue;
+      for (const p of j.pecas) if (p.deCache && p.arquivo) usados.add(p.arquivo);
+    }
+    return usados;
+  }
+
   /**
    * A REGRA DE SUBSTITUIÇÃO (v0.31.1). Seleção nova não apaga o PDF anterior:
    * ele fica até o próprio prazo. Só a cota da conta força a saída antes — e
@@ -1218,6 +1468,8 @@ export class ServicoLeitor {
     opcoes: {
       readonly numero: string;
       readonly preservar: ReadonlySet<string>;
+      /** Peças (`<numero>:<pecaId>`) que acabaram de ser gravadas e não saem. */
+      readonly preservarPecas?: ReadonlySet<string>;
       /** `true`: limpa só se PASSOU da cota (depois de montar); senão, se chegou nela. */
       readonly acimaDe?: boolean;
     },
@@ -1228,43 +1480,78 @@ export class ServicoLeitor {
     if (!passou(uso)) return uso;
 
     const emUso = await this.emUsoPorJobAtivo(workspace);
-    const candidatos = (await this.fila.doWorkspace(workspace))
-      .filter(
-        (j) =>
-          ESTADOS_COM_ARQUIVO.includes(j.estado) &&
-          j.arquivo !== undefined &&
-          !opcoes.preservar.has(j.id) &&
-          !emUso.has(j.id),
-      )
-      .sort((a, b) => {
-        const mesmoA = a.numeroProcesso === opcoes.numero ? 1 : 0;
-        const mesmoB = b.numeroProcesso === opcoes.numero ? 1 : 0;
-        if (mesmoA !== mesmoB) return mesmoA - mesmoB;
-        return (
-          (a.concluidoEm ?? a.criadoEm).getTime() -
-          (b.concluidoEm ?? b.criadoEm).getTime()
-        );
-      });
-
+    const arquivosEmUso = await this.arquivosEmUsoPorJobAtivo(workspace);
     const agora = this.clock.agora();
-    for (const j of candidatos) {
-      if (!passou(uso)) break;
-      const liberados = await this.armazem.apagarJob(workspace, j.id);
-      await this.fila.salvar(
-        semArquivo({
-          ...j,
-          estado: 'expirado',
-          mensagem:
-            'Apagado antes do prazo para abrir espaço a um PDF mais novo ' +
-            '(limite de guarda da conta).',
-          atualizadoEm: agora,
-        }),
-      );
-      this.logger.info('leitor: PDF apagado pela cota da conta', {
-        workspace,
-        job: j.id,
-        bytes: liberados,
+
+    // PDFs combinados e peças guardadas disputam a MESMA cota, e saem pela
+    // mesma ordem: os de OUTROS processos primeiro, os deste por último (são
+    // deles que a seleção nova copia páginas), cada grupo do mais antigo ao
+    // mais novo.
+    interface Candidato {
+      readonly mesmoProcesso: number;
+      readonly quando: number;
+      readonly apagar: () => Promise<number>;
+      readonly rotulo: string;
+    }
+    const candidatos: Candidato[] = [];
+    for (const j of await this.fila.doWorkspace(workspace)) {
+      if (
+        !ESTADOS_COM_ARQUIVO.includes(j.estado) ||
+        j.arquivo === undefined ||
+        opcoes.preservar.has(j.id) ||
+        emUso.has(j.id)
+      ) {
+        continue;
+      }
+      candidatos.push({
+        mesmoProcesso: j.numeroProcesso === opcoes.numero ? 1 : 0,
+        quando: (j.concluidoEm ?? j.criadoEm).getTime(),
+        rotulo: 'pdf',
+        apagar: async () => {
+          const liberados = await this.armazem.apagarJob(workspace, j.id);
+          await this.fila.salvar(
+            semArquivo({
+              ...j,
+              estado: 'expirado',
+              mensagem:
+                'Apagado antes do prazo para abrir espaço a um PDF mais novo ' +
+                '(limite de guarda da conta).',
+              atualizadoEm: agora,
+            }),
+          );
+          this.logger.info('leitor: PDF apagado pela cota da conta', {
+            workspace,
+            job: j.id,
+            bytes: liberados,
+          });
+          return liberados;
+        },
       });
+    }
+    if (this.guarda) {
+      for (const e of await this.guarda.doWorkspace(workspace)) {
+        if (arquivosEmUso.has(e.localizador)) continue;
+        if (opcoes.preservarPecas?.has(`${e.numeroProcesso}:${e.pecaId}`)) continue;
+        candidatos.push({
+          mesmoProcesso: e.numeroProcesso === opcoes.numero ? 1 : 0,
+          quando: e.obtidaEm.getTime(),
+          rotulo: 'peca',
+          apagar: async () => {
+            const liberados = await this.guarda!.remover(e);
+            this.logger.info('leitor: peça guardada apagada pela cota da conta', {
+              workspace,
+              bytes: liberados,
+            });
+            return liberados;
+          },
+        });
+      }
+    }
+    candidatos.sort((a, b) => a.mesmoProcesso - b.mesmoProcesso || a.quando - b.quando);
+
+    for (const c of candidatos) {
+      if (!passou(uso)) break;
+      await c.apagar();
       uso = await this.armazem.usoDoWorkspace(workspace);
     }
     return uso;
@@ -1419,6 +1706,46 @@ function pecaDoJob(p: Peca, ordem: number): PecaDoJob {
   };
 }
 
+/**
+ * As peças de um job, a partir da listagem que a Pasta já tem. Mesma forma que
+ * `listar` produz: a ordem dos autos, sigilosa já como não obtida, e o que foi
+ * pedido e não consta mais na listagem no fim, com o motivo — nunca some.
+ */
+function pecasDaListagem(
+  listagem: ListagemDaPasta,
+  pedidas: readonly string[],
+): PecaDoJob[] {
+  const querida = new Set(pedidas);
+  const pecas: PecaDoJob[] = [];
+  for (const p of [...listagem.pecas].sort((a, b) => a.ordem - b.ordem)) {
+    if (!querida.has(p.pecaId)) continue;
+    const base: PecaDoJob = {
+      pecaId: p.pecaId,
+      ordem: pecas.length,
+      rotulo: p.rotulo,
+      situacao: 'pendente',
+      ...(p.movimento !== undefined ? { movimento: p.movimento } : {}),
+      ...(p.data !== undefined ? { data: p.data } : {}),
+      ...(p.mimetype !== undefined ? { mimetype: p.mimetype } : {}),
+    };
+    pecas.push(
+      p.sigilosa ? { ...base, situacao: 'nao_obtida', motivo: 'sigilosa' } : base,
+    );
+    querida.delete(p.pecaId);
+  }
+  for (const id of pedidas) {
+    if (!querida.has(id)) continue;
+    pecas.push({
+      pecaId: id,
+      ordem: pecas.length,
+      rotulo: `peça ${id}`,
+      situacao: 'nao_obtida',
+      motivo: 'nao_listada',
+    });
+  }
+  return pecas;
+}
+
 function itemDe(
   p: PecaDoJob,
   situacao: ItemDoIndice['situacao'],
@@ -1437,33 +1764,6 @@ function itemDe(
 function semMotivo(p: PecaDoJob): PecaDoJob {
   const { motivo: _motivo, ...resto } = p;
   return resto;
-}
-
-/**
- * O que a conversão do HTML deixou de fora, em uma frase para o índice.
- * `undefined` quando nada ficou de fora.
- */
-export function observacoesDaConversao(c: ConversaoDeHtml): string | undefined {
-  const partes: string[] = [];
-  if (c.imagens > 0) {
-    partes.push(
-      `${c.imagens} ${c.imagens === 1 ? 'imagem não incluída' : 'imagens não incluídas'}`,
-    );
-  }
-  if (c.tabelas > 0) {
-    partes.push(
-      `havia ${c.tabelas === 1 ? 'tabela' : `${c.tabelas} tabelas`}: linhas convertidas em "célula | célula"`,
-    );
-  }
-  if (c.caracteresSubstituidos > 0) {
-    partes.push(
-      `${c.caracteresSubstituidos} ${c.caracteresSubstituidos === 1 ? 'caractere sem equivalente na fonte trocado' : 'caracteres sem equivalente na fonte trocados'} por "?"`,
-    );
-  }
-  if (c.elementosDescartados.length > 0) {
-    partes.push(`elementos descartados: ${c.elementosDescartados.join(', ')}`);
-  }
-  return partes.length > 0 ? partes.join('; ') : undefined;
 }
 
 function semArquivoDaPeca(p: PecaDoJob): PecaDoJob {
@@ -1491,3 +1791,5 @@ function reaproveitavel(
     ? e.situacao
     : undefined;
 }
+
+export { observacoesDaConversao, achatar as achatarPecas };

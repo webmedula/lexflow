@@ -536,6 +536,78 @@ export class SegredoDeJusticaNaoGuardadoError extends DomainError {
   }
 }
 
+/**
+ * A Pasta digital não tem a listagem de peças deste processo.
+ *
+ * A listagem é o que diz quais peças existem, em que ordem e quais são
+ * sigilosas — e quem a decide é o tribunal, não o navegador. Sem ela o pedido
+ * de uma peça não tem como ser conferido (uma peça sigilosa seria guardada em
+ * disco por um id que o cliente inventou). A tela resolve carregando as peças
+ * do processo e pedindo de novo; por isso é 409, não erro.
+ */
+export class ListagemDaPastaAusenteError extends DomainError {
+  readonly codigo = 'LISTAGEM_DA_PASTA_AUSENTE';
+
+  constructor(readonly numeroProcesso: string) {
+    super(
+      'A lista de peças deste processo ainda não foi carregada do tribunal. ' +
+        'Carregue as peças do processo e tente de novo.',
+    );
+  }
+}
+
+/**
+ * A peça pedida não existe NESTE workspace e neste processo.
+ *
+ * Mesma resposta para "não existe" e "é de outro assinante": distinguir os dois
+ * diria a um assinante que o id existe na pasta de outro.
+ */
+export class PecaDaPastaNaoEncontradaError extends DomainError {
+  readonly codigo = 'PECA_DA_PASTA_NAO_ENCONTRADA';
+
+  constructor(readonly pecaId: string) {
+    super(
+      'Peça não encontrada na pasta deste processo (ou já apagada pelo prazo de guarda).',
+    );
+  }
+}
+
+/**
+ * Peça sob sigilo não é guardada na Pasta digital.
+ *
+ * Mesma decisão do PDF combinado: o que fica em disco, ainda que por horas, não
+ * pode ser conteúdo sigiloso. O download avulso pela linha do tempo continua —
+ * ele vai do tribunal direto para a máquina de quem tem acesso.
+ */
+export class PecaSigilosaNaoGuardadaError extends DomainError {
+  readonly codigo = 'PECA_SIGILOSA_NAO_GUARDADA';
+
+  constructor(readonly pecaId: string) {
+    super(
+      'Esta peça está sob sigilo e não é guardada na Pasta digital. ' +
+        'Baixe-a individualmente pela linha do tempo.',
+    );
+  }
+}
+
+/**
+ * Montar ou baixar a Pasta sem nenhuma peça que se possa guardar.
+ *
+ * Todas sob sigilo, ou a lista vazia. É 409 e não "erro": o pedido é válido, o
+ * estado do processo é que não tem o que juntar — e a mensagem diz isso, em vez
+ * de entregar um PDF de zero páginas.
+ */
+export class PastaSemPecasParaJuntarError extends DomainError {
+  readonly codigo = 'PASTA_SEM_PECAS_PARA_JUNTAR';
+
+  constructor(readonly numeroProcesso: string) {
+    super(
+      'Não há peça que possa ser juntada: a seleção está vazia ou só tem peças sob sigilo, ' +
+        'que não são guardadas. Baixe-as individualmente pela linha do tempo.',
+    );
+  }
+}
+
 function mb(bytes: number): number {
   return Math.round(bytes / 1_048_576);
 }

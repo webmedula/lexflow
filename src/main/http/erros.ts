@@ -13,6 +13,10 @@ import {
   FeedDoCalendarioNaoEncontradoError,
   TransicaoDeEventoInvalidaError,
   JobDoLeitorNaoEncontradoError,
+  ListagemDaPastaAusenteError,
+  PecaDaPastaNaoEncontradaError,
+  PecaSigilosaNaoGuardadaError,
+  PastaSemPecasParaJuntarError,
   LeitorAindaNaoProntoError,
   PdfDoLeitorExpiradoError,
   PecasForaDoPdfError,
@@ -104,7 +108,10 @@ export function mapearErro(erro: unknown): RespostaDeErro {
   // revogado, assinatura bloqueada ou plano sem o recurso. Nada no corpo
   // distingue um caso do outro — nem o código.
   if (erro instanceof FeedDoCalendarioNaoEncontradoError) {
-    return { status: 404, corpo: { erro: 'NAO_ENCONTRADO', mensagem: 'Não encontrado.' } };
+    return {
+      status: 404,
+      corpo: { erro: 'NAO_ENCONTRADO', mensagem: 'Não encontrado.' },
+    };
   }
 
   // 409: descartado é final; o pedido é válido, o estado do evento é que não
@@ -117,6 +124,7 @@ export function mapearErro(erro: unknown): RespostaDeErro {
     erro instanceof ProcessoNaoEncontradoError ||
     erro instanceof ChaveApiNaoEncontradaError ||
     erro instanceof JobDoLeitorNaoEncontradoError ||
+    erro instanceof PecaDaPastaNaoEncontradaError ||
     erro instanceof EventoDeCalendarioNaoEncontradoError ||
     erro instanceof FeedDoCalendarioAusenteError
   ) {
@@ -125,7 +133,11 @@ export function mapearErro(erro: unknown): RespostaDeErro {
 
   // 409: o pedido é válido e o PDF existirá — ainda não existe. A tela
   // consulta o progresso em vez de tratar como erro.
-  if (erro instanceof LeitorAindaNaoProntoError) {
+  if (
+    erro instanceof LeitorAindaNaoProntoError ||
+    erro instanceof ListagemDaPastaAusenteError ||
+    erro instanceof PastaSemPecasParaJuntarError
+  ) {
     return { status: 409, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 
@@ -145,7 +157,10 @@ export function mapearErro(erro: unknown): RespostaDeErro {
   }
 
   // 403: não é que não possa ver — é que não guardamos. A mensagem diz o caminho.
-  if (erro instanceof SegredoDeJusticaNaoGuardadoError) {
+  if (
+    erro instanceof SegredoDeJusticaNaoGuardadoError ||
+    erro instanceof PecaSigilosaNaoGuardadaError
+  ) {
     return { status: 403, corpo: { erro: erro.codigo, mensagem: erro.message } };
   }
 

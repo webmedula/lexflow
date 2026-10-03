@@ -25,6 +25,28 @@ export interface ArmazemDoLeitor {
     bytes: Uint8Array,
   ): Promise<string>;
 
+  /**
+   * Grava bytes num arquivo NOVO de nome aleatório na pasta `pastaId` e devolve
+   * o localizador. É o que a guarda por peça da Pasta digital usa: o nome não é
+   * derivável do id da peça (que o cliente conhece).
+   */
+  gravarArquivo(
+    workspace: string,
+    pastaId: string,
+    bytes: Uint8Array,
+    extensao: string,
+  ): Promise<string>;
+
+  /** Apaga UM arquivo. @returns bytes liberados (0 se já não existia). */
+  apagarArquivo(workspace: string, localizador: string): Promise<number>;
+
+  /**
+   * Apaga arquivos temporários (`.tmp`) mais velhos que `idadeMinimaMs` em
+   * TODA a guarda — sobra de um processo que caiu entre gravar e converter.
+   * @returns quantos saíram.
+   */
+  removerTemporarios(idadeMinimaMs: number): Promise<number>;
+
   /** Localizador de um arquivo NOVO na pasta do job (nome aleatório). */
   novoArquivo(workspace: string, jobId: string, extensao: string): string;
 

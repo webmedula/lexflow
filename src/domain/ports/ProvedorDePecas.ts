@@ -109,6 +109,13 @@ export interface ProvedorDePecas {
   ): Promise<LoteDePecas>;
 
   /**
+   * Até quando a fonte está em pausa por bloqueio do tribunal (disjuntor de
+   * 403); `undefined` com o disjuntor fechado. Só informa — não consulta nada.
+   * É o que deixa a tela dizer "pausado até HH:MM" sem bater na porta fechada.
+   */
+  pausadoAte?(): Date | undefined;
+
+  /**
    * Assinatura barata do estado do processo, para detectar mudança sem baixar
    * nada. `undefined` quando a fonte não oferece esse atalho.
    *

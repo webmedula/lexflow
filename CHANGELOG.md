@@ -9,6 +9,121 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.33.1] — 2026-10-03
+
+Pasta digital — **a tela** (Parte 2). Fecha a entrega da 0.33.0: o backend já
+estava na tag anterior. Especificação: `docs/ajustes-e-pasta-digital-especificacao-v1.0.0.md`
+(seções 5 a 8).
+
+### Adicionado
+
+- **Pasta digital** (`ui/scriptPasta.ts`, `ui/estilosPasta.ts`): lista de todas as
+  peças à esquerda — ordem dos autos, rótulo, data, estado (não baixada, na fila,
+  baixando, disponível, não obtida com motivo, sob sigilo), intervalo `p. N–M` quando
+  o PDF montado existe, caixas de marcar, atalhos por tipo, "Todas (N)" /
+  "Nenhuma", contador "N marcadas de M · mostrando X de M (K escondidas pelos
+  filtros)", busca por rótulo, filtro "só disponíveis" e teclado completo
+  (setas, Home/End, Enter abre, Espaço marca) — e o visualizador PDF.js à direita.
+- **Clicar baixa só a peça.** O clique espera 400 ms (outro clique troca o
+  agendado) antes de pedir; peça já guardada abre sem pedido. Estados honestos no
+  visualizador: pedindo, **aguardando a fila do tribunal** (com a explicação de
+  que há uma montagem andando e a pausa de 3 s), baixando, pausado pelo tribunal
+  até HH:MM, sem habilitação nos autos, não obtida com o motivo, sob sigilo, e
+  "obtida em dd/mm hh:mm, não é consulta ao vivo". Nunca "carregando" sem fim:
+  limites de 120 s (peça) e 30 s (abrir PDF), e três falhas de consulta param a
+  tela com "tentar de novo".
+- **Montar pasta completa** (estimativa antes, confirmação acima de
+  `LEITOR_CONFIRMAR_ACIMA_DE`, leitura enquanto monta, progresso e pausa do tribunal
+  com a hora), **Ver tudo seguido** (PDF combinado; clicar numa peça com `p. N` leva
+  até a página) e **Baixar PDF (N)** das marcadas, que antes mostra "serão
+  buscadas K peças no tribunal (~tempo)" e baixa `processo-<n>-pecas-selecionadas.pdf`.
+- Listagem ausente (409): mensagem clara e "Tentar de novo", que carrega as peças
+  do processo e repete. Sem listagem ao abrir, a tela carrega as peças do processo.
+- Divisor arrastável (e por teclado), largura lembrada e sempre limitada à janela;
+  no celular a lista ocupa a tela e a peça abre em tela cheia com "voltar".
+- Teste de navegador (Chromium, `playwright-core`, `axe-core` como dependências de
+  desenvolvimento): cliques rápidos geram UM lote no tribunal falso; montagem com
+  clique no meio; 403; 409; teclado; celular; divisor; axe nos temas claro e escuro.
+
+### Alterado
+
+- **Substitui o painel "Ler peças ao lado".** O botão do cartão das peças agora é
+  "Pasta digital". Saíram `scriptLeitor.ts`, `estilosLeitor.ts`, as caixas de marcar
+  na linha do tempo, "Reabrir o PDF já pronto" e o recorte por extratos na
+  interface (as rotas da API continuam).
+- O servidor só diz **"baixando"** quando a consulta ao tribunal de fato saiu; antes
+  disso o pedido está "na fila" (um job em andamento, a pausa de 3 s).
+  `ServicoLeitor.consultarLote` ganhou o aviso de início.
+- O job do leitor confere a guarda por peça antes de CADA lote: uma peça aberta por
+  clique durante a montagem não é baixada duas vezes.
+
+---
+
+## [0.33.0] — 2026-10-03
+
+Pasta digital — **backend** (Parte 1). A tela (lista à esquerda, visualizador à
+direita) vem na Parte 2; até lá o botão "Ler peças ao lado" continua como era.
+Especificação: `docs/ajustes-e-pasta-digital-especificacao-v1.0.0.md` (seções 5 a
+10). Medições: `docs/pasta-digital-medicoes-v0.33.0.md`.
+
+### Adicionado
+
+- **Abrir UMA peça ao clique.** `POST /v1/processos/:numero/pasta/pecas/:pecaId`
+  pede só aquela peça ao tribunal (método em lote, lote de 1), guarda e serve em
+  `GET …/arquivo` (PDF com `Range`, para o PDF.js). 200 = já estava em guarda,
+  nenhuma chamada ao tribunal; 202 = na fila. HTML do tribunal vira texto no
+  servidor e imagem vira página de PDF **na entrada** — o original não fica.
+- **O clique não é uma chamada.** `ServicoPasta` guarda um pedido pendente por
+  (workspace, processo): clique em peça diferente troca o pendente e só o último,
+  depois de `PASTA_DEBOUNCE_MS` (400 ms), vai ao tribunal. Sem pré-busca; sem
+  retry (a falha vira o estado da peça, com o motivo; 403 carrega a hora de volta).
+- **Guarda por peça** (`GuardaDePecas`, `pasta_pecas`): por workspace, nome
+  aleatório, fora do diretório servido e do backup, TTL de `LEITOR_TTL_HORAS`,
+  limpeza pelo `Agendador`, e a MESMA cota por workspace do PDF combinado — a
+  regra de substituição da v0.31.1 agora vale para os dois (e nunca tira o que um
+  job em andamento usa). Peça e processo sob sigilo nunca são guardados.
+- **Lista da Pasta** (`GET …/pasta`): todas as peças na ordem dos autos com
+  estado (`nao_baixada`, `na_fila`, `baixando`, `disponivel`, `nao_obtida`
+  com motivo, `sigilo`), intervalo de páginas quando o PDF montado existe, totais
+  SEM filtro, pausa do tribunal e procedência (`aoVivo: false`). Não consulta o
+  tribunal: lê a listagem gravada quando a tela carrega as peças do processo
+  (`pasta_listagens`).
+- **Montar pasta completa** (`POST …/pasta/montar`): job do leitor para todas as
+  peças; só as não sigilosas fora da guarda vão ao tribunal, e o estado de cada
+  peça muda conforme os lotes chegam. Idempotente.
+- **Baixar as marcadas** (`POST …/pasta/baixar`, e `…/baixar/previa` para dizer
+  antes quantas peças serão buscadas): junta na ordem dos autos, com índice
+  próprio, usando a guarda e buscando só o que falta — tudo em guarda custa zero
+  consultas. Nome: `processo-<número>-pecas-selecionadas.pdf`.
+- Erros de domínio: `ListagemDaPastaAusenteError` (409),
+  `PecaDaPastaNaoEncontradaError` (404, igual para "não existe" e "é de outro"),
+  `PecaSigilosaNaoGuardadaError` (403), `PastaSemPecasParaJuntarError` (409).
+- Motivos de peça não obtida: `sem_habilitacao` e `bloqueio_do_tribunal`.
+- `PASTA_DEBOUNCE_MS` em `.env.example`.
+
+### Alterado
+
+- **Toda chamada ao tribunal sai por uma fila só** (`ServicoLeitor.consultarLote`):
+  a pausa de 3 s passa a valer entre TODAS as chamadas — as do job e as dos
+  cliques —, não só entre as do mesmo job. Continua um único `MniAdapter`, um
+  balde, um disjuntor de 403.
+- **O leitor guarda cada peça baixada na guarda por peça** (já como PDF) em vez da
+  pasta de trabalho do job: a peça pode ser aberta antes de o combinado ficar
+  pronto, e peça já guardada não volta ao tribunal. O índice continua dizendo
+  `convertida`/`html_convertida`. O job ganhou `finalidade`
+  (`pasta_completa` | `selecionadas`; ausente = seleção livre da v0.31).
+- `visaoDoJob` ganhou `finalidade`. `ProvedorDePecas` ganhou `pausadoAte?()`
+  opcional. `ArmazemDoLeitor` ganhou `gravarArquivo`, `apagarArquivo` e
+  `removerTemporarios`.
+
+### Observação de capacidade
+
+Uma pasta completa ocupa **o dobro** do PDF combinado em disco (peças em guarda +
+combinado). Com o teto de 300 MB por PDF, até ~600 MB dos 1 GB da conta. Ver
+`docs/pasta-digital-medicoes-v0.33.0.md`.
+
+---
+
 ## [0.32.1] — 2026-10-02
 
 Três ajustes pedidos por advogados que usaram o sistema. Especificação:
