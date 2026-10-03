@@ -292,6 +292,40 @@ describe('ServicoPasta — a lista', () => {
     expect(m.provedor.chamadas.length).toBe(chamadasAntes);
   });
 
+  it('pendura cada peça no ato do tribunal pelo identificador, e a listagem gravada antes (sem ato) segue como era', async () => {
+    const m = await montar(await pecasPadrao());
+    m.provedor.movimentos = [
+      {
+        data: new Date('2026-09-28T13:00:00Z'),
+        titulo: 'Juntada de documento (ev. 382)',
+        complementos: ['  tipo: x  ', ' '],
+        idExterno: 'mni:1',
+        fonte: 'mni',
+      },
+      // Posição na lista NÃO é número: o ato 2 não é "o segundo" de nada.
+      { data: new Date('2026-09-29T13:00:00Z'), titulo: 'Sem número', fonte: 'mni' },
+    ];
+    await m.registrarListagem();
+    const v = await m.pasta.visao(A, PROCESSO_TJGO);
+    const a = v.pecas.find((p) => p.pecaId === 'a');
+    expect(a?.movimentacao).toEqual({
+      numero: 1,
+      data: new Date('2026-09-28T13:00:00Z'),
+      descricao: 'Juntada de documento (ev. 382)',
+      complemento: 'tipo: x',
+    });
+    expect(v.pecas.find((p) => p.pecaId === 'b')?.movimentacao?.numero).toBe(1);
+    // Peça sem `movimento` na ficha: sem bloco, nada inventado.
+    expect(v.pecas.find((p) => p.pecaId === 'c')?.movimentacao).toBeUndefined();
+
+    // Listagem sem ato (como as gravadas antes da 0.33.2): a visão não muda.
+    m.provedor.movimentos = [];
+    await m.registrarListagem();
+    const depois = await m.pasta.visao(A, PROCESSO_TJGO);
+    expect(depois.pecas.every((p) => p.movimentacao === undefined)).toBe(true);
+    expect(depois.pecas.map((p) => p.pecaId)).toEqual(v.pecas.map((p) => p.pecaId));
+  });
+
   it('informa a pausa do tribunal (403) sem bater na porta fechada', async () => {
     const m = await montar(await pecasPadrao());
     await m.registrarListagem();

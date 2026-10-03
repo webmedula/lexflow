@@ -124,7 +124,7 @@ export function montarLinhaDoTempo(entrada: EntradaDaLinha): LinhaDoTempo {
 }
 
 /** O `movimento` que a peça aponta, e o `identificadorMovimento` do evento. */
-function numeroDoMovimento(m: Movimentacao): number | undefined {
+export function numeroDoMovimento(m: Movimentacao): number | undefined {
   const id = m.idExterno;
   if (!id) return undefined;
   const separador = id.indexOf(':');

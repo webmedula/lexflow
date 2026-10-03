@@ -187,6 +187,7 @@ describe('API — Pasta digital: a lista', () => {
       'intervalo',
       'mimetype',
       'motivo',
+      'movimentacao',
       'movimento',
       'observacao',
       'obtidaEm',
@@ -503,5 +504,86 @@ describe('API — Pasta digital sem leitor montado', () => {
     const r = await sem.inject({ url: PASTA, headers: A });
     expect(r.statusCode).toBe(501);
     await sem.close();
+  });
+});
+
+describe('API — Pasta digital: a movimentação de cada peça (v0.33.2)', () => {
+  const ato = (numero: number, titulo: string, extra = {}) => ({
+    data: new Date('2026-09-28T13:00:00Z'),
+    titulo,
+    idExterno: `mni:${numero}`,
+    fonte: 'mni',
+    ...extra,
+  });
+
+  it('devolve, por peça, o ato do tribunal (data, texto como está e número) — sem consulta nova', async () => {
+    provedor.movimentos = [
+      ato(1, 'Juntada de Petição de Impugnação — ev. 382', {
+        complementos: ['tipo_de_documento: petição', 'ref: 12'],
+      }),
+    ];
+    await carregarPecas();
+    const antes = provedor.chamadas.length;
+    const c = await pasta();
+    const porId = Object.fromEntries(c.pecas.map((p) => [p.pecaId, p]));
+    // Com número e complemento: as duas peças do mesmo ato repetem a descrição.
+    for (const id of ['a', 'b']) {
+      expect(porId[id]?.['movimentacao']).toEqual({
+        numero: 1,
+        data: '2026-09-28T13:00:00.000Z',
+        descricao: 'Juntada de Petição de Impugnação — ev. 382',
+        complemento: 'tipo_de_documento: petição; ref: 12',
+      });
+    }
+    // O "382" do texto é texto: o número da movimentação continua sendo o do tribunal.
+    expect((porId['a']?.['movimentacao'] as { numero: number }).numero).toBe(1);
+    // Sem vínculo: sem bloco, e a procedência segue em toda resposta.
+    for (const id of ['h', 'c', 's']) expect(porId[id]?.['movimentacao']).toBeNull();
+    expect(c['procedencia']).toMatchObject({ aoVivo: false });
+    expect(provedor.chamadas.length).toBe(antes);
+  });
+
+  it('sem complemento o campo vem nulo; peça que aponta ato que o tribunal não listou fica sem bloco', async () => {
+    provedor.movimentos = [ato(1, 'Distribuição')];
+    await carregarPecas();
+    const c = await pasta();
+    expect(c.pecas.find((p) => p.pecaId === 'a')?.['movimentacao']).toMatchObject({
+      numero: 1,
+      descricao: 'Distribuição',
+      complemento: null,
+    });
+    // Peça cujo `movimento` não existe na resposta: só um lado do vínculo.
+    provedor.movimentos = [ato(99, 'Outro ato')];
+    await carregarPecas();
+    const d = await pasta();
+    expect(d.pecas.every((p) => p['movimentacao'] === null)).toBe(true);
+  });
+
+  it('número repetido na resposta não vira vínculo: descrição errada é pior que nenhuma', async () => {
+    provedor.movimentos = [ato(1, 'Primeiro ato'), ato(1, 'Segundo ato')];
+    await carregarPecas();
+    const c = await pasta();
+    expect(c.pecas.every((p) => p['movimentacao'] === null)).toBe(true);
+  });
+
+  it('o ato do A nunca aparece para o B — cada workspace lê a SUA listagem', async () => {
+    provedor.movimentos = [ato(1, 'Ato visto pela advogada A')];
+    await carregarPecas(A);
+    // B ainda não carregou: não herda a listagem (nem o texto) do A.
+    const vazio = await pasta(B);
+    expect(vazio['listagem']).toBeNull();
+    expect(JSON.stringify(vazio)).not.toContain('advogada A');
+
+    provedor.movimentos = [ato(1, 'Ato visto pelo advogado B')];
+    await carregarPecas(B);
+    const doB = await pasta(B);
+    const doA = await pasta(A);
+    expect(doB.pecas.find((p) => p.pecaId === 'a')?.['movimentacao']).toMatchObject({
+      descricao: 'Ato visto pelo advogado B',
+    });
+    expect(doA.pecas.find((p) => p.pecaId === 'a')?.['movimentacao']).toMatchObject({
+      descricao: 'Ato visto pela advogada A',
+    });
+    expect(JSON.stringify(doA)).not.toContain('advogado B');
   });
 });

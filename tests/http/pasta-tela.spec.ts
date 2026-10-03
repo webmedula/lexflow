@@ -274,6 +274,29 @@ describe('console — a tela da Pasta digital', () => {
     expect(SCRIPT_PASTA).toContain('MAX_DESENHADAS');
   });
 
+  it('mostra a movimentação da peça: texto por esc(), nunca link, e só quando há o que mostrar', () => {
+    // Passa por esc() — é texto do tribunal.
+    expect(SCRIPT_PASTA).toContain("esc(t)+'</span>'");
+    expect(SCRIPT_PASTA).toContain('esc(tituloDaMov(p))');
+    // Sem bloco vazio e sem número inventado: o "mov. N" só sai com `numero`.
+    expect(SCRIPT_PASTA).toContain("if(!m)return '';");
+    expect(SCRIPT_PASTA).toContain('m.numero!=null?');
+    // Texto livre é texto: nenhum <a> nem href é montado a partir da descrição.
+    expect(SCRIPT_PASTA).not.toMatch(/<a [^']*mov/);
+    // Até 2 linhas, número sempre à vista, nunca estoura a lista.
+    expect(ESTILOS_PASTA).toContain('-webkit-line-clamp:2');
+    expect(ESTILOS_PASTA).toContain('#pasta .linha .mov-n{flex:none');
+    expect(ESTILOS_PASTA).toContain('overflow-wrap:anywhere');
+    expect(ESTILOS_PASTA).toContain('#pasta .visor .mov-visor:empty{display:none}');
+  });
+
+  it('a busca procura no rótulo, na descrição e no número da movimentação', () => {
+    expect(SCRIPT_PASTA).toContain('function combinaComBusca(p,termo)');
+    expect(SCRIPT_PASTA).toContain('Buscar por rótulo, movimentação ou nº');
+    // Número casa por igualdade ("382" não acha 1382).
+    expect(SCRIPT_PASTA).toContain('String(m.numero)===String(Number(num[1]))');
+  });
+
   it('nenhum conteúdo de peça entra no DOM: só texto do sistema, por esc()', () => {
     expect(SCRIPT_PASTA).not.toMatch(/innerHTML\s*=\s*[a-z]*[Cc]onteudo/);
     // O rótulo (texto do tribunal) sempre passa por esc().

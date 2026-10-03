@@ -8,6 +8,24 @@ import type { MotivoNaoObtida } from './JobLeitor.js';
  * mora no armazém, e o que circula (lista, resposta HTTP, log) é metadado.
  */
 
+/**
+ * O ato que juntou a peça, COMO O TRIBUNAL O ESCREVEU (v0.33.2).
+ *
+ * O vínculo é o da própria resposta do MNI: `<documento movimento="N">` aponta
+ * para o `<movimento identificadorMovimento="N">` da mesma resposta. É a mesma
+ * junção que a régua do processo usa — e a única que existe: número citado no
+ * texto do ato ("ev. 382") é texto do cartório e não entra aqui.
+ */
+export interface MovimentacaoDaPeca {
+  /** `identificadorMovimento` do tribunal. Nunca a posição na lista. */
+  readonly numero: number;
+  readonly data: Date;
+  /** Descrição do ato, como o tribunal a deu. */
+  readonly descricao: string;
+  /** Complementos do ato (qualificadores), como vieram, separados por "; ". */
+  readonly complemento?: string;
+}
+
 /** Uma peça como o tribunal a listou. Fica gravada: é a base dos pedidos. */
 export interface PecaListada {
   readonly pecaId: string;
@@ -16,6 +34,12 @@ export interface PecaListada {
   readonly rotulo: string;
   readonly data?: Date;
   readonly movimento?: number;
+  /**
+   * O ato a que a peça pertence, quando a resposta do tribunal trouxe os dois
+   * lados do vínculo. Ausente: a linha fica como sempre foi (listagens
+   * gravadas antes da 0.33.2 também não têm).
+   */
+  readonly movimentacao?: MovimentacaoDaPeca;
   readonly mimetype?: string;
   /**
    * Sob sigilo na origem (`nivelSigilo > 0`). Quem decide é o TRIBUNAL, nunca

@@ -231,6 +231,15 @@ function visaoDaPeca(p: VisaoDaPeca): Record<string, unknown> {
     rotulo: p.rotulo,
     data: p.data?.toISOString() ?? null,
     movimento: p.movimento ?? null,
+    // Texto do tribunal, como está; número só o `identificadorMovimento`.
+    movimentacao: p.movimentacao
+      ? {
+          numero: p.movimentacao.numero,
+          data: p.movimentacao.data.toISOString(),
+          descricao: p.movimentacao.descricao,
+          complemento: p.movimentacao.complemento ?? null,
+        }
+      : null,
     mimetype: p.mimetype ?? null,
     estado: p.estado,
     motivo: p.motivo ?? null,

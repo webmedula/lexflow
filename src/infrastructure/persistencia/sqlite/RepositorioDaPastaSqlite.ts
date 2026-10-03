@@ -13,6 +13,14 @@ const pecaListadaSchema = z.object({
   rotulo: z.string(),
   data: z.string().optional(),
   movimento: z.number().int().optional(),
+  movimentacao: z
+    .object({
+      numero: z.number().int(),
+      data: z.string(),
+      descricao: z.string(),
+      complemento: z.string().optional(),
+    })
+    .optional(),
   mimetype: z.string().optional(),
   sigilosa: z.boolean(),
 });
@@ -45,7 +53,13 @@ export class RepositorioDaPastaSqlite implements RepositorioDaPasta {
   constructor(private readonly db: DatabaseSync) {}
 
   async guardarListagem(workspace: string, l: ListagemDaPasta): Promise<void> {
-    const pecas = l.pecas.map((p) => ({ ...p, data: p.data?.toISOString() }));
+    const pecas = l.pecas.map((p) => ({
+      ...p,
+      data: p.data?.toISOString(),
+      ...(p.movimentacao
+        ? { movimentacao: { ...p.movimentacao, data: p.movimentacao.data.toISOString() } }
+        : {}),
+    }));
     this.db
       .prepare(
         `INSERT INTO pasta_listagens
@@ -91,6 +105,18 @@ export class RepositorioDaPastaSqlite implements RepositorioDaPasta {
         sigilosa: p.sigilosa,
         ...(p.data !== undefined ? { data: new Date(p.data) } : {}),
         ...(p.movimento !== undefined ? { movimento: p.movimento } : {}),
+        ...(p.movimentacao !== undefined
+          ? {
+              movimentacao: {
+                numero: p.movimentacao.numero,
+                data: new Date(p.movimentacao.data),
+                descricao: p.movimentacao.descricao,
+                ...(p.movimentacao.complemento !== undefined
+                  ? { complemento: p.movimentacao.complemento }
+                  : {}),
+              },
+            }
+          : {}),
         ...(p.mimetype !== undefined ? { mimetype: p.mimetype } : {}),
       })),
     };

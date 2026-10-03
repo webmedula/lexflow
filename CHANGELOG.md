@@ -9,6 +9,42 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.33.2] — 2026-10-03
+
+Pasta digital — **cada peça mostra o ato a que pertence**. Pedido do dono: 111 de
+279 peças de um processo real chegam rotuladas só "Outros", e o advogado não
+tinha como identificá-las na lista.
+
+### Adicionado
+
+- **Descrição e número da movimentação em cada peça da lista.** Rótulo, data e
+  estado como antes; abaixo, a descrição do ato em até 2 linhas e "mov. N" ao lado.
+  Texto inteiro no mouse, com a linha em foco (teclado) e no cabeçalho do
+  visualizador. Várias peças do mesmo ato repetem a descrição (sem agrupar).
+- **A busca da lista procura também na descrição e no número da movimentação**
+  (o número casa por igualdade: "382" não acha 1382). O contador "mostrando X de M
+  (K escondidas pelos filtros)" segue valendo.
+- `GET …/pasta`: cada peça traz `movimentacao` (`numero`, `data`, `descricao`,
+  `complemento`) ou `null`. Procedência `aoVivo:false` em toda resposta.
+
+### Detalhes
+
+- **Fonte dos campos (MNI, tribunal):** vínculo `documento@movimento` ↔
+  `movimento@identificadorMovimento` da mesma resposta; descrição =
+  `movimentoLocal@descricao` (ou `descricao`); complementos = `complemento`s do
+  ato; número = `identificadorMovimento`. Nenhuma consulta nova: os dados já vêm
+  na listagem que a tela do processo grava, e agora ela grava também o ato.
+- **Não se inventa:** sem os dois lados do vínculo (peça aponta ato que a resposta
+  não trouxe, número repetido, ato sem data) a linha fica como era, sem bloco
+  vazio. Número citado dentro da descrição é texto, nunca link nem número do ato.
+- **Listagens gravadas antes desta versão** não têm o ato; ele aparece na próxima
+  vez que a tela do processo carregar as peças (sem consulta automática ao
+  tribunal para recuperar).
+- Sem conteúdo de peça lido, sem mudança na fila, no limitador, no cache nem no
+  isolamento por workspace.
+
+---
+
 ## [0.33.1] — 2026-10-03
 
 Pasta digital — **a tela** (Parte 2). Fecha a entrega da 0.33.0: o backend já
