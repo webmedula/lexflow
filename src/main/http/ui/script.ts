@@ -228,8 +228,8 @@ function atualizarBolha(){
 }
 
 function ir(aba){
-  // Sair do processo fecha o leitor: o painel é do processo, não da aba.
-  if(window.__pvLeitor)window.__pvLeitor.fechar();
+  // Sair do processo fecha a Pasta: o painel é do processo, não da aba.
+  if(window.__pvPasta)window.__pvPasta.fechar();
   estado.aba=aba;estado.detalhe=null;pintarNav();render()}
 window.__processovivo_ir=ir;
 
@@ -1110,7 +1110,7 @@ function atualizarRotuloLote(lista){
 
 /* ---------------- detalhe ---------------- */
 function abrir(numero){
-  if(window.__pvLeitor)window.__pvLeitor.trocouProcesso(numero);
+  if(window.__pvPasta)window.__pvPasta.trocouProcesso(numero);
   estado.detalhe=numero;pintarNav();
   var alvo=$('conteudo');
   alvo.innerHTML='<div class="cartao"><span class="gira"></span>Carregando…</div>';
@@ -1147,7 +1147,7 @@ function abrir(numero){
   });
 }
 window.__processovivo_abrir=abrir;
-/* O que o leitor (scriptLeitor.ts) e o calendário (calendario.ts) usam do console.
+/* O que a Pasta digital (scriptPasta.ts) e o calendário (calendario.ts) usam do console.
    Um objeto pequeno e explícito: eles não leem o estado da tela por dentro. */
 window.__pv={api:api,esc:esc,explicar:explicar,dth:dth,erroBloco:erroBloco,vazio:vazio,abrir:abrir,chave:function(){return estado.chave},dt:dt,diaMes:diaMes,humano:humano,mascara:mascara};
 
@@ -1594,9 +1594,9 @@ function desenharPecas(numero,linha){
     var rh='<div class="cartao"><div class="titulo-secao" style="margin-bottom:6px">'+
       '<h3 class="sec" style="margin:0">Peças do processo · '+total+'</h3>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-      /* O leitor abre por botão, e só por ele: sem clicar aqui, a tela do
-         processo é exatamente a de antes. */
-      '<button class="bt bt2" id="leitor-abrir">Ler peças ao lado</button>'+
+      /* A Pasta digital abre por botão, e só por ele: sem clicar aqui, a tela
+         do processo é exatamente a de antes. */
+      '<button class="bt bt2" id="pasta-abrir">Pasta digital</button>'+
       '<button class="bt bt2" id="pecas-atualizar">Atualizar</button></div></div>';
     if(naRegua){
       rh+='<div class="nota">'+naRegua+' de '+total+' estão na linha do tempo, '+
@@ -1615,7 +1615,7 @@ function desenharPecas(numero,linha){
 
   if(soltas.length)caixa.innerHTML=listaDePecasHtml(soltas,naRegua?'Peças sem andamento':'Todas as peças');
   ligarDownloadDePecas(numero);
-  if(window.__pvLeitor)window.__pvLeitor.aposDesenhar(numero,linha);
+  if(window.__pvPasta)window.__pvPasta.aposDesenhar(numero);
 }
 
 /* A lista agrupada por origem — o que era a tela inteira das peças e hoje é só

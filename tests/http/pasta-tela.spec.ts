@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { carregarConfig } from '../../src/infrastructure/config/env.js';
 import type { Aplicacao } from '../../src/main/factories/makeProcessoSearchService.js';
 import { construirServidor } from '../../src/main/http/servidor.js';
-import { ESTILOS_LEITOR } from '../../src/main/http/ui/estilosLeitor.js';
+import { ESTILOS_PASTA } from '../../src/main/http/ui/estilosPasta.js';
 import { paginaConsole } from '../../src/main/http/ui/pagina.js';
 import { SCRIPT } from '../../src/main/http/ui/script.js';
-import { SCRIPT_LEITOR } from '../../src/main/http/ui/scriptLeitor.js';
+import { SCRIPT_PASTA } from '../../src/main/http/ui/scriptPasta.js';
 import { aplicacaoDeTeste } from '../helpers/aplicacao.js';
 import { ProviderFalso } from '../helpers/fabricas.js';
 import {
@@ -137,38 +137,36 @@ describe('API — apoio ao painel', () => {
   });
 });
 
-describe('console — o painel do leitor', () => {
+describe('console — a tela da Pasta digital', () => {
   it('vive em arquivo próprio: o script do console não carrega PDF.js', () => {
     expect(SCRIPT).not.toContain('getDocument');
     expect(SCRIPT).not.toContain('/ui/pdfjs/');
-    expect(SCRIPT_LEITOR).toContain('getDocument');
+    expect(SCRIPT_PASTA).toContain('getDocument');
   });
 
-  it('entra na página sem <script src> e sem nada de fora', () => {
+  it('entra na página sem <script src> e sem nada de fora; o painel antigo saiu', () => {
     const html = paginaConsole('0.0.0');
-    expect(html).toContain(SCRIPT_LEITOR.trim().slice(0, 40));
-    expect(html).toContain(ESTILOS_LEITOR.trim().slice(0, 40));
+    expect(html).toContain(SCRIPT_PASTA.trim().slice(0, 40));
+    expect(html).toContain(ESTILOS_PASTA.trim().slice(0, 40));
     expect(html).not.toMatch(/<script[^>]+src=/i);
-    expect(SCRIPT_LEITOR).not.toMatch(/https?:\/\//);
+    expect(SCRIPT_PASTA).not.toMatch(/https?:\/\//);
+    expect(html).not.toContain('Ler peças ao lado');
+    expect(SCRIPT).toContain('id="pasta-abrir">Pasta digital');
   });
 
-  it('sem abrir o painel, a tela do processo é a de antes', () => {
-    /*
-     * O console só ganhou um botão ("Ler peças ao lado") e dois ganchos. O
-     * gancho chamado a cada redesenho não mexe na régua enquanto o painel não
-     * existe: caixas de marcar e links "p. N" nascem só depois de abrir.
-     */
-    const inicio = SCRIPT_LEITOR.indexOf('aposDesenhar:function');
-    const corpo = SCRIPT_LEITOR.slice(
+  it('sem abrir a Pasta, a tela do processo é a de antes: o gancho só liga o botão', () => {
+    const inicio = SCRIPT_PASTA.indexOf('aposDesenhar:function');
+    const corpo = SCRIPT_PASTA.slice(
       inicio,
-      SCRIPT_LEITOR.indexOf('trocouProcesso:', inicio),
+      SCRIPT_PASTA.indexOf('trocouProcesso:', inicio),
     );
-    expect(corpo.indexOf("if(!$('leitor'))return;")).toBeGreaterThan(0);
-    expect(corpo.indexOf("if(!$('leitor'))return;")).toBeLessThan(
-      corpo.indexOf('injetarCaixas()'),
-    );
-    // O CSS do leitor só age sob o painel aberto ou dentro dele.
-    for (const regra of ESTILOS_LEITOR.split('}')) {
+    // Nada de caixas na linha do tempo nem de DOM novo: bind do botão e, só com a Pasta aberta, recarregar.
+    expect(corpo).toContain("addEventListener('click',abrirPasta)");
+    expect(corpo).not.toContain('createElement');
+    expect(corpo).not.toContain('insertBefore');
+    expect(corpo).toContain('if(st.aberta)recarregar()');
+    // O CSS só age dentro da Pasta ou sob as classes do corpo dela.
+    for (const regra of ESTILOS_PASTA.split('}')) {
       const seletor = regra.split('{')[0]?.trim() ?? '';
       if (
         !seletor ||
@@ -177,62 +175,109 @@ describe('console — o painel do leitor', () => {
         seletor.startsWith(':root')
       )
         continue;
-      expect(
-        /#leitor|com-leitor|leitor-|\.sel|ir-pagina|no-leitor|^\s*$/.test(seletor),
-        `regra que vaza para a tela sem painel: ${seletor}`,
-      ).toBe(true);
+      for (const parte of seletor.split(',').map((x) => x.trim())) {
+        expect(
+          /^(#pasta|body\.com-pasta|body\.pasta-lendo)/.test(parte),
+          `regra que vaza para a tela sem a Pasta: ${parte}`,
+        ).toBe(true);
+      }
     }
   });
 
-  it('diz o estado com honestidade: progresso, pausa com horário, parcial, nunca "ao vivo"', () => {
-    expect(SCRIPT_LEITOR).toContain('Baixando do tribunal:');
-    expect(SCRIPT_LEITOR).toContain('Sem progresso desde');
-    expect(SCRIPT_LEITOR).toContain('por volta das');
-    expect(SCRIPT_LEITOR).toContain('não é consulta ao vivo');
-    expect(SCRIPT_LEITOR).toContain('j.recusadas.forEach');
-    // Três falhas seguidas na consulta de progresso: para e diz, com botão.
-    expect(SCRIPT_LEITOR).toContain('st.erroPoll>=3');
-  });
-
-  it('abre com "Nova seleção" e "Reabrir o PDF já pronto"; a seleção nova começa VAZIA', () => {
-    expect(SCRIPT_LEITOR).toContain('Reabrir o PDF já pronto');
-    const inicio = SCRIPT_LEITOR.indexOf('function entrarNaSelecao(){');
-    const corpo = SCRIPT_LEITOR.slice(
+  it('o clique não é uma chamada: debounce de 400 ms, o pedido agendado é trocado pelo seguinte', () => {
+    expect(SCRIPT_PASTA).toContain('var DEBOUNCE_MS=400');
+    const inicio = SCRIPT_PASTA.indexOf('function abrirPeca(');
+    const corpo = SCRIPT_PASTA.slice(
       inicio,
-      SCRIPT_LEITOR.indexOf('function sairDaSelecao', inicio),
+      SCRIPT_PASTA.indexOf('function enviarPedido', inicio),
     );
-    expect(corpo).toContain('st.selecao={}');
-    // "Limpar seleção" sempre à mão; a anterior só volta se a pessoa pedir.
-    expect(SCRIPT_LEITOR).toContain('Limpar seleção');
-    expect(SCRIPT_LEITOR).toContain('Repetir a seleção anterior');
-    // A estimativa conta só o que vai ao tribunal.
-    expect(SCRIPT_LEITOR).toContain('pedirEstimativa(novas)');
+    expect(corpo).toContain('clearTimeout(st.clique.timer)');
+    expect(corpo).toContain(
+      'setTimeout(function(){enviarPedido(id)},imediato?0:DEBOUNCE_MS)',
+    );
+    // Nenhuma pré-busca: o único POST de peça é o do clique.
+    expect(
+      SCRIPT_PASTA.match(/\/pecas\/'\+encodeURIComponent\(id\),\{method:'POST'\}/g),
+    ).toHaveLength(1);
   });
 
-  it('"Baixar selecionadas (N)" recorta sem tribunal e diz quando o PDF já expirou', () => {
-    expect(SCRIPT_LEITOR).toContain("'Baixar selecionadas ('+n+')'");
-    expect(SCRIPT_LEITOR).toContain('-pecas-selecionadas.pdf');
-    expect(SCRIPT_LEITOR).toContain('e.status===410');
-    expect(SCRIPT_LEITOR).toContain('Nada foi pedido ao tribunal');
+  it('diz o estado com honestidade e nunca fica "carregando" sem fim', () => {
+    for (const texto of [
+      'Aguardando a fila do tribunal.',
+      'Baixando esta peça…',
+      'Pausado pelo tribunal',
+      'Sem habilitação nos autos',
+      'Esta peça não pôde ser obtida',
+      'não é consulta ao vivo',
+      'Esta peça está demorando mais do que o normal.',
+      'O PDF está demorando para abrir.',
+      'A lista de peças deste processo ainda não foi carregada',
+      'Perdi o contato com o servidor.',
+    ]) {
+      expect(SCRIPT_PASTA, texto).toContain(texto);
+    }
+    // Limites: peça pedida, PDF aberto, e três falhas seguidas de consulta.
+    expect(SCRIPT_PASTA).toContain('LIMITE_ESPERA_MS');
+    expect(SCRIPT_PASTA).toContain('LIMITE_PDF_MS');
+    expect(SCRIPT_PASTA).toContain('st.erroPoll>=3');
   });
 
-  it('o painel nunca passa da largura da janela', () => {
-    // A largura salva pelo divisor numa janela grande é cortada na pequena.
-    expect(ESTILOS_LEITOR).toContain('width:min(var(--leitor-w),100vw)');
-    expect(ESTILOS_LEITOR).toContain('padding-right:min(var(--leitor-w),100vw)');
-    expect(ESTILOS_LEITOR).toContain('overflow-x:hidden');
-    // O select "Ir para a peça" media a opção mais longa e empurrava a borda.
-    expect(ESTILOS_LEITOR).toMatch(/#leitor \.ferramentas select\{[^}]*min-width:0/);
-    expect(SCRIPT_LEITOR).toContain("window.addEventListener('resize',st.redimensionar)");
-    expect(SCRIPT_LEITOR).toContain(
+  it('carrega as peças do processo quando a Pasta não tem listagem, e oferece tentar de novo no 409', () => {
+    expect(SCRIPT_PASTA).toContain(
+      "'/v1/processos/'+encodeURIComponent(st.numero)+'/pecas'",
+    );
+    expect(SCRIPT_PASTA).toContain("e.codigo==='LISTAGEM_DA_PASTA_AUSENTE'");
+    expect(SCRIPT_PASTA).toContain('pasta-tentar-pedido');
+    expect(SCRIPT_PASTA).toContain('pasta-tentar-listagem');
+  });
+
+  it('rótulo de botão em lote diz o NÚMERO, e o alvo é lido no clique', () => {
+    expect(SCRIPT_PASTA).toContain("'Baixar PDF ('+n+')'");
+    expect(SCRIPT_PASTA).toContain("'Todas ('+sel+')'");
+    const inicio = SCRIPT_PASTA.indexOf("$('pasta-todas').addEventListener('click'");
+    expect(SCRIPT_PASTA.slice(inicio, inicio + 200)).toContain('visiveis()');
+  });
+
+  it('a lista é um listbox acessível: teclado completo, foco visível, tamanho de alvo', () => {
+    expect(SCRIPT_PASTA).toContain('role="listbox" aria-multiselectable="true"');
+    expect(SCRIPT_PASTA).toContain('role="option"');
+    for (const tecla of [
+      "'ArrowDown'",
+      "'ArrowUp'",
+      "'Enter'",
+      "' '",
+      "'Home'",
+      "'End'",
+    ]) {
+      expect(SCRIPT_PASTA).toContain(tecla);
+    }
+    expect(ESTILOS_PASTA).toContain('#pasta .linha:focus-visible');
+    expect(ESTILOS_PASTA).toContain('min-height:48px');
+    // O contraste do selo neutro foi corrigido dentro da Pasta (axe: 4,2:1).
+    expect(ESTILOS_PASTA).toContain('#pasta .selo.neutro{color:var(--tinta2)}');
+  });
+
+  it('a lista nunca passa da largura da janela', () => {
+    expect(ESTILOS_PASTA).toContain(
+      'width:min(var(--pasta-lista-w),calc(100vw - 256px - 320px))',
+    );
+    expect(SCRIPT_PASTA).toContain("window.addEventListener('resize',st.redimensionar)");
+    expect(SCRIPT_PASTA).toContain(
       "window.removeEventListener('resize',st.redimensionar)",
     );
   });
 
   it('lê o PDF por trechos e desenha só o que está perto da tela', () => {
-    expect(SCRIPT_LEITOR).toContain('disableAutoFetch:true');
-    expect(SCRIPT_LEITOR).toContain('disableStream:true');
-    expect(SCRIPT_LEITOR).toContain('IntersectionObserver');
-    expect(SCRIPT_LEITOR).toContain('MAX_DESENHADAS');
+    expect(SCRIPT_PASTA).toContain('disableAutoFetch:true');
+    expect(SCRIPT_PASTA).toContain('disableStream:true');
+    expect(SCRIPT_PASTA).toContain('IntersectionObserver');
+    expect(SCRIPT_PASTA).toContain('MAX_DESENHADAS');
+  });
+
+  it('nenhum conteúdo de peça entra no DOM: só texto do sistema, por esc()', () => {
+    expect(SCRIPT_PASTA).not.toMatch(/innerHTML\s*=\s*[a-z]*[Cc]onteudo/);
+    // O rótulo (texto do tribunal) sempre passa por esc().
+    expect(SCRIPT_PASTA).toContain('esc(p.rotulo)');
+    expect(SCRIPT_PASTA).not.toContain('eval(');
   });
 });

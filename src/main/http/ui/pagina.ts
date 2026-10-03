@@ -1,8 +1,8 @@
 import { ESTILOS } from './estilos.js';
 import { FAVICON_DATA_URI, LOGO_FUNDO_ESCURO } from './marca.js';
-import { ESTILOS_LEITOR } from './estilosLeitor.js';
+import { ESTILOS_PASTA } from './estilosPasta.js';
 import { SCRIPT } from './script.js';
-import { SCRIPT_LEITOR } from './scriptLeitor.js';
+import { SCRIPT_PASTA } from './scriptPasta.js';
 import { ESTILOS_CALENDARIO, SCRIPT_CALENDARIO } from './calendario.js';
 import { ESTILOS_ATUALIZACOES, SCRIPT_ATUALIZACOES } from './atualizacoes.js';
 
@@ -70,7 +70,7 @@ export function paginaConsole(versao: string): string {
 <link rel="icon" type="image/svg+xml" href="${FAVICON_DATA_URI}">
 <meta name="theme-color" content="#0b192c">
 <script>${SCRIPT_TEMA}</script>
-<style>${ESTILOS}${ESTILOS_LEITOR}${ESTILOS_CALENDARIO}${ESTILOS_ATUALIZACOES}</style>
+<style>${ESTILOS}${ESTILOS_PASTA}${ESTILOS_CALENDARIO}${ESTILOS_ATUALIZACOES}</style>
 </head>
 <body>
 
@@ -107,7 +107,7 @@ export function paginaConsole(versao: string): string {
 </div>
 
 <script>${SCRIPT}</script>
-<script>${SCRIPT_LEITOR}</script>
+<script>${SCRIPT_PASTA}</script>
 <script>${SCRIPT_CALENDARIO}</script>
 <script>${SCRIPT_ATUALIZACOES}</script>
 </body>

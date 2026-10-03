@@ -9,6 +9,56 @@ na raiz do projeto, ou o campo `versao` na resposta de `GET /health`.
 
 ---
 
+## [0.33.1] — 2026-10-03
+
+Pasta digital — **a tela** (Parte 2). Fecha a entrega da 0.33.0: o backend já
+estava na tag anterior. Especificação: `docs/ajustes-e-pasta-digital-especificacao-v1.0.0.md`
+(seções 5 a 8).
+
+### Adicionado
+
+- **Pasta digital** (`ui/scriptPasta.ts`, `ui/estilosPasta.ts`): lista de todas as
+  peças à esquerda — ordem dos autos, rótulo, data, estado (não baixada, na fila,
+  baixando, disponível, não obtida com motivo, sob sigilo), intervalo `p. N–M` quando
+  o PDF montado existe, caixas de marcar, atalhos por tipo, "Todas (N)" /
+  "Nenhuma", contador "N marcadas de M · mostrando X de M (K escondidas pelos
+  filtros)", busca por rótulo, filtro "só disponíveis" e teclado completo
+  (setas, Home/End, Enter abre, Espaço marca) — e o visualizador PDF.js à direita.
+- **Clicar baixa só a peça.** O clique espera 400 ms (outro clique troca o
+  agendado) antes de pedir; peça já guardada abre sem pedido. Estados honestos no
+  visualizador: pedindo, **aguardando a fila do tribunal** (com a explicação de
+  que há uma montagem andando e a pausa de 3 s), baixando, pausado pelo tribunal
+  até HH:MM, sem habilitação nos autos, não obtida com o motivo, sob sigilo, e
+  "obtida em dd/mm hh:mm, não é consulta ao vivo". Nunca "carregando" sem fim:
+  limites de 120 s (peça) e 30 s (abrir PDF), e três falhas de consulta param a
+  tela com "tentar de novo".
+- **Montar pasta completa** (estimativa antes, confirmação acima de
+  `LEITOR_CONFIRMAR_ACIMA_DE`, leitura enquanto monta, progresso e pausa do tribunal
+  com a hora), **Ver tudo seguido** (PDF combinado; clicar numa peça com `p. N` leva
+  até a página) e **Baixar PDF (N)** das marcadas, que antes mostra "serão
+  buscadas K peças no tribunal (~tempo)" e baixa `processo-<n>-pecas-selecionadas.pdf`.
+- Listagem ausente (409): mensagem clara e "Tentar de novo", que carrega as peças
+  do processo e repete. Sem listagem ao abrir, a tela carrega as peças do processo.
+- Divisor arrastável (e por teclado), largura lembrada e sempre limitada à janela;
+  no celular a lista ocupa a tela e a peça abre em tela cheia com "voltar".
+- Teste de navegador (Chromium, `playwright-core`, `axe-core` como dependências de
+  desenvolvimento): cliques rápidos geram UM lote no tribunal falso; montagem com
+  clique no meio; 403; 409; teclado; celular; divisor; axe nos temas claro e escuro.
+
+### Alterado
+
+- **Substitui o painel "Ler peças ao lado".** O botão do cartão das peças agora é
+  "Pasta digital". Saíram `scriptLeitor.ts`, `estilosLeitor.ts`, as caixas de marcar
+  na linha do tempo, "Reabrir o PDF já pronto" e o recorte por extratos na
+  interface (as rotas da API continuam).
+- O servidor só diz **"baixando"** quando a consulta ao tribunal de fato saiu; antes
+  disso o pedido está "na fila" (um job em andamento, a pausa de 3 s).
+  `ServicoLeitor.consultarLote` ganhou o aviso de início.
+- O job do leitor confere a guarda por peça antes de CADA lote: uma peça aberta por
+  clique durante a montagem não é baixada duas vezes.
+
+---
+
 ## [0.33.0] — 2026-10-03
 
 Pasta digital — **backend** (Parte 1). A tela (lista à esquerda, visualizador à

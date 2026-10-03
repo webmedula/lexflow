@@ -138,7 +138,14 @@ export interface OpcoesAplicacaoDeTeste {
     readonly config?: Partial<ConfiguracaoLeitor>;
     readonly clock?: Clock;
     readonly gerarId?: () => string;
+    /** Como no composition root: enfileirar acorda o executor (teste de navegador). */
+    readonly executarSozinho?: boolean;
   };
+  /**
+   * Pasta digital. `debounceMs > 0` usa o relógio de verdade (teste de
+   * navegador); o padrão, 0, é instantâneo.
+   */
+  readonly pasta?: { readonly debounceMs?: number };
   /** Liga a área administrativa. Ausente por padrão — mesma regra de `comAssinaturas`. */
   readonly admin?: { readonly usuario: string; readonly senha: string };
 }
@@ -281,6 +288,13 @@ export function aplicacaoDeTeste(
       esperar: async () => {},
       config,
       ...(clock ? { clock } : {}),
+      ...(opcoes.leitor.executarSozinho
+        ? {
+            aoEnfileirar: () => {
+              void leitor?.processarFila();
+            },
+          }
+        : {}),
     });
     pasta = new ServicoPasta({
       leitor,
@@ -289,8 +303,10 @@ export function aplicacaoDeTeste(
       fila,
       armazem,
       logger: loggerSilencioso,
-      debounceMs: 0,
-      esperar: async () => {},
+      debounceMs: opcoes.pasta?.debounceMs ?? 0,
+      ...((opcoes.pasta?.debounceMs ?? 0) > 0
+        ? {}
+        : { esperar: async (): Promise<void> => {} }),
       ...(clock ? { clock } : {}),
     });
   }

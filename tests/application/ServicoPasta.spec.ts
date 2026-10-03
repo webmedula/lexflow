@@ -428,6 +428,39 @@ describe('ServicoPasta — abrir UMA peça', () => {
     }
   });
 
+  it('clique no meio de um job: espera a vez ("na fila"), só vira "baixando" quando a consulta sai, e a peça não é baixada duas vezes', async () => {
+    const m = await montar(await pecasPadrao(), { inicial: 1, maximo: 1 });
+    await m.registrarListagem();
+    await m.pasta.montar(A, PROCESSO_TJGO);
+
+    let soltar: () => void = () => {};
+    const portao = new Promise<void>((r) => {
+      soltar = r;
+    });
+    m.provedor.aoLote = async (n) => {
+      if (n === 1) await portao; // o 1º lote do job fica no ar até o teste soltar
+    };
+    const job = m.leitor.processarFila();
+    while (lotes(m).length < 1) await new Promise((r) => setTimeout(r, 5));
+
+    await m.pasta.solicitar(A, PROCESSO_TJGO, 'i');
+    await new Promise((r) => setTimeout(r, 30)); // o despacho já tentou sair
+    // Pedido despachado, mas a consulta espera a do job: NÃO é "baixando".
+    expect((await m.peca('i')).estado).toBe('na_fila');
+    expect(lotes(m)).toEqual([['a']]);
+
+    soltar();
+    await job;
+    await m.pasta.aguardarOciosa();
+    expect((await m.peca('i')).estado).toBe('disponivel');
+    // "i" foi ao tribunal UMA vez, por um dos dois caminhos.
+    expect(
+      lotes(m)
+        .flat()
+        .filter((id) => id === 'i'),
+    ).toHaveLength(1);
+  });
+
   it('403 do tribunal: a peça fica pausada com a hora de volta, e não há nova tentativa sozinha', async () => {
     const m = await montar(await pecasPadrao());
     await m.registrarListagem();

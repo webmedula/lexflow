@@ -329,6 +329,12 @@ npm run build            # compila para dist/
 - **Os testes do leitor rodam o `qpdf` e o `pdftotext` de verdade** (CI:
   `apt-get install qpdf poppler-utils`; local: instale os pacotes). É a única forma de provar que o índice bate com o
   arquivo montado.
+- **Teste de navegador** (v0.33.1): `tests/browser/` roda a Pasta digital num
+  Chromium de verdade (`playwright-core`, `axe-core`) contra o servidor real e um
+  tribunal falso — é o único lugar que prova, por exemplo, que cinco cliques
+  rápidos viram UM lote no tribunal. Pula sozinho sem Chromium (`PV_CHROMIUM` ou
+  `/opt/pw-browsers/chromium`); no CI, instale o navegador para rodá-lo. Peças e
+  números são sintéticos, como em todo o repositório.
 - Fixtures usam números CNJ com **dígito verificador válido**. Um DV inválido na
   massa faz a suíte passar sem nunca exercitar `NumeroCNJ`, e o bug só aparece
   contra o tribunal de verdade. Helper para gerar: veja o fim de
@@ -978,14 +984,27 @@ Não são detalhes — moldam o código.
   pé. Usa o build **legacy**: o padrão do pdfjs-dist 6 chama
   `Map.prototype.getOrInsertComputed` e, em navegador sem esse recurso, a
   página fica em branco sem erro nenhum — há teste que confere o polyfill.
-- **O painel do leitor vive em arquivo próprio e só age aberto.** `ui/scriptLeitor.ts`
-  fala com o console por `window.__pv` (o que ele usa do console) e
-  `window.__pvLeitor` (os ganchos que o console chama). Fechado, a tela do
-  processo é a de antes, com um botão a mais; caixas de marcar, links "p. N" e
-  destaque nascem só com o painel aberto, e o CSS dele só age sob
-  `body.com-leitor` ou `#leitor` (há teste que confere cada regra). O painel
-  nunca insere conteúdo de peça no DOM — o HTML do tribunal já virou texto
-  dentro do PDF.
+- **A Pasta digital vive em arquivo próprio e só age aberta** (v0.33.1; substituiu
+  o painel "Ler peças ao lado", cujos arquivos `scriptLeitor.ts`/`estilosLeitor.ts`
+  saíram). `ui/scriptPasta.ts` fala com o console por `window.__pv` (o que ele usa
+  do console) e `window.__pvPasta` (os ganchos que o console chama). Fechada, a
+  tela do processo é a de antes, com o botão "Pasta digital": o gancho só liga o
+  botão, e NADA é injetado na linha do tempo (há teste de navegador que compara o
+  HTML antes e depois de abrir e fechar). O CSS só age sob `#pasta`,
+  `body.com-pasta` ou `body.pasta-lendo` (há teste que confere cada regra). A Pasta
+  nunca insere conteúdo de peça no DOM — o HTML do tribunal já virou texto dentro
+  do PDF.
+- **A tela da Pasta não deixa a pessoa olhando um "carregando" sem fim** (v0.33.1).
+  Cada espera tem nome e limite: "pedindo esta peça" (a janela do debounce de
+  400 ms), "aguardando a fila do tribunal" (o pedido já saiu da tela e espera a
+  vez — um job em andamento, a pausa de 3 s), "baixando" (SÓ quando a consulta
+  saiu de fato: `consultarLote` avisa quando começa), "abrindo o PDF". Passados
+  120 s de espera por uma peça, ou 30 s para abrir um PDF, ou três falhas
+  seguidas de consulta, a tela PARA de consultar e oferece "tentar de novo". A
+  consulta de andamento lê só o nosso banco (nunca o tribunal). Listagem ausente
+  (409) vira mensagem clara e "Tentar de novo", que carrega as peças do processo.
+  Acessibilidade fixada por teste de navegador (axe nos temas claro e escuro,
+  listbox com teclado completo, foco visível).
 - **qpdf com argumentos em VETOR.** `execFile`, nunca string de shell: uma
   montagem são centenas de caminhos, e uma aspa no lugar errado viraria execução
   de comando. Há teste com `$(...)` e aspas no nome do arquivo.
@@ -1089,8 +1108,8 @@ teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
 **remarcar com reaproveitamento e "baixar só algumas"** (v0.31.1),
 **calendário: detecção, agenda, tela e feed ICS** (v0.32.0),
 **ajustes dos advogados: Atualizações por processo, peças no topo, providência em 10 dias** (v0.32.1),
-**Pasta digital, backend: peça aberta ao clique, guarda por peça, montar pasta completa, baixar marcadas** (v0.33.0),
-Dockerfile multi-stage, CI, 1123 testes.
+**Pasta digital: backend (v0.33.0) e tela (v0.33.1) — peça aberta ao clique, guarda por peça, montar pasta completa, baixar marcadas**,
+Dockerfile multi-stage, CI, 1143 testes.
 
 **Pasta digital (v0.33.0, backend):** `GET /v1/processos/:numero/pasta` (lista +
 estado de cada peça + intervalos de página + totais SEM filtro + procedência
@@ -1099,9 +1118,15 @@ estado de cada peça + intervalos de página + totais SEM filtro + procedência
 `POST …/pasta/baixar/previa` e `POST …/pasta/baixar`. Montar e baixar são jobs do
 leitor (`finalidade`: `pasta_completa` | `selecionadas`), e o PDF/índice saem
 pelas rotas `/leitor/:jobId` — o "Baixar PDF" das marcadas se chama
-`processo-<número>-pecas-selecionadas.pdf`. **Pendente:** a tela (lista à
-esquerda, visualizador à direita, `ui/scriptPasta.ts` e `ui/estilosPasta.ts`); o
-botão "Ler peças ao lado" continua como era até lá. Especificação:
+`processo-<número>-pecas-selecionadas.pdf`. **Tela (v0.33.1):** lista à esquerda
+(ordem dos autos, estado, `p. N–M`, caixas, atalhos por tipo, busca, "só
+disponíveis", teclado) e visualizador PDF.js à direita, "Montar pasta completa",
+"Ver tudo seguido", "Baixar PDF" das marcadas com aviso do que será buscado;
+divisor arrastável; no celular, lista em tela cheia e peça em tela cheia com
+"voltar" (`ui/scriptPasta.ts`, `ui/estilosPasta.ts`). **Não existe mais** o
+painel "Ler peças ao lado", a seleção na linha do tempo, "Reabrir o PDF já
+pronto" nem o recorte por extratos na interface — as rotas `/leitor/…/extratos`
+continuam na API. Especificação:
 `docs/ajustes-e-pasta-digital-especificacao-v1.0.0.md` (seções 5 a 10).
 
 **Calendário (v0.32.0):** eventos por workspace — detectados nos andamentos

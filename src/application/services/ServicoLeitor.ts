@@ -246,11 +246,12 @@ export class ServicoLeitor {
     numeroProcesso: string,
     idsPecas: readonly string[],
     credencial: CredencialTribunal,
+    aoIniciar?: () => void,
   ): Promise<LoteDePecas> {
     const provedor = this.provedor;
     const lote = provedor.obterConteudosEmLote?.bind(provedor);
     if (!lote) throw new OperacaoNaoSuportadaError(provedor.nome, 'obterConteudosEmLote');
-    return this.chamada(() => lote(numeroProcesso, idsPecas, credencial));
+    return this.chamada(() => lote(numeroProcesso, idsPecas, credencial), aoIniciar);
   }
 
   /** Até quando o tribunal está em pausa por 403; `undefined` com o disjuntor fechado. */
@@ -692,21 +693,29 @@ export class ServicoLeitor {
   }
 
   /** Toda consulta do leitor ao tribunal passa aqui: é onde mora a pausa. */
-  private chamada<T>(operacao: () => Promise<T>): Promise<T> {
+  private chamada<T>(operacao: () => Promise<T>, aoIniciar?: () => void): Promise<T> {
     // Em fila, uma de cada vez: a pausa só protege o tribunal se valer entre
     // TODAS as chamadas. Dois chamadores concorrentes (um job em andamento e o
     // clique numa peça) leriam `ultimaChamada` ao mesmo tempo e sairiam juntos.
-    const minha = this.cadeiaDeChamadas.then(() => this.chamadaComPausa(operacao));
+    const minha = this.cadeiaDeChamadas.then(() =>
+      this.chamadaComPausa(operacao, aoIniciar),
+    );
     this.cadeiaDeChamadas = minha.catch(() => undefined);
     return minha;
   }
 
-  private async chamadaComPausa<T>(operacao: () => Promise<T>): Promise<T> {
+  private async chamadaComPausa<T>(
+    operacao: () => Promise<T>,
+    aoIniciar?: () => void,
+  ): Promise<T> {
     if (this.ultimaChamada !== undefined) {
       const falta =
         this.config.pausaEntreChamadasMs - (this.clock.monotonico() - this.ultimaChamada);
       if (falta > 0) await this.esperar(falta);
     }
+    // Só agora a chamada sai: até aqui ela esperava a vez (a de outro job, a
+    // pausa). A Pasta usa o aviso para dizer "aguardando a fila" ou "baixando".
+    aoIniciar?.();
     try {
       return await operacao();
     } finally {
@@ -1148,6 +1157,9 @@ export class ServicoLeitor {
 
     // Fase 1: lotes, na ordem dos autos.
     for (;;) {
+      // Um clique na Pasta pode ter guardado uma peça enquanto o job andava:
+      // ela não é pedida de novo.
+      await this.aplicarGuarda(atual, gravar);
       const job = atual();
       const ids = job.pecas
         .filter((p) => p.situacao === 'pendente')

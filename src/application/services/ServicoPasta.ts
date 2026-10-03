@@ -174,7 +174,10 @@ export class ServicoPasta {
   /** O pedido que espera a janela do debounce, por (workspace, processo). */
   private readonly pendentes = new Map<string, Pendencia>();
   /** O pedido que está no ar agora. */
-  private readonly emVoo = new Map<string, { pecaId: string; desde: Date }>();
+  private readonly emVoo = new Map<
+    string,
+    { pecaId: string; desde: Date; fase: 'fila' | 'tribunal' }
+  >();
   /** Último desfecho ruim por peça. Em memória: evapora no redeploy, e tudo bem. */
   private readonly falhas = new Map<string, Map<string, Falha>>();
   private readonly substituidas = new Map<string, Set<string>>();
@@ -311,7 +314,13 @@ export class ServicoPasta {
           };
         }
         if (noAr?.pecaId === p.pecaId) {
-          return { ...base, estado: 'baixando', desde: noAr.desde };
+          // "Baixando" só quando a consulta já saiu: antes disso o pedido espera
+          // a vez na fila do tribunal (um job em andamento, a pausa de 3 s).
+          return {
+            ...base,
+            estado: noAr.fase === 'tribunal' ? 'baixando' : 'na_fila',
+            desde: noAr.desde,
+          };
         }
         const job = doJob.ativas.get(p.pecaId);
         if (job) return { ...base, estado: job.estado, desde: job.desde };
@@ -623,7 +632,11 @@ export class ServicoPasta {
       if (atual.versao !== visto.versao) continue;
 
       this.pendentes.delete(k);
-      this.emVoo.set(k, { pecaId: atual.pecaId, desde: this.clock.agora() });
+      this.emVoo.set(k, {
+        pecaId: atual.pecaId,
+        desde: this.clock.agora(),
+        fase: 'fila',
+      });
       try {
         await this.buscarUma(workspace, numero, atual.pecaId);
       } finally {
@@ -654,7 +667,10 @@ export class ServicoPasta {
         return;
       }
 
-      const lote = await this.leitor.consultarLote(numero, [pecaId], credencial);
+      const lote = await this.leitor.consultarLote(numero, [pecaId], credencial, () => {
+        const voo = this.emVoo.get(chave(workspace, numero));
+        if (voo?.pecaId === pecaId) voo.fase = 'tribunal';
+      });
       await this.leitor.registrarUso(workspace, tribunal);
 
       const c = lote.conteudos.find((x) => x.id === pecaId);

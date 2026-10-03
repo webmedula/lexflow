@@ -120,6 +120,8 @@ export class ProvedorDeLoteFalso implements ProvedorDePecas {
   pausa: Date | undefined;
   /** Chamado no começo de cada lote (n = 1, 2…), para o teste olhar o meio do job. */
   aoLote: ((n: number, ids: readonly string[]) => Promise<void>) | undefined;
+  /** Demora real de cada lote (teste de navegador). */
+  atrasoDoLoteMs = 0;
 
   constructor(
     public pecas: PecaFalsa[],
@@ -164,6 +166,8 @@ export class ProvedorDeLoteFalso implements ProvedorDePecas {
     });
     const n = this.chamadas.filter((c) => c.tipo === 'lote').length;
     await this.aoLote?.(n, ids);
+    if (this.atrasoDoLoteMs > 0)
+      await new Promise((r) => setTimeout(r, this.atrasoDoLoteMs));
     if (this.falharNoLote && this.falharNoLote.n === n) throw this.falharNoLote.erro;
 
     const conteudos: ConteudoPeca[] = [];
