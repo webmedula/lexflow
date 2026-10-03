@@ -116,6 +116,10 @@ export class ProvedorDeLoteFalso implements ProvedorDePecas {
   falharNoLote: { readonly n: number; readonly erro: Error } | undefined;
   hashDocumentos = 'hash-1';
   nivelSigiloDoProcesso = 0;
+  /** Disjuntor de 403 simulado: o que `pausadoAte()` informa. */
+  pausa: Date | undefined;
+  /** Chamado no começo de cada lote (n = 1, 2…), para o teste olhar o meio do job. */
+  aoLote: ((n: number, ids: readonly string[]) => Promise<void>) | undefined;
 
   constructor(
     public pecas: PecaFalsa[],
@@ -159,6 +163,7 @@ export class ProvedorDeLoteFalso implements ProvedorDePecas {
       em: this.clock?.monotonico() ?? 0,
     });
     const n = this.chamadas.filter((c) => c.tipo === 'lote').length;
+    await this.aoLote?.(n, ids);
     if (this.falharNoLote && this.falharNoLote.n === n) throw this.falharNoLote.erro;
 
     const conteudos: ConteudoPeca[] = [];
@@ -190,6 +195,10 @@ export class ProvedorDeLoteFalso implements ProvedorDePecas {
       ausentes,
       bytesResposta: this.pesoDaResposta ? this.pesoDaResposta(ids) : soma,
     };
+  }
+
+  pausadoAte(): Date | undefined {
+    return this.pausa;
   }
 
   async assinaturaDeMudanca(): Promise<AssinaturaDeMudanca> {

@@ -8,7 +8,10 @@ import type {
   CredencialCadastrada,
   RepositorioCredenciais,
 } from '../../domain/ports/RepositorioCredenciais.js';
-import type { CredencialTribunal } from '../../domain/ports/ProvedorDePecas.js';
+import type {
+  AtosDoProcesso,
+  CredencialTribunal,
+} from '../../domain/ports/ProvedorDePecas.js';
 import type { BaixarPecaDoProcesso } from '../../domain/usecases/BaixarPecaDoProcesso.js';
 import type { ListarPecasDoProcesso } from '../../domain/usecases/ListarPecasDoProcesso.js';
 import type { BuscarProcessoPorNumero } from '../../domain/usecases/BuscarProcessoPorNumero.js';
@@ -40,6 +43,16 @@ export interface OpcoesServicoPecas {
    * causa do contador da tela.
    */
   readonly baixadas?: RepositorioPecasBaixadas;
+  /**
+   * Chamado com o que o tribunal acabou de listar (v0.33.0). É como a Pasta
+   * digital fica sabendo das peças sem consultar o tribunal de novo. Falha
+   * aqui nunca derruba a listagem.
+   */
+  readonly aoListar?: (
+    workspace: string,
+    numeroProcesso: string,
+    atos: AtosDoProcesso,
+  ) => Promise<void>;
 }
 
 /**
@@ -61,6 +74,7 @@ export class ServicoPecas {
   private readonly logger: Logger;
   private readonly processos: BuscarProcessoPorNumero | undefined;
   private readonly baixadas: RepositorioPecasBaixadas | undefined;
+  private readonly aoListar: OpcoesServicoPecas['aoListar'];
 
   constructor(opcoes: OpcoesServicoPecas) {
     this.listar = opcoes.listar;
@@ -69,6 +83,7 @@ export class ServicoPecas {
     this.logger = opcoes.logger.child({ servico: 'pecas' });
     this.processos = opcoes.processos;
     this.baixadas = opcoes.baixadas;
+    this.aoListar = opcoes.aoListar;
   }
 
   /**
@@ -126,6 +141,13 @@ export class ServicoPecas {
     const atos = await this.registrando(workspace, numeroProcesso, () =>
       this.listar.executar({ workspace, numeroProcesso }),
     );
+    try {
+      await this.aoListar?.(workspace, numeroProcesso, atos);
+    } catch (erro) {
+      this.logger.warn('listagem entregue, mas o registro da pasta falhou', {
+        erro: erro instanceof Error ? erro.message : String(erro),
+      });
+    }
     // A dedução por movimento é sobre o CONJUNTO, não sobre uma peça — por isso
     // acontece aqui e não no mapper, que monta uma de cada vez.
     return {

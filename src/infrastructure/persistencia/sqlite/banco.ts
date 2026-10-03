@@ -306,6 +306,38 @@ const ESQUEMA = [
   `CREATE INDEX IF NOT EXISTS idx_jobs_leitor_fila ON jobs_leitor (estado, criado_em)`,
   `CREATE INDEX IF NOT EXISTS idx_jobs_leitor_expira ON jobs_leitor (expira_em)`,
 
+  // Pasta digital (v0.33.0): o retrato da listagem do tribunal e o índice das
+  // peças guardadas por peça. Os BYTES ficam no armazém (fora do backup, que
+  // copia o banco); aqui só metadado.
+  //
+  // Chaves começam por `workspace`: nenhuma consulta chega a uma linha sem dizer
+  // de quem ela é. `localizador` é opaco e não sai em resposta HTTP nem em log.
+  // Sem retrocarga: tabela nova, nada derivado de dado já guardado.
+  `CREATE TABLE IF NOT EXISTS pasta_listagens (
+     workspace         TEXT NOT NULL,
+     numero            TEXT NOT NULL,
+     tribunal          TEXT NOT NULL,
+     listada_em        TEXT NOT NULL,
+     processo_sigiloso INTEGER NOT NULL,
+     pecas             TEXT NOT NULL,
+     PRIMARY KEY (workspace, numero)
+   )`,
+  `CREATE TABLE IF NOT EXISTS pasta_pecas (
+     workspace          TEXT NOT NULL,
+     numero             TEXT NOT NULL,
+     peca_id            TEXT NOT NULL,
+     localizador        TEXT NOT NULL,
+     mimetype_original  TEXT NOT NULL,
+     conversao          TEXT NOT NULL,
+     observacao         TEXT,
+     bytes              INTEGER NOT NULL,
+     paginas            INTEGER NOT NULL,
+     obtida_em          TEXT NOT NULL,
+     expira_em          TEXT NOT NULL,
+     PRIMARY KEY (workspace, numero, peca_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_pasta_pecas_expira ON pasta_pecas (expira_em)`,
+
   // Calendário (v0.32.0): eventos da agenda do advogado.
   //
   // A chave é (workspace, id): nenhuma consulta chega a um evento sem dizer de

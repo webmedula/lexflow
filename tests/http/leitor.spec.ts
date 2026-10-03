@@ -117,6 +117,7 @@ describe('API — leitor de peças', () => {
       'bytes',
       'criadoEm',
       'estado',
+      'finalidade',
       'jobId',
       'mensagem',
       'numero',

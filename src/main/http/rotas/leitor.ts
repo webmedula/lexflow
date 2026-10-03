@@ -181,7 +181,7 @@ export function rotasDoLeitor(
           req.params.numero,
           req.params.jobId,
         );
-        return servirPdf(req, resposta, pdf);
+        return servirPdf(req, resposta, comoArquivo(pdf));
       },
     );
 
@@ -214,17 +214,35 @@ export function rotasDoLeitor(
           req.params.jobId,
           req.params.extratoId,
         );
-        return servirPdf(req, resposta, pdf);
+        return servirPdf(req, resposta, comoArquivo(pdf));
       },
     );
   };
 }
 
+/** O que `servirPdf` precisa saber de um arquivo — do leitor ou da Pasta digital. */
+export interface ArquivoServivel {
+  readonly tamanho: number;
+  readonly nomeArquivo: string;
+  /** Quando o arquivo foi obtido do tribunal. Nunca é "ao vivo". */
+  readonly baixadoEm?: Date | undefined;
+  ler(inicio: number, fim: number): AsyncIterable<Uint8Array>;
+}
+
+function comoArquivo(pdf: PdfDoLeitor): ArquivoServivel {
+  return {
+    tamanho: pdf.tamanho,
+    nomeArquivo: pdf.nomeArquivo,
+    baixadoEm: pdf.job.concluidoEm,
+    ler: (inicio, fim) => pdf.ler(inicio, fim),
+  };
+}
+
 /** O PDF, com suporte a `Range` — o combinado e o recorte saem iguais. */
-async function servirPdf(
+export async function servirPdf(
   req: FastifyRequest,
   resposta: FastifyReply,
-  pdf: PdfDoLeitor,
+  pdf: ArquivoServivel,
 ): Promise<FastifyReply> {
   void resposta.header('accept-ranges', 'bytes');
   void resposta.header('content-type', 'application/pdf');
@@ -237,9 +255,10 @@ async function servirPdf(
   );
   // A procedência viaja junto do arquivo, para quem o abrir por fora da
   // tela saber de quando ele é. Nunca é "ao vivo".
-  if (pdf.job.concluidoEm) {
-    void resposta.header('x-processovivo-baixado-em', pdf.job.concluidoEm.toISOString());
+  if (pdf.baixadoEm) {
+    void resposta.header('x-processovivo-baixado-em', pdf.baixadoEm.toISOString());
   }
+  void resposta.header('x-processovivo-ao-vivo', 'false');
 
   const faixa = interpretarRange(req.headers.range, pdf.tamanho);
   if (faixa === 'insatisfazivel') {
@@ -349,6 +368,7 @@ export function visaoDoJob(job: JobLeitor): Record<string, unknown> {
     paginas: job.arquivo?.paginas ?? null,
     bytes: job.arquivo?.bytes ?? null,
     atualizaDe: job.atualizaDe ?? null,
+    finalidade: job.finalidade ?? null,
     procedencia: procedencia(job),
   };
 }

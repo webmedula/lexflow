@@ -89,6 +89,7 @@ src/
 │                                #   ServicoVigilanciaOab, ServicoNotificacao,
 │                                #   ServicoPecas, ServicoContas,
 │                                #   ServicoAssinaturas, ServicoLeitor,
+│                                #   ServicoPasta + GuardaDePecas (Pasta digital),
 │                                #   ServicoCalendario (+ ingestaoDoCalendario)
 ├── infrastructure/
 │   ├── adapters/
@@ -206,6 +207,10 @@ interface ProcessoProvider {
 | `EventoDeCalendarioNaoEncontradoError` | evento não existe PARA ESTE workspace | 404; mesma resposta para "não existe" e "é de outro" |
 | `TransicaoDeEventoInvalidaError` | mexer em evento descartado | 409; descartado é final |
 | `FeedDoCalendarioAusenteError` | pediu para alterar o feed e não há feed vigente | 404 na rota autenticada; diz o que falta |
+| `ListagemDaPastaAusenteError` | a Pasta digital não tem a lista de peças do processo (a tela ainda não a carregou) | 409; carregar as peças do processo e pedir de novo |
+| `PecaDaPastaNaoEncontradaError` | a peça não está na pasta DESTE workspace (não existe, venceu ou é de outro) | 404; mesma resposta para os três casos |
+| `PecaSigilosaNaoGuardadaError` | pediu para guardar peça com `nivelSigilo > 0` | 403; o download avulso pela linha do tempo continua |
+| `PastaSemPecasParaJuntarError` | montar/baixar sem nenhuma peça guardável (lista vazia ou só sigilosas) | 409; não monta PDF vazio |
 | `FeedDoCalendarioNaoEncontradoError` | token do feed inválido, revogado, assinatura bloqueada ou plano sem o recurso | 404 com o MESMO corpo seco nos quatro casos |
 
 **A distinção que sustenta o produto:** "esse processo não existe" ≠ "não
@@ -842,9 +847,11 @@ Não são detalhes — moldam o código.
   Processo arquivado e depois desarquivado tem os dois atos nos autos; procurar
   "existe arquivamento" marcaria como encerrada a pasta que voltou a correr — e
   o advogado deixaria de olhar justamente essa.
-- **A peça AVULSA não fica no nosso disco; o PDF COMBINADO fica, por pouco
-  tempo** (v0.30.0, decisão do dono de 29/09/2026 — até a v0.29 a regra era
-  "nenhum arquivo de peça no disco"). O download avulso continua indo do
+- **O download avulso da linha do tempo não fica no nosso disco; o PDF
+  COMBINADO fica, por pouco tempo — e, desde a v0.33.0, a PEÇA aberta pela Pasta
+  digital também** (v0.30.0, decisão do dono de 29/09/2026 — até a v0.29 a regra
+  era "nenhum arquivo de peça no disco"; a guarda por peça é decisão de
+  02/10/2026, ver o item da Pasta digital abaixo). O download avulso continua indo do
   tribunal direto para a máquina do advogado, e `pecas_baixadas` guarda só
   metadado (há teste que fixa as chaves). O PDF combinado do leitor é guardado
   porque remontá-lo a cada abertura custaria minutos de consulta contra a conta
@@ -859,6 +866,42 @@ Não são detalhes — moldam o código.
   (`ServicoLeitor.apagarDoWorkspace`); e **processo em segredo de justiça não é
   guardado** — nem peça com `nivelSigilo > 0`. Os arquivos de trabalho (as peças
   baixadas para montar) são apagados assim que o PDF fica pronto.
+- **Pasta digital: a peça guardada por peça segue a MESMA regra do PDF combinado**
+  (v0.33.0). `GuardaDePecas`: **por workspace** (linha e caminho conferem o dono;
+  teste A × B), **nome aleatório** (não deriva do id da peça), **mesma raiz do
+  leitor — fora do diretório servido e fora do backup**, **TTL de
+  `LEITOR_TTL_HORAS`** limpo pelo mesmo `Agendador`, **MESMA cota por workspace**
+  (a pasta do workspace é uma só: peça e PDF combinado somam) e a **mesma regra de
+  substituição** da v0.31.1, agora sobre os dois — saem os mais antigos de OUTROS
+  processos primeiro, nunca o que um job em andamento ainda vai usar. **Processo
+  ou peça sob sigilo nunca é guardado** (o pedido confere o id contra a
+  LISTAGEM gravada do tribunal, nunca contra o que o navegador diz). O arquivo
+  guardado é SEMPRE PDF: imagem e HTML do tribunal são convertidos na entrada e o
+  original é apagado na hora (sobra `.tmp` é varrida). **Ocupa o dobro de disco
+  numa pasta completa** (peças + combinado — medido, ver
+  `docs/pasta-digital-medicoes-v0.33.0.md`): com o teto de 300 MB por PDF, uma
+  pasta completa ocupa até ~600 MB dos 1 GB da conta.
+- **O clique não é uma chamada ao tribunal** (v0.33.0). `ServicoPasta` guarda UM
+  pedido pendente por (workspace, processo): clique em peça diferente TROCA o
+  pendente — o intermediário morre antes de sair do servidor —, e só o que
+  sobrevive a `PASTA_DEBOUNCE_MS` (400 ms) vai ao tribunal, em lote de 1, pelo
+  método em lote do MNI. Peça em guarda não chama o tribunal. **Sem pré-busca:**
+  nada é buscado sem o advogado ter pedido aquela peça, a pasta completa ou o
+  "Baixar PDF". **Sem retry:** a falha vira o estado da peça (com motivo;
+  bloqueio carrega a hora de volta) e quem tenta de novo é a pessoa. **A Pasta
+  não conhece o adapter nem balde algum:** toda ida ao tribunal é
+  `ServicoLeitor.consultarLote`, que enfileira as chamadas com a pausa de 3 s
+  valendo entre TODAS (as do job e as dos cliques). Há teste que falha se
+  `ServicoPasta`, `GuardaDePecas` ou a rota importarem adapter, rate limiter ou o
+  provedor, e se o composition root montar um segundo adapter, leitor, pasta ou
+  armazém.
+- **A lista da Pasta nunca consulta o tribunal.** A listagem do MNI (dezenas de
+  segundos) é gravada (`pasta_listagens`) quando a tela do processo carrega as
+  peças; abrir a Pasta, ler o estado e montar/baixar partem DESSE retrato — e
+  "Baixar PDF" com tudo em guarda custa zero consultas. Retrato velho é o preço
+  (a régua da página é igual): peça nova só aparece quando as peças do processo
+  são recarregadas. Estado de falha por peça fica em memória (evapora no
+  redeploy); o que é verdade durável — a peça guardada — está no banco.
 - **Seleção nova não apaga o PDF anterior; a cota é que decide** (v0.31.1). Peça
   que já está num PDF guardado deste processo, no prazo, NÃO volta ao tribunal:
   as páginas são copiadas de lá (`reaproveitada.deJob`), e só a peça realmente
@@ -1046,7 +1089,20 @@ teste e carência** (v0.28.0), **visual novo a partir do logo** (v0.29.0),
 **remarcar com reaproveitamento e "baixar só algumas"** (v0.31.1),
 **calendário: detecção, agenda, tela e feed ICS** (v0.32.0),
 **ajustes dos advogados: Atualizações por processo, peças no topo, providência em 10 dias** (v0.32.1),
-Dockerfile multi-stage, CI, 1065 testes.
+**Pasta digital, backend: peça aberta ao clique, guarda por peça, montar pasta completa, baixar marcadas** (v0.33.0),
+Dockerfile multi-stage, CI, 1123 testes.
+
+**Pasta digital (v0.33.0, backend):** `GET /v1/processos/:numero/pasta` (lista +
+estado de cada peça + intervalos de página + totais SEM filtro + procedência
+`aoVivo:false`), `POST …/pasta/pecas/:pecaId` (200 em guarda / 202 na fila),
+`GET …/pasta/pecas/:pecaId/arquivo` (PDF com Range), `POST …/pasta/montar`,
+`POST …/pasta/baixar/previa` e `POST …/pasta/baixar`. Montar e baixar são jobs do
+leitor (`finalidade`: `pasta_completa` | `selecionadas`), e o PDF/índice saem
+pelas rotas `/leitor/:jobId` — o "Baixar PDF" das marcadas se chama
+`processo-<número>-pecas-selecionadas.pdf`. **Pendente:** a tela (lista à
+esquerda, visualizador à direita, `ui/scriptPasta.ts` e `ui/estilosPasta.ts`); o
+botão "Ler peças ao lado" continua como era até lá. Especificação:
+`docs/ajustes-e-pasta-digital-especificacao-v1.0.0.md` (seções 5 a 10).
 
 **Calendário (v0.32.0):** eventos por workspace — detectados nos andamentos
 (sugeridos, a confirmar, com procedência) e manuais (confirmados) — em

@@ -403,7 +403,9 @@ dele, o histórico de novidades e a credencial dele no tribunal. Perder isso nã
 é um incidente técnico: é o cliente sem o próprio trabalho.
 
 > **`/dados/leitor` fica FORA do backup, de propósito.** São PDFs de autos de
-> processo guardados por 24 h, refeitos sob demanda. O backup automático copia
+> processo guardados por 24 h, refeitos sob demanda — o combinado do leitor e,
+> desde a v0.33.0, cada peça aberta pela Pasta digital (a mesma pasta, a mesma
+> cota por conta). Uma pasta completa ocupa o dobro do PDF combinado em disco. O backup automático copia
 > só o banco; se você copiar o volume inteiro à mão, exclua `leitor/`
 > (`rsync --exclude leitor/`). Restaurar um backup não traz PDFs de volta, e
 > não precisa: os jobs aparecem como expirados e o advogado pede de novo.

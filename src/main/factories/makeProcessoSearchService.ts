@@ -2,7 +2,9 @@ import { ProcessoSearchService } from '../../application/services/ProcessoSearch
 import { ServicoAcompanhamento } from '../../application/services/ServicoAcompanhamento.js';
 import { ServicoNotificacao } from '../../application/services/ServicoNotificacao.js';
 import { ServicoPecas } from '../../application/services/ServicoPecas.js';
+import { GuardaDePecas } from '../../application/services/GuardaDePecas.js';
 import { ServicoLeitor } from '../../application/services/ServicoLeitor.js';
+import { ServicoPasta } from '../../application/services/ServicoPasta.js';
 import { ServicoCalendario } from '../../application/services/ServicoCalendario.js';
 import { comDeteccaoDoCalendario } from '../../application/services/ingestaoDoCalendario.js';
 import { RepositorioDeEventosSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioDeEventosSqlite.js';
@@ -33,6 +35,7 @@ import { BuscarProcessosPorOab } from '../../domain/usecases/BuscarProcessosPorO
 import { BaixarPecaDoProcesso } from '../../domain/usecases/BaixarPecaDoProcesso.js';
 import { ListarPecasDoProcesso } from '../../domain/usecases/ListarPecasDoProcesso.js';
 import { MniAdapter } from '../../infrastructure/adapters/mni/MniAdapter.js';
+import { RepositorioDaPastaSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioDaPastaSqlite.js';
 import { RepositorioPecasBaixadasSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioPecasBaixadasSqlite.js';
 import { RepositorioCredenciaisSqlite } from '../../infrastructure/persistencia/sqlite/RepositorioCredenciaisSqlite.js';
 import { Cofre } from '../../infrastructure/seguranca/cofre.js';
@@ -95,6 +98,11 @@ export interface Aplicacao {
    * acesso a peças ou sem o `qpdf` instalado — as rotas respondem 501.
    */
   readonly leitor: ServicoLeitor | undefined;
+  /**
+   * Pasta digital (v0.33.0): lista de peças, abrir uma por vez, montar a pasta
+   * completa. Sobe junto com o leitor (mesmo `qpdf`, mesma guarda em disco).
+   */
+  readonly pasta: ServicoPasta | undefined;
   /** Executor da fila do leitor (a cada minuto) e limpeza por prazo (a cada hora). */
   readonly agendadorLeitor: Agendador | undefined;
   readonly agendadorLimpezaLeitor: Agendador | undefined;
@@ -389,7 +397,7 @@ export function montarAplicacao(config: Config): Aplicacao {
   // tenha as publicações do DJEN que o tribunal não numera. Cai em cache, então
   // não custa consulta nova quando a tela acabou de carregar o processo.
   const buscarProcessoPorNumero = new BuscarProcessoPorNumero(provider);
-  const { pecas, leitor } = montarServicoPecas(
+  const { pecas, leitor, pasta } = montarServicoPecas(
     config,
     db,
     logger,
@@ -476,6 +484,7 @@ export function montarAplicacao(config: Config): Aplicacao {
     notificacao,
     pecas,
     leitor,
+    pasta,
     agendadorLeitor,
     agendadorLimpezaLeitor,
     calendario,
@@ -525,8 +534,12 @@ function montarServicoPecas(
   db: ReturnType<typeof abrirBanco>,
   logger: Logger,
   processos: BuscarProcessoPorNumero,
-): { pecas: ServicoPecas | undefined; leitor: ServicoLeitor | undefined } {
-  const nada = { pecas: undefined, leitor: undefined };
+): {
+  pecas: ServicoPecas | undefined;
+  leitor: ServicoLeitor | undefined;
+  pasta: ServicoPasta | undefined;
+} {
+  const nada = { pecas: undefined, leitor: undefined, pasta: undefined };
   if (pareceValorDeExemplo(config.mni.chaveDoCofre)) {
     logger.warn(
       'acesso a peças desligado: PROCESSOVIVO_CREDENCIAL_CHAVE ainda contém o texto de exemplo',
@@ -576,6 +589,10 @@ function montarServicoPecas(
     tribunais: config.mni.tribunais,
   });
 
+  // O serviço de peças avisa a Pasta digital de cada listagem do tribunal: é
+  // como a lista de peças dela se forma sem uma segunda consulta.
+  const montado = montarLeitor(config, db, logger, processos, provedor, credenciais);
+  const pasta = montado?.pasta;
   const pecas = new ServicoPecas({
     listar: new ListarPecasDoProcesso(provedor, credenciais),
     baixar: new BaixarPecaDoProcesso(provedor, credenciais),
@@ -583,12 +600,12 @@ function montarServicoPecas(
     logger,
     processos,
     baixadas: new RepositorioPecasBaixadasSqlite(db),
+    aoListar: async (workspace, numero, atos) => {
+      await pasta?.registrarListagem(workspace, numero, atos);
+    },
   });
 
-  return {
-    pecas,
-    leitor: montarLeitor(config, db, logger, processos, provedor, credenciais),
-  };
+  return { pecas, leitor: montado?.leitor, pasta };
 }
 
 /**
@@ -605,7 +622,7 @@ function montarLeitor(
   processos: BuscarProcessoPorNumero,
   provedor: MniAdapter,
   credenciais: RepositorioCredenciaisSqlite,
-): ServicoLeitor | undefined {
+): { leitor: ServicoLeitor; pasta: ServicoPasta } | undefined {
   if (!QpdfMontador.disponivelSync(config.leitor.qpdf)) {
     logger.warn('leitor de peças desligado: qpdf não encontrado', {
       binario: config.leitor.qpdf,
@@ -638,12 +655,27 @@ function montarLeitor(
     ttlHoras: config.leitor.ttlMs / 3_600_000,
   });
 
+  // UM armazém, UM montador: o PDF combinado e a peça guardada dividem a pasta
+  // do workspace e, portanto, a cota. Dois armazéns somariam acima dela.
+  const armazem = new ArmazemEmDisco(pasta);
+  const montador = new QpdfMontador({ binario: config.leitor.qpdf });
+  const fila = new FilaDeJobsSqlite(db);
+  const repositorioDaPasta = new RepositorioDaPastaSqlite(db);
+  const guarda = new GuardaDePecas({
+    repositorio: repositorioDaPasta,
+    armazem,
+    montador,
+    logger,
+    ttlMs: config.leitor.ttlMs,
+  });
+
   const leitor: ServicoLeitor = new ServicoLeitor({
     provedor,
     credenciais,
-    fila: new FilaDeJobsSqlite(db),
-    armazem: new ArmazemEmDisco(pasta),
-    montador: new QpdfMontador({ binario: config.leitor.qpdf }),
+    fila,
+    armazem,
+    montador,
+    guarda,
     logger,
     processos,
     identificarCredencial,
@@ -670,7 +702,16 @@ function montarLeitor(
       segundosPorChamada: 1.8,
     },
   });
-  return leitor;
+  const servicoPasta = new ServicoPasta({
+    leitor,
+    guarda,
+    repositorio: repositorioDaPasta,
+    fila,
+    armazem,
+    logger,
+    debounceMs: config.pasta.debounceMs,
+  });
+  return { leitor, pasta: servicoPasta };
 }
 
 /**

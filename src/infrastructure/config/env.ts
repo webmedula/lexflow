@@ -145,6 +145,12 @@ const schema = z.object({
   // Acima de quantas peças a tela pede confirmação antes de montar o PDF.
   LEITOR_CONFIRMAR_ACIMA_DE: inteiroPositivo(150),
 
+  // --- Pasta digital (v0.33.0) ------------------------------------------------
+  // Janela em que cliques seguidos em peças se fundem: só o último pedido
+  // pendente vai ao tribunal. A guarda por peça usa LEITOR_PASTA, LEITOR_TTL_HORAS
+  // e as cotas do leitor — a pasta do workspace é uma só, e a cota também.
+  PASTA_DEBOUNCE_MS: z.coerce.number().int().min(0).default(400),
+
   // --- Banco e sincronização ------------------------------------------------
   // Caminho do arquivo SQLite. No contêiner tem que apontar para um VOLUME,
   // senão os acompanhamentos somem a cada redeploy.
@@ -249,6 +255,9 @@ export interface Config {
     readonly cotaPorWorkspaceBytes: number;
     readonly avisoDiscoBytes: number;
     readonly confirmarAcimaDe: number;
+  };
+  readonly pasta: {
+    readonly debounceMs: number;
   };
   readonly nivelLog: NivelLog;
   readonly banco: { readonly caminho: string };
@@ -432,6 +441,7 @@ export function carregarConfig(fonte: NodeJS.ProcessEnv = process.env): Config {
       avisoDiscoBytes: env.LEITOR_AVISO_DISCO_MB * MB,
       confirmarAcimaDe: env.LEITOR_CONFIRMAR_ACIMA_DE,
     },
+    pasta: { debounceMs: env.PASTA_DEBOUNCE_MS },
     nivelLog: env.LOG_LEVEL,
     banco: { caminho: env.PROCESSOVIVO_DB_PATH },
     backup: {

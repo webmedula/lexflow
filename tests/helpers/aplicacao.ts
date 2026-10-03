@@ -2,7 +2,10 @@ import { ProcessoSearchService } from '../../src/application/services/ProcessoSe
 import { ServicoAcompanhamento } from '../../src/application/services/ServicoAcompanhamento.js';
 import { ServicoNotificacao } from '../../src/application/services/ServicoNotificacao.js';
 import { ServicoPecas } from '../../src/application/services/ServicoPecas.js';
+import { GuardaDePecas } from '../../src/application/services/GuardaDePecas.js';
 import { ServicoLeitor } from '../../src/application/services/ServicoLeitor.js';
+import { ServicoPasta } from '../../src/application/services/ServicoPasta.js';
+import { RepositorioDaPastaSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioDaPastaSqlite.js';
 import { ServicoCalendario } from '../../src/application/services/ServicoCalendario.js';
 import { comDeteccaoDoCalendario } from '../../src/application/services/ingestaoDoCalendario.js';
 import { RepositorioDeEventosSqlite } from '../../src/infrastructure/persistencia/sqlite/RepositorioDeEventosSqlite.js';
@@ -181,7 +184,11 @@ export function aplicacaoDeTeste(
     gerarId: () => randomUUID(),
     ...(opcoes.agora ? { agora: opcoes.agora } : {}),
   });
-  const repositorio = comDeteccaoDoCalendario(repositorioCru, calendario, loggerSilencioso);
+  const repositorio = comDeteccaoDoCalendario(
+    repositorioCru,
+    calendario,
+    loggerSilencioso,
+  );
 
   const acompanhamento = new ServicoAcompanhamento({
     repositorio,
@@ -217,6 +224,9 @@ export function aplicacaoDeTeste(
     db,
     Cofre.comChaveBase64(Cofre.gerarChaveBase64()),
   );
+  // A Pasta digital nasce junto do leitor, como no composition root; o serviço
+  // de peças a avisa de cada listagem pela referência preenchida mais abaixo.
+  let pasta: ServicoPasta | undefined;
   const pecas = opcoes.provedorDePecas
     ? (() => {
         const provedor = opcoes.provedorDePecas as ProvedorDePecas;
@@ -229,6 +239,9 @@ export function aplicacaoDeTeste(
           // que o tribunal não numera.
           processos: new BuscarProcessoPorNumero(orquestrador),
           baixadas: new RepositorioPecasBaixadasSqlite(db),
+          aoListar: async (workspace, numero, atos) => {
+            await pasta?.registrarListagem(workspace, numero, atos);
+          },
         });
       })()
     : undefined;
@@ -236,22 +249,51 @@ export function aplicacaoDeTeste(
   // O leitor usa o MESMO provedor e o MESMO repositório de credenciais das
   // peças — como no composition root. Os jobs não andam sozinhos: o teste
   // chama `processarFila()` quando quer, sem timer.
-  const leitor =
-    opcoes.provedorDePecas && opcoes.leitor
-      ? new ServicoLeitor({
-          provedor: opcoes.provedorDePecas,
-          credenciais,
-          fila: new FilaDeJobsSqlite(db),
-          armazem: new ArmazemEmDisco(opcoes.leitor.pasta),
-          montador: new QpdfMontador(),
-          logger: loggerSilencioso,
-          identificarCredencial: (ws, c) => `id-${ws.length}-${c.tribunal}`.slice(0, 16),
-          gerarId: opcoes.leitor.gerarId ?? (() => randomBytes(16).toString('hex')),
-          esperar: async () => {},
-          config: { ...CONFIG_LEITOR_DE_TESTE, ...(opcoes.leitor.config ?? {}) },
-          ...(opcoes.leitor.clock ? { clock: opcoes.leitor.clock } : {}),
-        })
-      : undefined;
+  let leitor: ServicoLeitor | undefined;
+  if (opcoes.provedorDePecas && opcoes.leitor) {
+    const armazem = new ArmazemEmDisco(opcoes.leitor.pasta);
+    const montador = new QpdfMontador();
+    const fila = new FilaDeJobsSqlite(db);
+    const repositorioDaPasta = new RepositorioDaPastaSqlite(db);
+    const config = { ...CONFIG_LEITOR_DE_TESTE, ...(opcoes.leitor.config ?? {}) };
+    const clock = opcoes.leitor.clock;
+    const guarda = new GuardaDePecas({
+      repositorio: repositorioDaPasta,
+      armazem,
+      montador,
+      logger: loggerSilencioso,
+      ttlMs: config.ttlMs,
+      ...(clock ? { clock } : {}),
+    });
+    // O leitor usa o MESMO provedor e o MESMO repositório de credenciais das
+    // peças — como no composition root. Os jobs não andam sozinhos: o teste
+    // chama `processarFila()` quando quer, sem timer.
+    leitor = new ServicoLeitor({
+      provedor: opcoes.provedorDePecas,
+      credenciais,
+      fila,
+      armazem,
+      montador,
+      guarda,
+      logger: loggerSilencioso,
+      identificarCredencial: (ws, c) => `id-${ws.length}-${c.tribunal}`.slice(0, 16),
+      gerarId: opcoes.leitor.gerarId ?? (() => randomBytes(16).toString('hex')),
+      esperar: async () => {},
+      config,
+      ...(clock ? { clock } : {}),
+    });
+    pasta = new ServicoPasta({
+      leitor,
+      guarda,
+      repositorio: repositorioDaPasta,
+      fila,
+      armazem,
+      logger: loggerSilencioso,
+      debounceMs: 0,
+      esperar: async () => {},
+      ...(clock ? { clock } : {}),
+    });
+  }
 
   // Intervalo 0: nenhum agendador dispara sozinho durante os testes.
   const parado = (): Agendador =>
@@ -271,6 +313,7 @@ export function aplicacaoDeTeste(
     notificacao,
     pecas,
     leitor,
+    pasta,
     agendadorLeitor: undefined,
     agendadorLimpezaLeitor: undefined,
     assinaturas,

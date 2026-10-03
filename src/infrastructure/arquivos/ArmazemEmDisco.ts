@@ -45,6 +45,48 @@ export class ArmazemEmDisco implements ArmazemDoLeitor {
     return localizador;
   }
 
+  async gravarArquivo(
+    workspace: string,
+    pastaId: string,
+    bytes: Uint8Array,
+    extensao: string,
+  ): Promise<string> {
+    const localizador = this.novoArquivo(workspace, pastaId, extensao);
+    const caminho = this.caminho(workspace, localizador);
+    await mkdir(join(caminho, '..'), { recursive: true, mode: 0o700 });
+    // 0600, como toda peça: ninguém além do processo do servidor lê.
+    await writeFile(caminho, bytes, { mode: 0o600 });
+    return localizador;
+  }
+
+  async apagarArquivo(workspace: string, localizador: string): Promise<number> {
+    const caminho = this.caminho(workspace, localizador);
+    let bytes = 0;
+    try {
+      bytes = (await stat(caminho)).size;
+    } catch {
+      return 0;
+    }
+    await unlink(caminho).catch(() => undefined);
+    return bytes;
+  }
+
+  async removerTemporarios(idadeMinimaMs: number): Promise<number> {
+    let removidos = 0;
+    const limite = Date.now() - idadeMinimaMs;
+    for (const caminho of await listarArquivos(this.raiz)) {
+      if (!caminho.endsWith('.tmp')) continue;
+      try {
+        if ((await stat(caminho)).mtimeMs > limite) continue;
+        await unlink(caminho);
+        removidos += 1;
+      } catch {
+        // Sumiu entre a listagem e o apagar: o objetivo já foi atingido.
+      }
+    }
+    return removidos;
+  }
+
   novoArquivo(_workspace: string, jobId: string, extensao: string): string {
     const ext = extensao.replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin';
     return join(this.idJob(jobId), `${randomBytes(16).toString('hex')}.${ext}`);

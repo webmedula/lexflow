@@ -21,6 +21,8 @@ export type EstadoJobLeitor =
   | 'falhou'
   | 'expirado';
 
+export type FinalidadeDoJob = 'pasta_completa' | 'selecionadas';
+
 /** Estados em que o job ainda vai andar sem ninguém pedir de novo. */
 export const ESTADOS_ATIVOS: readonly EstadoJobLeitor[] = [
   'na_fila',
@@ -65,6 +67,10 @@ export type MotivoNaoObtida =
   | 'imagem_invalida'
   | 'html_invalido'
   | 'origem_expirada'
+  /** O tribunal respondeu só o cabeçalho: a credencial não consta nos autos. */
+  | 'sem_habilitacao'
+  /** Disjuntor de 403 aberto: o MNI inteiro está em pausa. */
+  | 'bloqueio_do_tribunal'
   /** Só em jobs gravados antes da conversão de HTML existir (legado da 0.30.0). */
   | 'html_aguardando_estrategia';
 
@@ -87,6 +93,10 @@ export const DESCRICAO_DO_MOTIVO: Readonly<Record<MotivoNaoObtida, string>> = {
     'o documento HTML do tribunal não pôde ser convertido em texto — baixe-o individualmente pela linha do tempo',
   origem_expirada:
     'a peça seria reaproveitada de um PDF anterior, que foi apagado antes da montagem — marque-a de novo',
+  sem_habilitacao:
+    'o tribunal devolveu só o cabeçalho do processo — a credencial cadastrada não consta como representante nos autos',
+  bloqueio_do_tribunal:
+    'o tribunal bloqueou temporariamente as consultas deste servidor — tente de novo depois da pausa',
   html_aguardando_estrategia:
     'documento do tribunal em HTML: ainda não incorporado ao PDF — baixe-o individualmente pela linha do tempo',
 };
@@ -105,6 +115,16 @@ export interface PecaDoJob {
   readonly bytes?: number;
   /** Localizador do arquivo baixado, no armazém. Nunca vai para a resposta. */
   readonly arquivo?: string;
+  /**
+   * O arquivo mora na guarda por peça da Pasta digital (v0.33.0), já como PDF,
+   * e NÃO na pasta de trabalho do job. Diz como ele foi produzido, para o
+   * índice continuar a contar a verdade (`convertida`, `html_convertida`).
+   */
+  readonly deCache?: {
+    readonly conversao: 'nenhuma' | 'imagem' | 'html';
+    /** O que a conversão deixou de fora; vai para o motivo do índice. */
+    readonly observacao?: string;
+  };
   /**
    * Páginas que esta peça já ocupa num PDF guardado deste processo — o do job
    * que esta atualização substitui, ou (v0.31.1) qualquer PDF ainda no prazo
@@ -165,6 +185,13 @@ export interface JobLeitor {
   readonly mensagem?: string;
   /** Job anterior cujo PDF esta atualização reaproveita. */
   readonly atualizaDe?: string;
+  /**
+   * Para que o PDF serve (v0.33.0). Ausente = o leitor da v0.31 (seleção
+   * livre). `pasta_completa` é o PDF "ver tudo seguido" da Pasta digital, e é
+   * o único cujos intervalos de página a lista mostra; `selecionadas` é o
+   * "Baixar PDF" das marcadas, com nome e índice próprios.
+   */
+  readonly finalidade?: FinalidadeDoJob;
   readonly arquivo?: ArquivoCombinado;
   readonly indice?: readonly EntradaIndice[];
   /**

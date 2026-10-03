@@ -32,6 +32,12 @@ const pecaSchema = z.object({
   motivo: z.enum(MOTIVOS).optional(),
   bytes: z.number().int().nonnegative().optional(),
   arquivo: z.string().optional(),
+  deCache: z
+    .object({
+      conversao: z.enum(['nenhuma', 'imagem', 'html']),
+      observacao: z.string().optional(),
+    })
+    .optional(),
   reaproveitada: z
     .object({
       deJob: z.string().optional(),
@@ -74,6 +80,7 @@ const dadosSchema = z.object({
   concluidoEm: z.string().optional(),
   mensagem: z.string().optional(),
   atualizaDe: z.string().optional(),
+  finalidade: z.enum(['pasta_completa', 'selecionadas']).optional(),
   arquivo: z
     .object({
       localizador: z.string(),
@@ -243,6 +250,7 @@ export class FilaDeJobsSqlite implements FilaDeJobs {
       concluidoEm: job.concluidoEm?.toISOString(),
       mensagem: job.mensagem,
       atualizaDe: job.atualizaDe,
+      finalidade: job.finalidade,
       arquivo: job.arquivo,
       indice: job.indice?.map(entradaParaGravar),
       extratos: job.extratos?.map((x) => ({
@@ -279,6 +287,16 @@ function ler(linha: Linha): JobLeitor {
     ...(p.motivo !== undefined ? { motivo: p.motivo } : {}),
     ...(p.bytes !== undefined ? { bytes: p.bytes } : {}),
     ...(p.arquivo !== undefined ? { arquivo: p.arquivo } : {}),
+    ...(p.deCache !== undefined
+      ? {
+          deCache: {
+            conversao: p.deCache.conversao,
+            ...(p.deCache.observacao !== undefined
+              ? { observacao: p.deCache.observacao }
+              : {}),
+          },
+        }
+      : {}),
     ...(p.reaproveitada !== undefined
       ? {
           reaproveitada: {
@@ -326,6 +344,7 @@ function ler(linha: Linha): JobLeitor {
     ...(d.concluidoEm !== undefined ? { concluidoEm: new Date(d.concluidoEm) } : {}),
     ...(d.mensagem !== undefined ? { mensagem: d.mensagem } : {}),
     ...(d.atualizaDe !== undefined ? { atualizaDe: d.atualizaDe } : {}),
+    ...(d.finalidade !== undefined ? { finalidade: d.finalidade } : {}),
     ...(d.arquivo !== undefined ? { arquivo: d.arquivo } : {}),
     ...(indice !== undefined ? { indice } : {}),
     ...(extratos !== undefined ? { extratos } : {}),
