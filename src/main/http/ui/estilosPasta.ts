@@ -91,6 +91,15 @@ body.com-pasta{overflow:hidden}
   text-overflow:ellipsis;white-space:nowrap}
 #pasta .linha .meta{grid-column:3;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
   font-size:12px;color:var(--tinta2)}
+/* A movimentação da peça: até 2 linhas, o número sempre à vista. Com a linha em
+   foco o texto se abre inteiro (o title só aparece no mouse). */
+#pasta .linha .mov{grid-column:3;display:flex;gap:6px;align-items:baseline;min-width:0;
+  font-size:12px;color:var(--tinta2)}
+#pasta .linha .mov-n{flex:none;white-space:nowrap;font-weight:700;
+  font-variant-numeric:tabular-nums}
+#pasta .linha .mov-t{min-width:0;overflow:hidden;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2}
+#pasta .linha:focus-visible .mov-t{-webkit-line-clamp:unset;line-clamp:unset}
 #pasta .linha .pp{font-variant-numeric:tabular-nums;color:var(--acento);font-weight:700}
 
 /* ---------- o divisor ---------- */
@@ -111,6 +120,10 @@ body.com-pasta{overflow:hidden}
 #pasta .topo-visor .nome{min-width:0;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;font-size:14px}
 #pasta .topo-visor .voltar{display:none}
+#pasta .visor .mov-visor{flex-shrink:0;padding:6px 14px;font-size:12.5px;color:var(--tinta2);
+  background:var(--papel);border-bottom:1px solid var(--linha2);overflow:auto;
+  overflow-wrap:anywhere;max-height:5.5em}
+#pasta .visor .mov-visor:empty{display:none}
 #pasta .visor .estado{padding:10px 14px;border-bottom:1px solid var(--linha2);
   font-size:13.5px;color:var(--tinta2);background:var(--papel);max-height:34vh;overflow:auto}
 #pasta .visor .estado:empty{display:none}

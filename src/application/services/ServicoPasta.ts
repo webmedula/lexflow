@@ -1,5 +1,7 @@
 import { NumeroCNJ } from '../../domain/entities/NumeroCNJ.js';
+import type { Movimentacao } from '../../domain/entities/Movimentacao.js';
 import type { Peca } from '../../domain/entities/Peca.js';
+import { numeroDoMovimento } from '../../domain/entities/linhaDoTempo.js';
 import {
   DESCRICAO_DO_MOTIVO,
   ESTADOS_ATIVOS,
@@ -9,6 +11,7 @@ import type { JobLeitor, MotivoNaoObtida } from '../../domain/entities/JobLeitor
 import type {
   EstadoDaPecaNaPasta,
   ListagemDaPasta,
+  MovimentacaoDaPeca,
   PecaEmCache,
   PecaListada,
 } from '../../domain/entities/PastaDigital.js';
@@ -57,6 +60,8 @@ export interface VisaoDaPeca {
   readonly rotulo: string;
   readonly data: Date | undefined;
   readonly movimento: number | undefined;
+  /** O ato que juntou a peça, quando o vínculo foi confirmado nos dois lados. */
+  readonly movimentacao: MovimentacaoDaPeca | undefined;
   readonly mimetype: string | undefined;
   readonly estado: EstadoDaPecaNaPasta;
   readonly motivo: MotivoNaoObtida | undefined;
@@ -208,10 +213,15 @@ export class ServicoPasta {
   async registrarListagem(
     workspace: string,
     numeroProcesso: string,
-    atos: { readonly pecas: readonly Peca[]; readonly nivelSigiloDoProcesso?: number },
+    atos: {
+      readonly pecas: readonly Peca[];
+      readonly movimentos?: readonly Movimentacao[];
+      readonly nivelSigiloDoProcesso?: number;
+    },
   ): Promise<void> {
     try {
       const cnj = NumeroCNJ.criar(numeroProcesso);
+      const atosPorNumero = indexarAtos(atos.movimentos ?? []);
       const pecas: PecaListada[] = achatarPecas(atos.pecas).map((p, ordem) => ({
         pecaId: p.id,
         ordem,
@@ -220,6 +230,9 @@ export class ServicoPasta {
         sigilosa: (p.nivelSigilo ?? 0) > 0,
         ...(p.dataHora !== undefined ? { data: p.dataHora } : {}),
         ...(p.movimento !== undefined ? { movimento: p.movimento } : {}),
+        ...(p.movimento !== undefined && atosPorNumero.get(p.movimento)
+          ? { movimentacao: atosPorNumero.get(p.movimento) as MovimentacaoDaPeca }
+          : {}),
         ...(p.mimetype !== undefined ? { mimetype: p.mimetype } : {}),
       }));
       await this.repositorio.guardarListagem(workspace, {
@@ -278,6 +291,7 @@ export class ServicoPasta {
           rotulo: p.rotulo,
           data: p.data,
           movimento: p.movimento,
+          movimentacao: p.movimentacao,
           mimetype: p.mimetype,
           motivo: undefined,
           descricaoDoMotivo: undefined,
@@ -882,4 +896,39 @@ function estadosDosJobs(
     }
   }
   return { ativas, falhas };
+}
+
+/**
+ * Os atos do tribunal por número, para pendurar cada peça no seu.
+ *
+ * Número repetido na mesma resposta não se resolve: qualquer dos dois atos
+ * seria chute, e a descrição errada sobre uma peça é pior que descrição
+ * nenhuma — o número fica de fora do índice e a linha segue como sempre foi.
+ * Texto do ato guardado como veio (só aparado): é o que o cartório escreveu.
+ */
+function indexarAtos(
+  movimentos: readonly Movimentacao[],
+): Map<number, MovimentacaoDaPeca> {
+  const mapa = new Map<number, MovimentacaoDaPeca>();
+  const repetidos = new Set<number>();
+  for (const m of movimentos) {
+    const numero = numeroDoMovimento(m);
+    if (numero === undefined) continue;
+    if (mapa.has(numero)) {
+      repetidos.add(numero);
+      continue;
+    }
+    const complemento = (m.complementos ?? [])
+      .map((c) => c.trim())
+      .filter((c) => c !== '')
+      .join('; ');
+    mapa.set(numero, {
+      numero,
+      data: m.data,
+      descricao: m.titulo.trim(),
+      ...(complemento ? { complemento } : {}),
+    });
+  }
+  for (const n of repetidos) mapa.delete(n);
+  return mapa;
 }

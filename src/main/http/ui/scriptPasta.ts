@@ -111,8 +111,9 @@ function montarPainel(){
     '<div class="corpo">'+
       '<section class="lista" id="pasta-lista" aria-label="Peças do processo">'+
         '<div class="barra">'+
-          '<input id="pasta-busca" type="search" placeholder="Buscar peça pelo rótulo" '+
-            'aria-label="Buscar peça pelo rótulo" autocomplete="off">'+
+          '<input id="pasta-busca" type="search" placeholder="Buscar por rótulo, movimentação ou nº" '+
+            'aria-label="Buscar peça pelo rótulo, pela descrição ou pelo número da movimentação" '+
+            'autocomplete="off">'+
           '<label class="so-disp"><input type="checkbox" id="pasta-so-disp"> só disponíveis</label>'+
           '<div class="acoes">'+
             '<button class="bt bt2" id="pasta-todas">Todas</button>'+
@@ -133,6 +134,7 @@ function montarPainel(){
           '<button class="bt bt2 voltar" id="pasta-voltar">&larr; lista de peças</button>'+
           '<strong id="pasta-nome" class="nome"></strong>'+
         '</div>'+
+        '<div class="mov-visor" id="pasta-mov"></div>'+
         '<div class="estado" id="pasta-estado" role="status" aria-live="polite"></div>'+
         '<div class="ferramentas oculto" id="pasta-ferramentas">'+
           '<button class="bt bt2" id="pasta-menos" title="Diminuir" aria-label="Diminuir">−</button>'+
@@ -328,11 +330,35 @@ function fechar(){
 }
 
 /* ---------- a lista ---------- */
+/* A movimentação a que a peça pertence, como o tribunal a escreveu. Os números
+   que aparecem DENTRO do texto ("ev. 382") são texto do cartório: aqui só se
+   mostram, nunca viram link nem número da movimentação. */
+function textoDaMov(p){
+  var m=p.movimentacao;
+  if(!m)return '';
+  return String(m.descricao||'')+(m.complemento?' — '+m.complemento:'');
+}
+function tituloDaMov(p){
+  var m=p.movimentacao;
+  if(!m)return '';
+  return 'Movimentação'+(m.numero!=null?' nº '+m.numero:'')+' · '+pv().dt(m.data)+
+    (textoDaMov(p)?' — '+textoDaMov(p):'');
+}
+/* "382" acha a movimentação 382 e não a 1382: o número casa por igualdade. Já a
+   descrição casa por trecho — é busca de texto, como no rótulo. */
+function combinaComBusca(p,termo){
+  if(normal(p.rotulo).indexOf(termo)>=0)return true;
+  var m=p.movimentacao;
+  if(!m)return false;
+  if(normal(textoDaMov(p)).indexOf(termo)>=0)return true;
+  var num=/^(?:mov(?:imentacao)?\.?\s*)?(?:n[o\u00ba.]*\s*)?(\d+)$/.exec(termo);
+  return !!num&&m.numero!=null&&String(m.numero)===String(Number(num[1]));
+}
 function visiveis(){
   var termo=normal(st.busca).trim();
   return ((st.visao&&st.visao.pecas)||[]).filter(function(p){
     if(st.soDisp&&p.estado!=='disponivel')return false;
-    if(termo&&normal(p.rotulo).indexOf(termo)<0)return false;
+    if(termo&&!combinaComBusca(p,termo))return false;
     return true;
   });
 }
@@ -356,6 +382,16 @@ function paginasDe(p){
   return 'p. '+p.intervalo.inicial+(p.intervalo.final>p.intervalo.inicial?'–'+p.intervalo.final:'');
 }
 
+function movHtml(p){
+  var m=p.movimentacao;
+  if(!m)return '';
+  var t=textoDaMov(p);
+  if(!t&&m.numero==null)return '';
+  return '<span class="mov" title="'+esc(tituloDaMov(p))+'">'+
+    (m.numero!=null?'<span class="mov-n">mov. '+esc(String(m.numero))+'</span>':'')+
+    (t?'<span class="mov-t">'+esc(t)+'</span>':'')+'</span>';
+}
+
 function linhaHtml(p){
   var e=rotuloDoEstado(p), marcada=!!st.sel[p.pecaId], sig=p.estado==='sigilo';
   var atual=st.peca===p.pecaId;
@@ -369,7 +405,7 @@ function linhaHtml(p){
     '<span class="rot" title="'+esc(p.rotulo)+'">'+esc(p.rotulo)+'</span>'+
     '<span class="meta"><span class="data">'+esc(pv().dt(p.data))+'</span>'+
     '<span class="selo '+e.c+'">'+e.t+'</span>'+
-    (pg?'<span class="pp">'+pg+'</span>':'')+'</span></div>';
+    (pg?'<span class="pp">'+pg+'</span>':'')+'</span>'+movHtml(p)+'</div>';
 }
 
 function desenharLista(){
@@ -674,6 +710,7 @@ function atualizarVisor(){
   if(st.modo==='tudo'){mostrarTudo();return}
   var p=st.peca?pecaDe(st.peca):null;
   nome.textContent=p?(p.ordem+1)+'. '+p.rotulo:'';
+  var mv=$('pasta-mov'); if(mv)mv.textContent=p?tituloDaMov(p):'';
   if(!p){
     estadoDoVisor('<div class="vazio-visor">Escolha uma peça na lista. Só ela será pedida ao tribunal; '+
       'o resto da pasta não é baixado sem você pedir.</div>');
@@ -803,6 +840,7 @@ function alternarTudo(){
 function mostrarTudo(){
   var m=st.visao&&st.visao.montagem;
   $('pasta-nome').textContent='Pasta completa, seguida';
+  var mv0=$('pasta-mov'); if(mv0)mv0.textContent='';
   if(!m||(m.estado!=='pronto'&&m.estado!=='parcial')){
     st.modo='peca';atualizarVisor();return;
   }

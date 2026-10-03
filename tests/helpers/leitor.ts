@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PDFDocument, PDFName, PDFString, StandardFonts } from 'pdf-lib';
+import type { Movimentacao } from '../../src/domain/entities/Movimentacao.js';
 import { Peca } from '../../src/domain/entities/Peca.js';
 import type { ConteudoPeca } from '../../src/domain/entities/Peca.js';
 import type { Clock } from '../../src/domain/ports/Clock.js';
@@ -114,6 +115,8 @@ export class ProvedorDeLoteFalso implements ProvedorDePecas {
   pesoDaResposta: ((ids: readonly string[]) => number) | undefined;
   /** Erro a lançar na N-ésima chamada de lote (1 = primeira). */
   falharNoLote: { readonly n: number; readonly erro: Error } | undefined;
+  /** Os `<movimento>` da mesma resposta, SINTÉTICOS (idExterno `mni:<número>`). */
+  movimentos: Movimentacao[] = [];
   hashDocumentos = 'hash-1';
   nivelSigiloDoProcesso = 0;
   /** Disjuntor de 403 simulado: o que `pausadoAte()` informa. */
@@ -146,7 +149,7 @@ export class ProvedorDeLoteFalso implements ProvedorDePecas {
             ...(p.nivelSigilo !== undefined ? { nivelSigilo: p.nivelSigilo } : {}),
           }),
       ),
-      movimentos: [],
+      movimentos: this.movimentos,
       nivelSigiloDoProcesso: this.nivelSigiloDoProcesso,
     };
   }

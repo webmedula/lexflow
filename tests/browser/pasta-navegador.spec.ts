@@ -4,7 +4,7 @@ import type { Browser, BrowserContext, Page } from 'playwright-core';
 import AxeBuilder from 'axe-core';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { PROCESSO_TJGO, PROCESSO_TJGO_DIGITOS } from '../helpers/leitor.js';
-import { CHAVE, CHROMIUM, iniciar } from './ambiente.js';
+import { CHAVE, CHROMIUM, TEXTO_LONGO, iniciar } from './ambiente.js';
 import type { Ambiente } from './ambiente.js';
 
 /*
@@ -117,6 +117,110 @@ describe.skipIf(sem)('Pasta digital — no navegador', { timeout: 60_000 }, () =
     await page.fill('#pasta-busca', '');
     await page.check('#pasta-so-disp');
     expect(await page.locator('#pasta .linha').count()).toBe(0);
+    expect(await page.textContent('#pasta-contagem')).toContain(
+      '12 escondidas pelos filtros',
+    );
+  });
+
+  it('cada peça mostra o ato a que pertence: texto do tribunal, "mov. N" e nada onde não há vínculo', async () => {
+    await abrirTela();
+    await abrirPasta();
+    // Com vínculo: o número é o do tribunal, não a posição (p06 é a 6ª peça e o ato 4).
+    expect(await linha('p06').locator('.mov-n').textContent()).toBe('mov. 4');
+    expect(await linha('p06').locator('.mov-t').textContent()).toBe(
+      'Juntada de manifestação sobre o ev. 382 (movimentação nº 5000)',
+    );
+    // O complemento vem junto, como veio.
+    expect(await linha('p04').locator('.mov-t').textContent()).toBe(
+      'Conclusos para despacho — prioridade: normal',
+    );
+    // Várias peças do mesmo ato repetem a descrição (sem agrupar).
+    for (const id of ['p01', 'p02', 'p03']) {
+      expect(await linha(id).locator('.mov').textContent()).toContain(
+        'mov. 1Juntada de documentos iniciais',
+      );
+    }
+    // Número citado no texto é texto: nada vira link, e o número do ato não muda.
+    expect(await page.locator('#pasta .linha .mov a').count()).toBe(0);
+    expect(await linha('p06').locator('.mov-n').textContent()).not.toContain('382');
+    // Sem vínculo: a linha é a de antes, sem bloco vazio.
+    for (const id of ['p10', 'p11', 'p12']) {
+      expect(await linha(id).locator('.mov').count()).toBe(0);
+    }
+    // O leitor de tela lê rótulo, data, estado e descrição (nome do option vem do conteúdo).
+    const lido = (await linha('p06').textContent()) ?? '';
+    for (const parte of ['Petição - réplica', 'Não baixada', 'Juntada de manifestação']) {
+      expect(lido).toContain(parte);
+    }
+    // Nenhuma consulta ao tribunal para mostrar isso.
+    expect(lotes()).toEqual([]);
+  });
+
+  it('descrição longa: até 2 linhas, texto inteiro no mouse, no foco e no cabeçalho do visualizador — sem estourar a lista', async () => {
+    await abrirTela();
+    await abrirPasta();
+    const mov = linha('p05').locator('.mov-t');
+    const medidas = await mov.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        alturaLinha: parseFloat(cs.lineHeight),
+        altura: el.getBoundingClientRect().height,
+        rolagem: el.scrollHeight,
+      };
+    });
+    expect(medidas.altura).toBeLessThanOrEqual(medidas.alturaLinha * 2 + 1);
+    expect(medidas.rolagem).toBeGreaterThan(medidas.altura + 1); // truncada de verdade
+    expect(await linha('p05').locator('.mov').getAttribute('title')).toContain(
+      'FIM-DO-TEXTO-LONGO',
+    );
+    // A lista não ganha rolagem horizontal.
+    expect(
+      await page
+        .locator('#pasta-itens')
+        .evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    // Foco (teclado): o texto se abre inteiro.
+    await linha('p04').focus();
+    await page.keyboard.press('ArrowDown'); // por teclado: :focus-visible
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe('pf-p05');
+    const aberto = await mov.evaluate((el) => el.getBoundingClientRect().height);
+    expect(aberto).toBeGreaterThan(medidas.altura + 1);
+    // Cabeçalho do visualizador, depois de abrir a peça.
+    await linha('p05').click();
+    await page.waitForSelector('#pasta .pagina canvas');
+    const cab = (await page.textContent('#pasta-mov')) ?? '';
+    expect(cab).toContain('Movimentação nº 3');
+    expect(cab).toContain(TEXTO_LONGO);
+    // Peça sem vínculo: o cabeçalho some em vez de ficar um vão em branco.
+    await linha('p12').click();
+    await page.waitForFunction(
+      () => document.getElementById('pasta-mov')?.textContent === '',
+    );
+    expect(await page.locator('#pasta-mov').isVisible()).toBe(false);
+  });
+
+  it('a busca acha pela descrição e pelo número da movimentação, e o contador diz quantas escondeu', async () => {
+    await abrirTela();
+    await abrirPasta();
+    // Pela descrição (sem acento, como ninguém digita).
+    await page.fill('#pasta-busca', 'conclusos');
+    expect(await page.locator('#pasta .linha').count()).toBe(2); // p04 (mov 2) e p08 (mov 6)
+    expect(await page.textContent('#pasta-contagem')).toContain(
+      '10 escondidas pelos filtros',
+    );
+    // Pelo número: igualdade — "4" acha o ato 4, não o "5000" do texto nem outro ato.
+    await page.fill('#pasta-busca', 'mov. 4');
+    expect(await page.locator('#pasta .linha').count()).toBe(1);
+    expect(await linha('p06').count()).toBe(1);
+    await page.fill('#pasta-busca', '1');
+    expect(await page.locator('#pasta .linha').count()).toBe(3); // só o ato 1, três peças
+    // Texto livre se acha como texto: "382" aparece na descrição de p06.
+    await page.fill('#pasta-busca', '382');
+    expect(await linha('p06').count()).toBe(1);
+    // O rótulo continua valendo.
+    await page.fill('#pasta-busca', 'peticao');
+    expect(await page.locator('#pasta .linha').count()).toBe(3);
+    await page.fill('#pasta-busca', 'nada-disto-existe');
     expect(await page.textContent('#pasta-contagem')).toContain(
       '12 escondidas pelos filtros',
     );
@@ -407,8 +511,22 @@ describe.skipIf(sem)('Pasta digital — no navegador', { timeout: 60_000 }, () =
         () => document.documentElement.scrollWidth <= window.innerWidth,
       ),
     ).toBe(true);
+    // No celular o cabeçalho do visualizador traz o ato, sem passar da tela.
+    expect(await page.textContent('#pasta-mov')).toContain('Movimentação nº 3');
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
     await page.click('#pasta-voltar');
     expect(await page.locator('#pasta .lista').isVisible()).toBe(true);
+    // A lista, com os atos, também cabe na largura do celular.
+    expect(await page.locator('#pasta .linha .mov').count()).toBeGreaterThan(0);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
     expect(await page.locator('#pasta .visor').isVisible()).toBe(false);
   });
 

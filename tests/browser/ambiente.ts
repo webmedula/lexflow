@@ -15,6 +15,12 @@ import {
 } from '../helpers/leitor.js';
 import type { PecaFalsa } from '../helpers/leitor.js';
 
+/** Descrição longa de ato: passa de 2 linhas em qualquer largura da lista. */
+export const TEXTO_LONGO =
+  'Juntada de manifestação extensa com a descrição repetida muitas vezes para passar ' +
+  'de duas linhas: documento documento documento documento documento documento ' +
+  'documento documento documento documento documento documento FIM-DO-TEXTO-LONGO';
+
 export const CHAVE = 'chave-do-teste-de-navegador-1234567890';
 
 /** O Chromium instalado no ambiente (Playwright não baixa nada aqui). */
@@ -104,6 +110,26 @@ export interface Ambiente {
 export async function iniciar(): Promise<Ambiente> {
   const pasta = pastaTemporaria();
   const provedor = new ProvedorDeLoteFalso(await pecasDoTeste());
+  // Os atos do tribunal, SINTÉTICOS. Números altos de propósito (a posição na
+  // lista nunca é o número) e "ev. 382" no texto, que é texto e não referência.
+  // Os atos 8, 9 e 10 não existem: p10, p11 e p12 apontam para atos que o
+  // tribunal não listou, e a linha fica sem bloco.
+  const ato = (numero: number, titulo: string, complementos?: string[]) => ({
+    data: new Date(Date.UTC(2026, 8, numero + 10, 13, 0, 0)),
+    titulo,
+    idExterno: `mni:${numero}`,
+    fonte: 'mni',
+    ...(complementos ? { complementos } : {}),
+  });
+  provedor.movimentos = [
+    ato(1, 'Juntada de documentos iniciais'),
+    ato(2, 'Conclusos para despacho', ['prioridade: normal']),
+    ato(3, TEXTO_LONGO),
+    ato(4, 'Juntada de manifestação sobre o ev. 382 (movimentação nº 5000)'),
+    ato(5, 'Juntada de documento técnico'),
+    ato(6, 'Conclusos para decisão'),
+    ato(7, 'Publicado ato do juízo'),
+  ];
   const processo = umProcesso({
     numero: NumeroCNJ.criar(PROCESSO_TJGO),
     tribunal: 'TJGO',
